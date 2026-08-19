@@ -1,0 +1,39 @@
+# Cloud Build config for sv_annotation/docker/Dockerfile
+# Invoked from sv_annotation/ via:
+#   gcloud builds submit . --config=docker/cloudbuild.yaml --substitutions=_IMAGE=...,_TAG=...
+#
+# Context directory is sv_annotation/ (parent of docker/). build_docker.sh stages
+# repo-root scripts/ into .docker_scripts/ before this submit.
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation
+  _TAG: "0.1.4"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_32
+  diskSizeGb: 200
+
+timeout: 7200s
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --platform
+      - linux/amd64
+      - -f
+      - docker/Dockerfile
+      - -t
+      - ${_IMAGE}:${_TAG}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - ${_IMAGE}:${_TAG}
+
+images:
+  - ${_IMAGE}:${_TAG}

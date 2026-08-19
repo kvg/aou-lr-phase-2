@@ -1,0 +1,31 @@
+{
+  "name": "sv_unified_site_table",
+  "format": "tsv.gz",
+  "columns": [
+    {"name": "chrom", "type": "string"},
+    {"name": "pos", "type": "int"},
+    {"name": "end", "type": "int", "nullable": true},
+    {"name": "id", "type": "string"},
+    {"name": "ref", "type": "string"},
+    {"name": "alt", "type": "string"},
+    {"name": "svtype", "type": "string"},
+    {"name": "svlen", "type": "int", "nullable": true},
+    {"name": "filter", "type": "string"},
+    {"name": "source_vcf", "type": "string", "enum": ["main", "bnd", "large"]},
+    {"name": "phase", "type": "string", "enum": ["phase1", "phase2"]},
+    {"name": "ac", "type": "int"},
+    {"name": "an", "type": "int"},
+    {"name": "af", "type": "float"},
+    {"name": "n_carriers", "type": "int"},
+    {"name": "freq_class", "type": "string", "enum": ["singleton", "polymorphic", "major", "shared"]},
+    {"name": "region_class", "type": "string", "enum": ["repetitive", "non_repetitive"]},
+    {"name": "hit_rmsk", "type": "bool"},
+    {"name": "hit_simpleRepeat", "type": "bool"},
+    {"name": "hit_genomicSuperDups", "type": "bool"},
+    {"name": "cadd_sv_phred", "type": "float", "nullable": true},
+    {"name": "cadd_sv_bin", "type": "string", "enum": ["low", "mid", "high", "unscored"]},
+    {"name": "size_bin_ge20", "type": "bool"},
+    {"name": "size_bin_ge50", "type": "bool"},
+    {"name": "suppressed_main_duplicate", "type": "bool"}
+  ]
+}

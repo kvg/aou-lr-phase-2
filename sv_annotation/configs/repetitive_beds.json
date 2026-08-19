@@ -1,0 +1,25 @@
+{
+  "genome_build": "GRCh38",
+  "definition": "union",
+  "tracks": [
+    {
+      "name": "rmsk",
+      "description": "UCSC RepeatMasker",
+      "uri_example": "gs://BUCKET/refs/grch38/rmsk.bed.gz",
+      "required": true
+    },
+    {
+      "name": "simpleRepeat",
+      "description": "UCSC simple repeats",
+      "uri_example": "gs://BUCKET/refs/grch38/simpleRepeat.bed.gz",
+      "required": true
+    },
+    {
+      "name": "genomicSuperDups",
+      "description": "UCSC segmental duplications",
+      "uri_example": "gs://BUCKET/refs/grch38/genomicSuperDups.bed.gz",
+      "required": true
+    }
+  ],
+  "notes": "Non-repetitive = complement of the union of these tracks. Stage with notebooks/sv_01_stage_repeat_tracks.ipynb, then pin concrete URIs in phase input JSON."
+}

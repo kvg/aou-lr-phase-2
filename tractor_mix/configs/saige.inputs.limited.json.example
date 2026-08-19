@@ -1,0 +1,24 @@
+{
+  "_comment": "SAIGE LIMITED covariates: sex, age, PC1-PC10. Same shared cohort as Tractor-Mix / full runs.",
+  "SaigePilot.flare_vcf": "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz",
+  "SaigePilot.chrom": "chr22",
+
+  "SaigePilot.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
+  "SaigePilot.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
+  "SaigePilot.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
+  "SaigePilot.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_limited.txt",
+
+  "SaigePilot.grm_vcfs": [
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/c70fc078-7d46-4da1-8f59-30a7ebd4b738/flare/81ea1db7-94da-4a6b-b869-35b292d2f9a1/call-flare_task/aou_lr_phase2_v1.chr1.anc.vcf.gz",
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz"
+  ],
+
+  "SaigePilot.build_saige_grm_script": "gs://BUCKET/scripts/build_saige_plink_and_grm.sh",
+  "SaigePilot.fit_saige_null_script": "gs://BUCKET/scripts/fit_saige_null.R",
+  "SaigePilot.run_saige_step2_script": "gs://BUCKET/scripts/run_saige_step2.R",
+
+  "SaigePilot.relatedness_cutoff": 0.05,
+  "SaigePilot.num_random_markers": 2000,
+  "SaigePilot.min_mac": 20,
+  "SaigePilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+}

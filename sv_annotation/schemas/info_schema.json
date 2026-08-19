@@ -1,0 +1,41 @@
+{
+  "info_fields": [
+    {
+      "id": "SOURCE_VCF",
+      "number": "1",
+      "type": "String",
+      "description": "Callset partition: main, bnd, or large"
+    },
+    {
+      "id": "REGION_CLASS",
+      "number": "1",
+      "type": "String",
+      "description": "repetitive if overlapping union of rmsk/simpleRepeat/genomicSuperDups; else non_repetitive"
+    },
+    {
+      "id": "CADD_SV_PHRED",
+      "number": "1",
+      "type": "Float",
+      "description": "CADD-SV PHRED score generated in-pipeline"
+    },
+    {
+      "id": "CADD_SV_BIN",
+      "number": "1",
+      "type": "String",
+      "description": "low (<10), mid (10-20), high (>=20), or unscored"
+    },
+    {
+      "id": "FREQ_CLASS",
+      "number": "1",
+      "type": "String",
+      "description": "singleton, polymorphic, major, or shared within the analysis cohort"
+    }
+  ],
+  "optional_info_fields": [
+    {"id": "TR_DETECTED", "number": "1", "type": "Integer", "description": "Tandem-repeat flag from str_analysis"},
+    {"id": "TR_MOTIF", "number": "1", "type": "String", "description": "Tandem-repeat motif"},
+    {"id": "REMAP_CLASS", "number": "1", "type": "String", "description": "truvari anno remap classification"},
+    {"id": "ME_TYPE", "number": "1", "type": "String", "description": "MEI type from L1ME-AID (ALU/LINE/SVA)"},
+    {"id": "ME_SUBFAM", "number": "1", "type": "String", "description": "MEI subfamily"}
+  ]
+}

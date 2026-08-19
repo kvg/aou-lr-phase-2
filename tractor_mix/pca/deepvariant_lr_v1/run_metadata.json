@@ -1,0 +1,33 @@
+{
+  "run_label": "deepvariant_lr_v1",
+  "created_utc": "2026-08-17T01:13:19.679770+00:00",
+  "input": {
+    "deepvariant_dir": "/REPLACE/WITH/deepvariant_per_chromosome",
+    "vcf_glob": "*.vcf.gz",
+    "covariates": "/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/covariates.source_rebuilt.csv.gz"
+  },
+  "cohort": {
+    "global_definition": "final_releasable_v9 == True",
+    "n_global_samples": 13530,
+    "within_population_label_source": "ancestry_pred_other",
+    "min_population_n": 100
+  },
+  "filters": {
+    "autosomal_biallelic_acgt_snps": true,
+    "filter": "PASS",
+    "maf": 0.01,
+    "max_variant_missingness": 0.02,
+    "max_sample_missingness": 0.02,
+    "ld_indep_pairwise": [
+      200,
+      20,
+      0.1
+    ],
+    "n_pcs": 20
+  },
+  "outputs": {
+    "global_pcs": "/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/global_pcs.tsv",
+    "population_pcs": "/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_pcs.tsv"
+  },
+  "status": "dry_run"
+}

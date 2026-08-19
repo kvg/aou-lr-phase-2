@@ -1,0 +1,13 @@
+{
+  "core": {
+    "image": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.4",
+    "digest": null,
+    "dockerfile": "sv_annotation/docker/Dockerfile",
+    "tools": ["python3", "bcftools", "tabix", "bedtools", "caddsv", "snakemake", "conda"],
+    "caddsv_version": "2.0.2",
+    "notes": "Build/push with sv_annotation/build_docker.sh (Cloud Build by default, same Artifact Registry as Tractor-Mix). Prefer the pushed @sha256 digest in production WDL inputs."
+  },
+  "optional_landscape_producers": {
+    "notes": "TR, remap, MEI, and external-AF annotations are intentionally outside the core manuscript WDL; see docs/optional_producers.md for their independently versioned upstream workflows."
+  }
+}

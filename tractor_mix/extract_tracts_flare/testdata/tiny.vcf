@@ -1,0 +1,16 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=AN1,Number=1,Type=Integer,Description="Ancestry hap 1">
+##FORMAT=<ID=AN2,Number=1,Type=Integer,Description="Ancestry hap 2">
+##FORMAT=<ID=ANP1,Number=.,Type=Float,Description="Ancestry probs hap 1">
+##ANCESTRY=<ID=eas,Value=0>
+##ANCESTRY=<ID=amr,Value=1>
+##ANCESTRY=<ID=eur,Value=2>
+##ANCESTRY=<ID=afr,Value=3>
+##ANCESTRY=<ID=sas,Value=4>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2	S3
+chr22	100	rs1	A	G	.	PASS	.	GT:AN1:AN2	0|0:0:0	0|1:0:1	1|1:1:1
+chr22	200	rs2	C	T	.	PASS	.	GT:AN1:AN2	1|0:2:3	0|1:4:0	1|1:0:0
+chr22	300	rs3	G	A	.	PASS	.	GT:AN1:AN2	1|1:.:1	0|0:5:1	2|1:0:1
+chr22	400	rs4	T	C	.	PASS	.	GT:AN1:AN2:ANP1:ANP2	0|1:0:1:0.9,0.1,0,0,0:0.1,0.8,0.1,0,0	1|0:3:2:0.1,0.1,0.1,0.7,0:0.2,0.1,0.7,0,0	0|0:4:4:0,0,0,0,1:0,0,0,0,1

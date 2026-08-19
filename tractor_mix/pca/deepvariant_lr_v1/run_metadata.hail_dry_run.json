@@ -1,0 +1,36 @@
+{
+  "run_label": "deepvariant_lr_v1",
+  "created_utc": "2026-08-17T01:20:59.153839+00:00",
+  "engine": "hail",
+  "input_mode": "vcf_list",
+  "paths": {
+    "workspace_bucket": "gs://REPLACE_WITH_WORKSPACE_BUCKET",
+    "covariates": "gs://REPLACE_WITH_WORKSPACE_BUCKET/covariates/covariates.source_rebuilt.csv.gz",
+    "existing_mt": "gs://REPLACE_WITH_WORKSPACE_BUCKET/mt/deepvariant_joint.mt",
+    "existing_vds": "gs://REPLACE_WITH_WORKSPACE_BUCKET/vds/deepvariant_joint.vds",
+    "chrom_manifest": "gs://REPLACE_WITH_WORKSPACE_BUCKET/manifests/aou_lr_chrom.tsv",
+    "chrom_uri_column": "filtered_vcf",
+    "out_dir": "gs://REPLACE_WITH_WORKSPACE_BUCKET/pca/deepvariant_lr_v1",
+    "checkpoint_mt": "gs://REPLACE_WITH_WORKSPACE_BUCKET/pca/deepvariant_lr_v1/checkpoints/qc_for_pca.mt",
+    "global_pcs": "gs://REPLACE_WITH_WORKSPACE_BUCKET/pca/deepvariant_lr_v1/global_pcs.tsv",
+    "population_pcs": "gs://REPLACE_WITH_WORKSPACE_BUCKET/pca/deepvariant_lr_v1/population_pcs.tsv"
+  },
+  "cohort": {
+    "global_definition": "final_releasable_v9 == True, intersected with genotype samples",
+    "within_population_label_source": "ancestry_pred_other",
+    "min_population_n": 100,
+    "allow_partial_vcf_overlap": true
+  },
+  "filters": {
+    "autosomal_biallelic_snps": true,
+    "pass_only": true,
+    "min_af": 0.01,
+    "max_af": 0.99,
+    "min_variant_call_rate": 0.98,
+    "min_sample_call_rate": 0.98,
+    "ld_r2": 0.1,
+    "ld_bp_window": 500000,
+    "n_pcs": 20
+  },
+  "status": "dry_run"
+}

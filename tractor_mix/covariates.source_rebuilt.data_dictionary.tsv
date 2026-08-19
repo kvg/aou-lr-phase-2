@@ -1,0 +1,131 @@
+column	source	notes
+research_id	multiomics research_id	primary key
+lr_phase	multiomics long_read phase	phase_1 / phase_2 / phase_1_phase_2
+lr_meet_qc	multiomics long_read meet QC	bool; blank→False
+lr_releasable_v9	multiomics long_read releasable v9	bool; blank→False
+rna_meet_qc	multiomics RNASeq meet QC	bool; blank→False
+has_rna	multiomics RNASeq releasable	v3-compatible
+proteomics_meet_qc	multiomics Proteomics meet QC	bool; blank→False
+has_proteomics	multiomics Proteomics releasable	v3-compatible
+has_exposomics	multiomics Exposomics releasable v9	bool; blank→False
+has_srWGS	multiomics rid_no_srWGS	True unless source marks person as lacking short-read WGS
+age	part.csv.gz age_at_cdr	
+sex_at_birth	part.csv.gz (+ lr_1027_sex_at_birth.csv / merged_all_df.csv.gz fills)	retains existing part value; supplied Phase 1 mapping then one-value-per-person merged_all fill missing usable values; sentinels are treated as missing in supplemental sources
+zip3	part.csv.gz zip3_as_string	
+has_ehr_data	part.csv.gz (+ merged_all_df.csv.gz fill)	nullable bool; merged_all fills only missing values when person-level value is unique
+has_demographics	derived	True if matched in part.csv.gz
+extraction_method	lr_dna_extraction_method_cdrv9.tsv (+ HA sample fills)	Chemagen or Autogen; CDR preferred, then ha_partial/ha_passing by biobank_id
+has_extraction_method	derived	True when extraction_method is non-missing (CDR or HA fill)
+has_trgt	trgt_table.txt	True if one or more TRGT VCFs are listed
+n_trgt_vcfs	trgt_table.txt	count of listed TRGT VCF paths
+population	pc.log.gz member name	population-specific PCA training set
+ancestry_pred	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external six-class ancestry prediction; merged_all fills missing values only when person-level value is unique
+ancestry_pred_other	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external ancestry prediction that permits oth; merged_all fills missing values only when person-level value is unique
+has_ancestry_annotation	derived	True if either ancestry prediction is non-missing after source supplements
+in_pedigree	aou_phase2.ped	True if person is represented in the user-maintained Phase 2 pedigree; Phase 1 has no pedigrees
+pedigree_family_id	aou_phase2.ped ped	family identifier; no parental IDs are exported
+pedigree_is_founder	aou_phase2.ped father/mother	True when both parent IDs are 0
+pedigree_n_parents	aou_phase2.ped father/mother	number of nonzero parents recorded (0–2)
+pedigree_family_size	derived from aou_phase2.ped	number of people in the recorded pedigree family
+PC1	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC2	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC3	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC4	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC5	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC6	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC7	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC8	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC9	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC10	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC11	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC12	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC13	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC14	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC15	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC16	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC17	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC18	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC19	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC20	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC21	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC22	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC23	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC24	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC25	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC26	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC27	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC28	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC29	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC30	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC31	full.tsv.gz global full-training PCA	canonical PCs; match v3
+PC32	full.tsv.gz global full-training PCA	canonical PCs; match v3
+pop_PC1	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC2	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC3	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC4	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC5	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC6	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC7	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC8	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC9	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC10	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC11	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC12	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC13	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC14	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC15	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC16	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC17	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC18	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC19	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC20	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC21	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC22	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC23	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC24	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC25	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC26	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC27	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC28	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC29	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC30	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC31	pc.log.gz population-specific PCA	within-population PCA axis
+pop_PC32	pc.log.gz population-specific PCA	within-population PCA axis
+has_global_pcs	derived	True if matched to a global full-training PCA row
+has_pop_pcs	derived	True if matched to a population-specific PCA row
+in_cdr_v7	lr.tsv	any repeated membership record marked v7
+in_cdr_v8	lr.tsv	any repeated membership record marked v8
+in_cdr_v9	lr.tsv	any repeated membership record marked v9
+has_methylation	derived from lr_phase	True for phase_2 and phase_1_phase_2; False for phase_1-only and unlabeled
+in_phenotype_table	AoU_Phase2_Phenotype.csv.gz person_id	True if research_id appears in the phenotype export; not trait ascertainment
+biobank_id	final_set (+ ha_research_ids.csv fill)	technical final-set value where available; HA mapping fills missing IDs
+GC	final_set (+ Phase 1 fill)	genome center; phase_1-only filled as HA (HudsonAlpha)
+technology	final_set (+ Phase 1 fill)	PacBio-prefer collapse when a v9 technical row exists; phase_1-only filled as PacBio
+platform	final_set (+ Phase 1 fill)	from collapsed technical row when available; phase_1-only filled as Sequel
+pb_meth_caller	final_set PacBioMethylationCaller (+ Phase 1 fill)	phase_1-only filled as none (no methylation)
+inferred_sex	final_set sex	
+coverage	final_set / Integratedcall-GRCh38.tsv (+ merged_all_df.csv.gz fill)	v9 technical coverage where available; Phase 1-only uses integratedcall aligned fold coverage; merged_all fills only missing values when person-level value is unique
+coverage_source	derived	v9_technical, integratedcall_phase1, or merged_all_df; NA when coverage is unavailable
+ont_coverage	ont-sample-hg38.tsv mosdepth_cov	separate ONT mosdepth coverage for curated Phase 1 ONT samples; never substitutes for coverage
+ont_aligned_num_bases	ont-sample-hg38.tsv aligned_num_bases	curated Phase 1 ONT aligned bases
+ont_aligned_num_reads	ont-sample-hg38.tsv aligned_num_reads	curated Phase 1 ONT aligned reads
+ont_read_length_n50	ont-sample-hg38.tsv aligned_read_length_N50	curated Phase 1 ONT read-length N50
+ont_read_length_mean	ont-sample-hg38.tsv aligned_read_length_mean	curated Phase 1 ONT mean read length
+ont_read_length_median	ont-sample-hg38.tsv aligned_read_length_median	curated Phase 1 ONT median read length
+ont_read_length_stdev	ont-sample-hg38.tsv aligned_read_length_stdev	curated Phase 1 ONT read-length standard deviation
+ont_average_identity	ont-sample-hg38.tsv average_identity	curated Phase 1 ONT average alignment identity (percent)
+ont_median_identity	ont-sample-hg38.tsv median_identity	curated Phase 1 ONT median alignment identity (percent)
+has_sv_counts	counts.tar.gz	True if a Phase 2 caller-specific SV-count record is available after center-matched duplicate resolution
+n_sv_del	derived from counts.tar.gz / sv_sens_07_counts.json	Phase 2: max deletion count across PAV/PBSV/Sniffles ≥50 bp; Phase 1: sens07 DEL; Phase 2 value takes precedence for re-sequenced people
+n_sv_ins	derived from counts.tar.gz / sv_sens_07_counts.json	Phase 2: max insertion count across PAV/PBSV/Sniffles ≥50 bp; Phase 1: sens07 INS; Phase 2 value takes precedence for re-sequenced people
+is_AIAN	final_set	
+withdrawn	final_set withdrew	any TRUE across final-set rows; authoritative consent withdrawal
+unavailable	derived from final-set	in final-set, not withdrawn, and no v9-releasable row (set-aside)
+final_releasable_v9	final_set long_read releasable flag	any releasable=1 across final-set rows
+in_final_set	derived	True if research_id appears in Steve final-set
+n_final_rows	final_set	number of final-set sequencing rows for this ID
+has_lr_tech	derived	in ONT∪PacBio v9 sheets
+has_ONT	ONT_v9 (+ Phase 1 curated ONT list)	True if in CDRv9 ONT sheet or curated Phase 1 additional-ONT research IDs
+has_PacBio	PacBio_v9	True if present in CDRv9 PacBio lrWGS sheet
+n_lr_technical_rows	final_set (+ Phase 1 fill)	number of long-read technical source rows before person-level collapse; Phase 1-only set to 1 for its known single PacBio run
+techs_available	final_set (+ Phase 1 fill / Phase 1 ONT list)	technologies observed before collapse; phase_1-only default PacBio; curated Phase 1 ONT list → ONT|PacBio

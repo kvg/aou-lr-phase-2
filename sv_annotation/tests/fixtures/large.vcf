@@ -1,0 +1,9 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1>
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type">
+##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="Length">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2	S3
+chr1	3000	overlap_large	N	<DEL>	.	PASS	SVTYPE=DEL;SVLEN=-20000;END=23000	GT	0/1	0/0	0/0
+chr1	40000	large2	N	<DUP>	.	PASS	SVTYPE=DUP;SVLEN=15000;END=55000	GT	0/0	1/1	0/0

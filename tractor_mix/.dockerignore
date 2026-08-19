@@ -1,0 +1,12 @@
+.git
+**/__pycache__
+**/*.pyc
+notebooks/
+configs/
+wdl/
+*.md
+docker/.dockerignore
+extract_tracts_flare/target
+extract_tracts_flare/testdata
+extract_tracts_flare/oracle
+extract_tracts_flare/tests

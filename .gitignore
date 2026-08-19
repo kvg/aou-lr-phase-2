@@ -1,0 +1,28 @@
+# Python / notebook noise
+venv/
+.pytest_cache/
+**/__pycache__/
+**/*.pyc
+.DS_Store
+**/.ipynb_checkpoints/
+
+# Local scratch / legacy one-offs at repo root
+scratch/
+thing.tsv
+covariates.v2.csv.gz
+
+# Local CDRv9 / covariate source exports (large / private; do not commit)
+tractor_mix/resources/
+
+# Generated cohort summaries / figures from 03_tractor_cov_summarize.ipynb
+tractor_mix/summaries/
+
+# SV annotation local outputs
+sv_annotation/outputs/
+sv_outputs/
+# Staged into the Docker build context from ../scripts
+tractor_mix/.docker_scripts/
+sv_annotation/.docker_scripts/
+
+# Rust extract-tracts-flare build artifacts
+tractor_mix/extract_tracts_flare/target/

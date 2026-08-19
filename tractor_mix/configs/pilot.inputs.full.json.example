@@ -1,0 +1,25 @@
+{
+  "_comment": "Tractor-Mix FULL covariates: recommended full = limited + standardized coverage + GC dummies (no extraction). Same shared cohort as limited / SAIGE runs.",
+  "TractorMixPilot.flare_vcf": "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz",
+  "TractorMixPilot.num_ancs": 5,
+
+  "TractorMixPilot.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
+  "TractorMixPilot.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
+  "TractorMixPilot.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
+  "TractorMixPilot.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_full.txt",
+
+  "TractorMixPilot.grm_vcfs": [
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/c70fc078-7d46-4da1-8f59-30a7ebd4b738/flare/81ea1db7-94da-4a6b-b869-35b292d2f9a1/call-flare_task/aou_lr_phase2_v1.chr1.anc.vcf.gz",
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz"
+  ],
+
+  "TractorMixPilot.reorder_dosages_script": "gs://BUCKET/scripts/reorder_dosages.py",
+  "TractorMixPilot.sparsify_grm_script": "gs://BUCKET/scripts/sparsify_grm.R",
+  "TractorMixPilot.fit_null_and_score_script": "gs://BUCKET/scripts/fit_null_and_score.R",
+  "TractorMixPilot.make_plink_keep_script": "gs://BUCKET/scripts/make_plink_keep.py",
+
+  "TractorMixPilot.kinship_threshold": 0.05,
+  "TractorMixPilot.ac_threshold": 50,
+  "TractorMixPilot.score_n_core": 8,
+  "TractorMixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+}

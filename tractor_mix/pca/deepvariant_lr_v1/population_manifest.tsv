@@ -1,0 +1,8 @@
+population	n_samples	keep_file	label_source
+afr	2880	/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_afr.keep	covariates.ancestry_pred_other (provisional subset label)
+amr	2952	/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_amr.keep	covariates.ancestry_pred_other (provisional subset label)
+eas	1305	/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_eas.keep	covariates.ancestry_pred_other (provisional subset label)
+eur	2185	/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_eur.keep	covariates.ancestry_pred_other (provisional subset label)
+mid	374	/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_mid.keep	covariates.ancestry_pred_other (provisional subset label)
+oth	2564	/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_oth.keep	covariates.ancestry_pred_other (provisional subset label)
+sas	1191	/Users/kiran/repositories/aou-lr-phase-2/tractor_mix/pca/deepvariant_lr_v1/population_sas.keep	covariates.ancestry_pred_other (provisional subset label)
