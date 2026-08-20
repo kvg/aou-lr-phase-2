@@ -12,13 +12,19 @@ Ebert-style cumulative discovery figures.
 
 ## Callset partitions
 
-| Partition | Phase 1 | Phase 2 | Notes |
-|-----------|---------|---------|-------|
-| `main` | yes | yes | Resolved DEL/DUP/INS/INV (and related) |
-| `bnd` | no | yes | Breakends / unresolved junctions |
-| `large` | no | yes | Events >10 kb from dedicated VCF |
+Callsets are **pre-partitioned by size** at the source (not split in this pipeline):
+
+| Partition | Phase 1 | Phase 2 | Size / type |
+|-----------|---------|---------|-------------|
+| `main` | yes | yes | Resolved DEL/DUP/INS/INV, **20 bp ≤ \|SVLEN\| ≤ 10 kb** |
+| `bnd` | no | yes | Breakends |
+| `large` | no | yes | Resolved events **> 10 kb** (ultralong partition) |
 
 If a site appears in both `main` and `large`, count it under **`large` only**.
+
+Because `main` is bounded at 10 kb, **CADD-SV on `main` is effectively scoring events under 10 kb**
+(DEL/DUP/INS/INV only; CADD-SV itself requires \|SVLEN\| ≥ 50 bp). The `large` and `bnd`
+partitions are not CADD-scored.
 
 ## Classes reported
 
@@ -65,7 +71,7 @@ CADD-SV PHRED scores are generated in-pipeline. For discovery facets we use:
 | `low` | < 10 |
 | `mid` | ≥ 10 and < 20 |
 | `high` | ≥ 20 |
-| `unscored` | missing (BND, unsupported class, or DUP/INV > 1 Mb — CADD-SV fetches the full span and OOMs) |
+| `unscored` | missing (`bnd`; `large`; unsupported class; or main sites with \|SVLEN\| < 50 bp) |
 
 There is no universal pathogenicity threshold for CADD-SV; these bins are for
 stratified discovery plots, not hard filters.

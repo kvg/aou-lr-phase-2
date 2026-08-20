@@ -18,7 +18,7 @@
 | region_class | repetitive if overlapping rmsk∪simpleRepeat∪genomicSuperDups |
 | hit_* | Per-track overlap flags |
 | cadd_sv_phred | CADD-SV PHRED (empty if unscored) |
-| cadd_sv_bin | low / mid / high / unscored (DUP/INV > 1 Mb are left unscored) |
+| cadd_sv_bin | low / mid / high / unscored (`large` partition and DUP/INV > 1 Mb are left unscored) |
 | size_bin_ge20, size_bin_ge50 | Absolute length thresholds |
 | suppressed_main_duplicate | true only on rows dropped from main due to large overlap |
 

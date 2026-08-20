@@ -1,6 +1,6 @@
 {
   "core": {
-    "image": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.4",
+    "image": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.5",
     "digest": null,
     "dockerfile": "sv_annotation/docker/Dockerfile",
     "tools": ["python3", "bcftools", "tabix", "bedtools", "caddsv", "snakemake", "conda"],

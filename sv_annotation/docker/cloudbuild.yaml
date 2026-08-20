@@ -7,7 +7,7 @@
 
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation
-  _TAG: "0.1.4"
+  _TAG: "0.1.5"
 
 options:
   logging: CLOUD_LOGGING_ONLY

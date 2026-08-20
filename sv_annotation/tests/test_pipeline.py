@@ -161,7 +161,7 @@ def test_pipeline_integrate_and_counts(work: Path):
     run(
         str(SCRIPTS / "ebert_discovery.py"),
         "--sites",
-        str(unified),
+        str(main_sites),
         "--carriers",
         str(carriers),
         "--sample-ancestry",
@@ -177,6 +177,26 @@ def test_pipeline_integrate_and_counts(work: Path):
     first = disc.read_text().splitlines()[1].split("\t")
     assert first[1] == "S2"
     assert first[2] == "amr"
+
+    # Multi-strata one-pass matches single-stratum output
+    run(
+        str(SCRIPTS / "ebert_discovery.py"),
+        "--sites",
+        str(main_sites),
+        "--carriers",
+        str(carriers),
+        "--sample-ancestry",
+        str(FIX / "sample_ancestry.tsv"),
+        "--strata-list",
+        "none,region,cadd",
+        "--include-sources",
+        "main",
+        "--out-prefix",
+        str(work / "multi"),
+    )
+    assert (work / "multi.discovery.tsv").read_text() == disc.read_text()
+    assert (work / "multi.discovery.region.tsv").exists()
+    assert (work / "multi.discovery.cadd.tsv").exists()
 
 
 def test_cadd_bins():

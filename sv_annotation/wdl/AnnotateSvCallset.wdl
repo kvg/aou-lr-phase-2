@@ -81,15 +81,9 @@ workflow AnnotateSvCallset {
         preemptible = 0
     }
 
-    call CaddSvAndAttach as LargeCadd {
-      input:
-        sites = LargePart.sites,
-        caddsv_bed = LargePart.caddsv_bed,
-        caddsv_annotations_tar = caddsv_annotations_tar,
-        prefix = prefix + ".large",
-        docker = docker,
-        memory_gb = 64
-    }
+    # CADD-SV is not run on the large/ultralong partition: ~225k intervals,
+    # each >10 kb, make the 236-job annotation DAG too heavy (OOM / timeout).
+    # Discovery CADD strata use main only; large sites stay cadd_sv_bin=unscored.
   }
 
   call IntegrateAndSummarize {
@@ -97,11 +91,13 @@ workflow AnnotateSvCallset {
       main_sites = MainCadd.scored_sites,
       main_carriers = MainPart.carriers,
       bnd_sites = BndPart.sites,
-      large_sites = LargeCadd.scored_sites,
+      large_sites = LargePart.sites,
       sample_ancestry_tsv = sample_ancestry_tsv,
       phase = phase,
       prefix = prefix,
-      docker = docker
+      docker = docker,
+      memory_gb = 64,
+      disk_gb = 400
   }
 
   output {
@@ -243,8 +239,8 @@ task IntegrateAndSummarize {
     String prefix
     String docker
     Int cpu = 2
-    Int memory_gb = 16
-    Int disk_gb = 200
+    Int memory_gb = 64
+    Int disk_gb = 400
     Int preemptible = 0
   }
 
@@ -274,30 +270,16 @@ task IntegrateAndSummarize {
         --out-json ~{prefix}.manuscript_counts.json
     fi
 
-    # Discovery uses main carriers; unified main-like sites only
+    # Discovery: stream main scored sites + carriers in lockstep (same order).
+    # Do not use the unified table here — it reorders/drops main∩large rows and
+    # would break the 1:1 join with main.carriers.tsv.
     python3 /opt/aou_sv/scripts/ebert_discovery.py \
-      --sites ~{prefix}.unified.sites.tsv \
+      --sites "~{main_sites}" \
       --carriers "~{main_carriers}" \
       --sample-ancestry "~{sample_ancestry_tsv}" \
-      --strata none \
+      --strata-list none,region,cadd \
       --include-sources main \
-      --out ~{prefix}.discovery.tsv
-
-    python3 /opt/aou_sv/scripts/ebert_discovery.py \
-      --sites ~{prefix}.unified.sites.tsv \
-      --carriers "~{main_carriers}" \
-      --sample-ancestry "~{sample_ancestry_tsv}" \
-      --strata region \
-      --include-sources main \
-      --out ~{prefix}.discovery.region.tsv
-
-    python3 /opt/aou_sv/scripts/ebert_discovery.py \
-      --sites ~{prefix}.unified.sites.tsv \
-      --carriers "~{main_carriers}" \
-      --sample-ancestry "~{sample_ancestry_tsv}" \
-      --strata cadd \
-      --include-sources main \
-      --out ~{prefix}.discovery.cadd.tsv
+      --out-prefix ~{prefix}
   >>>
 
   output {
