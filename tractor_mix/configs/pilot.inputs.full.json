@@ -15,11 +15,12 @@
 
   "TractorMixPilot.reorder_dosages_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/reorder_dosages.py",
   "TractorMixPilot.sparsify_grm_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/sparsify_grm.R",
-  "TractorMixPilot.fit_null_and_score_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/fit_null_and_score.R",
+  "TractorMixPilot.fit_null_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/fit_null.R",
   "TractorMixPilot.make_plink_keep_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/make_plink_keep.py",
 
   "TractorMixPilot.kinship_threshold": 0.05,
   "TractorMixPilot.ac_threshold": 50,
-  "TractorMixPilot.score_n_core": 8,
-  "TractorMixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+  "TractorMixPilot.score_threads": 8,
+  "TractorMixPilot.chunk_size": 2048,
+  "TractorMixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
 }

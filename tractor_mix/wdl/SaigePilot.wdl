@@ -11,7 +11,7 @@ task BuildSaigePlinkAndSparseGRM {
     File build_script
     Float relatedness_cutoff = 0.05
     Int num_random_markers = 2000
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 300
@@ -69,7 +69,7 @@ task FitSaigeNull {
     File sparse_grm_mtx
     File sparse_grm_sample_ids
     File fit_null_script
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 16
     Int disk_gb = 100
@@ -132,7 +132,7 @@ task RunSaigeStep2 {
     File samples_used
     File run_step2_script
     Int min_mac = 20
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 16
     Int disk_gb = 200
@@ -200,7 +200,9 @@ workflow SaigePilot {
     Int num_random_markers = 2000
     Int min_mac = 20
 
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    # Shared image for all tasks. allowNestedInputs is true, so individual
+    # tasks can still override docker when iterating (e.g. SaigePilot.Score.docker).
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)

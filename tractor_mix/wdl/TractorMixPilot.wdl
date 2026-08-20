@@ -10,7 +10,7 @@ task ExtractTractsFlare {
     Int num_ancs
     # Kept for Terra config compatibility; sample reorder is done in-extract.
     File reorder_dosages_script
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 4
     Int memory_gb = 8
     Int disk_gb = 500
@@ -99,7 +99,7 @@ task MakeSparseGRM {
     File sparsify_grm_script
     File make_plink_keep_script
     Float kinship_threshold = 0.05
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 300
@@ -208,50 +208,82 @@ task MakeSparseGRM {
   }
 }
 
-task FitNullAndScore {
+task FitNull {
   input {
     File pheno_cov
     String phenotype
     File covariate_columns
     File grm_sparse_rds
-    Array[File] dosage_files
-    File fit_null_and_score_script
-    Int ac_threshold = 50
-    Int n_core = 8
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    File fit_null_script
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
-    # 16 GB OOM-killed TractorMix.score after glmmkin (5 ancestry dosages ×
-    # ~9k samples, foreach workers). 64 GB leaves headroom if Sigma_i is dense.
-    Int memory_gb = 64
-    Int disk_gb = 100
-    # Score is a multi-hour uncheckpointed R process; preemptible VMs waste
-    # the whole null-model + TractorMix.score run when reclaimed.
+    Int memory_gb = 32
+    Int disk_gb = 50
     Int preemptible = 0
   }
 
   command <<<
     set -euo pipefail
+
+    Rscript "~{fit_null_script}" \
+      --pheno-cov "~{pheno_cov}" \
+      --phenotype "~{phenotype}" \
+      --covariates "~{covariate_columns}" \
+      --grm-rds "~{grm_sparse_rds}" \
+      --out-null-rds "~{phenotype}.null_model.rds" \
+      --out-null-export null_export
+
+    tar czf null_export.tar.gz null_export
+  >>>
+
+  output {
+    File null_model_rds = "~{phenotype}.null_model.rds"
+    File null_export_tar = "null_export.tar.gz"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
+task Score {
+  input {
+    String phenotype
+    File null_export_tar
+    Array[File] dosage_files
+    Int ac_threshold = 50
+    Int score_threads = 8
+    Int chunk_size = 2048
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
+    Int cpu = 8
+    Int memory_gb = 32
+    Int disk_gb = 100
+    Int preemptible = 0
+  }
+
+  command <<<
+    set -euo pipefail
+    tar xzf "~{null_export_tar}"
     DOSAGE_ARGS=()
     for f in ~{sep=" " dosage_files}; do
       DOSAGE_ARGS+=("$f")
     done
 
-    Rscript "~{fit_null_and_score_script}" \
-      --pheno-cov "~{pheno_cov}" \
-      --phenotype "~{phenotype}" \
-      --covariates "~{covariate_columns}" \
-      --grm-rds "~{grm_sparse_rds}" \
+    tractor-mix-score \
+      --null-export null_export \
       --dosage-files "${DOSAGE_ARGS[@]}" \
-      --tractor-mix-score-r "/opt/Tractor-Mix/TractorMix.score.R" \
+      --out "~{phenotype}.tractor_mix.tsv" \
       --ac-threshold ~{ac_threshold} \
-      --n-core ~{n_core} \
-      --out-tsv "~{phenotype}.tractor_mix.tsv" \
-      --out-null-rds "~{phenotype}.null_model.rds"
+      --threads ~{score_threads} \
+      --chunk-size ~{chunk_size}
   >>>
 
   output {
     File results_tsv = "~{phenotype}.tractor_mix.tsv"
-    File null_model_rds = "~{phenotype}.null_model.rds"
   }
 
   runtime {
@@ -284,14 +316,18 @@ workflow TractorMixPilot {
     # Pipeline scripts (from this repo)
     File reorder_dosages_script
     File sparsify_grm_script
-    File fit_null_and_score_script
+    File fit_null_script
     File make_plink_keep_script
 
     Float kinship_threshold = 0.05
     Int ac_threshold = 50
-    Int score_n_core = 8
+    Int score_threads = 8
+    Int chunk_size = 2048
 
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+    # Shared image for all tasks. allowNestedInputs is true, so for Score-only
+    # iteration you can still override e.g. TractorMixPilot.Score.docker without
+    # changing this workflow-level default.
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)
@@ -316,16 +352,24 @@ workflow TractorMixPilot {
   }
 
   scatter (pheno in phenotypes) {
-    call FitNullAndScore as Score {
+    call FitNull {
       input:
         pheno_cov = pheno_cov,
         phenotype = pheno,
         covariate_columns = covariate_columns,
         grm_sparse_rds = MakeGRM.grm_sparse_rds,
+        fit_null_script = fit_null_script,
+        docker = docker
+    }
+
+    call Score {
+      input:
+        phenotype = pheno,
+        null_export_tar = FitNull.null_export_tar,
         dosage_files = Extract.dosage_files,
-        fit_null_and_score_script = fit_null_and_score_script,
         ac_threshold = ac_threshold,
-        n_core = score_n_core,
+        score_threads = score_threads,
+        chunk_size = chunk_size,
         docker = docker
     }
   }
@@ -339,11 +383,11 @@ workflow TractorMixPilot {
     File grm_bands = MakeGRM.grm_bands
     File grm_close_pairs = MakeGRM.grm_close_pairs
     Array[File] results_tsvs = Score.results_tsv
-    Array[File] null_model_rds = Score.null_model_rds
+    Array[File] null_model_rds = FitNull.null_model_rds
   }
 
   meta {
-    description: "Tractor-Mix chr22 pilot: Rust FLARE extract tracts, sparse GRM, per-phenotype score tests."
+    description: "Tractor-Mix chr22 pilot: Rust FLARE extract, sparse GRM, R null + Rust score."
     allowNestedInputs: true
   }
 }

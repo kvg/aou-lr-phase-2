@@ -5,16 +5,19 @@
 #
 # Bump WDL runtime.docker tags when rebuilding.
 
-# Alpine's default target is musl. A bookworm-cross musl binary is often
-# dynamically linked against ld-musl, which does not exist in the SAIGE
-# image — exec then fails with "No such file or directory".
-FROM rust:1.85-alpine AS extract-builder
+FROM rust:1.85-alpine AS rust-builder
 WORKDIR /src
 RUN apk add --no-cache musl-dev
-COPY extract_tracts_flare/Cargo.toml extract_tracts_flare/Cargo.lock /src/
-COPY extract_tracts_flare/src /src/src
-RUN cargo build --release --locked --bin extract-tracts-flare \
-    && test -x /src/target/release/extract-tracts-flare
+
+COPY extract_tracts_flare/Cargo.toml extract_tracts_flare/Cargo.lock /src/extract/
+COPY extract_tracts_flare/src /src/extract/src
+RUN cd extract && cargo build --release --locked --bin extract-tracts-flare \
+    && test -x target/release/extract-tracts-flare
+
+COPY tractor_mix_score/Cargo.toml tractor_mix_score/Cargo.lock /src/score/
+COPY tractor_mix_score/src /src/score/src
+RUN cd score && cargo build --release --locked --bin tractor-mix-score \
+    && test -x target/release/tractor-mix-score
 
 FROM wzhou88/saige:1.3.3
 
@@ -83,7 +86,7 @@ RUN git clone --filter=blob:none https://github.com/Atkinson-Lab/Tractor.git /op
 
 # GMMAT + helpers for Tractor-Mix (R 3.6 on wzhou88/saige:1.3.3).
 # Bioconductor deps required by current GMMAT; pin Bioc 3.10 for R 3.6.
-RUN Rscript -e 'install.packages(c("BiocManager","remotes","data.table","foreach","doParallel","abind","Rcpp","RcppArmadillo","CompQuadForm","optparse"), repos="https://cloud.r-project.org")' \
+RUN Rscript -e 'install.packages(c("BiocManager","remotes","data.table","foreach","doParallel","abind","Rcpp","RcppArmadillo","CompQuadForm","optparse","jsonlite"), repos="https://cloud.r-project.org")' \
     && Rscript -e 'BiocManager::install(version="3.10", ask=FALSE, update=FALSE); BiocManager::install(c("SeqArray","SeqVarTools"), ask=FALSE, update=FALSE)' \
     && Rscript -e 'install.packages("GMMAT", repos="https://cloud.r-project.org"); library(GMMAT); cat("GMMAT OK\n")'
 
@@ -98,10 +101,11 @@ RUN pip3 install --no-cache-dir \
 # .docker_scripts/:
 #   docker build -f docker/Dockerfile -t tractor-mix-pilot:latest .
 COPY .docker_scripts/ /opt/tractor_mix_scripts/
-COPY --from=extract-builder /src/target/release/extract-tracts-flare /usr/local/bin/extract-tracts-flare
-# Fail the image build if the binary cannot exec on this (old-glibc) base.
-RUN chmod 0755 /usr/local/bin/extract-tracts-flare \
-    && /usr/local/bin/extract-tracts-flare --help >/dev/null
+COPY --from=rust-builder /src/extract/target/release/extract-tracts-flare /usr/local/bin/extract-tracts-flare
+COPY --from=rust-builder /src/score/target/release/tractor-mix-score /usr/local/bin/tractor-mix-score
+RUN chmod 0755 /usr/local/bin/extract-tracts-flare /usr/local/bin/tractor-mix-score \
+    && /usr/local/bin/extract-tracts-flare --help >/dev/null \
+    && /usr/local/bin/tractor-mix-score --help >/dev/null
 ENV PATH="/opt/tractor_mix_scripts:${PATH}"
 
 WORKDIR /data

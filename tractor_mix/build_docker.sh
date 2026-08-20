@@ -4,8 +4,11 @@
 # Defaults (from gcloud config / Artifact Registry):
 #   project  broad-dsp-lrma
 #   repo     us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr
-#   image    .../aou-lr/tractor-mix-pilot:0.3.2
+#   image    .../aou-lr/tractor-mix-pilot:0.4.2
 #
+# 0.4.2 implements parallel variant scoring (--threads) + progress logging.
+# 0.4.1 fixes CSC colptr export in fit_null.R (Sigma_i@p is already 0-based).
+# 0.4.0 adds Alpine-static tractor-mix-score (Rust TractorMix.score sparse GRM).
 # 0.3.2 Alpine-static extract-tracts-flare (verified to exec on SAIGE base).
 # 0.3.1 bookworm-cross musl was often dynamically linked (ENOENT on SAIGE).
 # 0.3.0 gnu/bookworm needed GLIBC 2.34.
@@ -30,7 +33,7 @@ CONTEXT_DIR="${SCRIPT_DIR}"
 DEFAULT_PROJECT="broad-dsp-lrma"
 DEFAULT_REGION="us-central1"
 DEFAULT_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot"
-DEFAULT_TAG="0.3.2"
+DEFAULT_TAG="0.4.2"
 
 IMAGE="${IMAGE:-${DEFAULT_IMAGE}}"
 TAG="${TAG:-${DEFAULT_TAG}}"

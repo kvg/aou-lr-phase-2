@@ -1,14 +1,11 @@
 #!/usr/bin/env Rscript
-# DEPRECATED: use scripts/fit_null.R (null only) + TractorMixPilot Score task
-# (tractor-mix-score in tractor-mix-pilot:0.4.1). This monolithic R script remains
-# for historical reference only.
-#
-# Fit GMMAT null model and run unconditional TractorMix.score for one phenotype.
+# Fit GMMAT null model (binomial) and export sparse Sigma_i artifacts for tractor-mix-score.
 
 suppressPackageStartupMessages({
   library(GMMAT)
   library(Matrix)
   library(data.table)
+  library(jsonlite)
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -19,50 +16,30 @@ parse_args <- function(args) {
     phenotype = NA_character_,
     covariates = NA_character_,
     grm_rds = NA_character_,
-    dosage_files = character(0),
-    tractor_mix_score_r = "/opt/Tractor-Mix/TractorMix.score.R",
-    ac_threshold = 50L,
-    n_core = 4L,
-    out_tsv = "tractor_mix_results.tsv",
-    out_null_rds = "null_model.rds"
+    out_null_rds = "null_model.rds",
+    out_null_export = "null_export"
   )
   i <- 1
   while (i <= length(args)) {
     key <- args[[i]]
-    if (key == "--dosage-files") {
-      # remaining until next -- or end
-      i <- i + 1
-      while (i <= length(args) && !startsWith(args[[i]], "--")) {
-        out$dosage_files <- c(out$dosage_files, args[[i]])
-        i <- i + 1
-      }
-      next
-    }
     if (i == length(args)) stop(paste("Missing value for", key))
     val <- args[[i + 1]]
     if (key == "--pheno-cov") out$pheno_cov <- val
     else if (key == "--phenotype") out$phenotype <- val
     else if (key == "--covariates") out$covariates <- val
     else if (key == "--grm-rds") out$grm_rds <- val
-    else if (key == "--tractor-mix-score-r") out$tractor_mix_score_r <- val
-    else if (key == "--ac-threshold") out$ac_threshold <- as.integer(val)
-    else if (key == "--n-core") out$n_core <- as.integer(val)
-    else if (key == "--out-tsv") out$out_tsv <- val
     else if (key == "--out-null-rds") out$out_null_rds <- val
+    else if (key == "--out-null-export") out$out_null_export <- val
     else stop(paste("Unknown arg:", key))
     i <- i + 2
   }
   if (is.na(out$pheno_cov) || is.na(out$phenotype) || is.na(out$covariates) ||
-      is.na(out$grm_rds) || length(out$dosage_files) < 1) {
-    stop("Required: --pheno-cov --phenotype --covariates --grm-rds --dosage-files ...")
+      is.na(out$grm_rds)) {
+    stop("Required: --pheno-cov --phenotype --covariates --grm-rds")
   }
   out
 }
 
-# Thresholded PLINK relatedness is often indefinite. GMMAT glmmkin needs a PD
-# kinship matrix for Cholesky. A diagonal ridge K + λI with λ > -λ_min is
-# enough, keeps the sparsity pattern, and is seconds at n~10k. Do not use
-# Matrix::nearPD here: it densifies and can take hours.
 kinship_is_pd <- function(K) {
   tryCatch({
     Matrix::chol(Matrix::forceSymmetric(as(K, "dsCMatrix")))
@@ -124,6 +101,88 @@ regularize_kinship_for_gmmat <- function(K) {
   out
 }
 
+write_f64 <- function(con, x) {
+  writeBin(as.double(x), con, size = 8, endian = "little")
+}
+
+write_i32 <- function(con, x) {
+  writeBin(as.integer(x), con, size = 4, endian = "little")
+}
+
+export_null_for_rust <- function(obj, out_dir) {
+  if (!is.null(obj$P)) {
+    stop("Dense GRM null (obj$P non-NULL) is not supported by tractor-mix-score")
+  }
+  if (!any(grepl("binomial", as.character(obj$call)))) {
+    stop("Only binomial null models are supported by tractor-mix-score")
+  }
+
+  dir.create(out_dir, recursive = TRUE, show = FALSE)
+
+  n <- length(obj$id_include)
+  p <- ncol(obj$X)
+  Sigma_i <- as(obj$Sigma_i, "dgCMatrix")
+  Sigma_iX <- as.matrix(obj$Sigma_iX)
+  cov_mat <- as.matrix(obj$cov)
+  residuals <- as.numeric(obj$scaled.residuals)
+
+  if (length(residuals) != n) {
+    stop(sprintf("scaled.residuals length %d != n %d", length(residuals), n))
+  }
+  if (nrow(Sigma_iX) != n || ncol(Sigma_iX) != p) {
+    stop(sprintf("Sigma_iX dims %dx%d != n=%d p=%d", nrow(Sigma_iX), ncol(Sigma_iX), n, p))
+  }
+  if (nrow(cov_mat) != p || ncol(cov_mat) != p) {
+    stop(sprintf("cov dims %dx%d != p=%d", nrow(cov_mat), ncol(cov_mat), p))
+  }
+
+  writeLines(as.character(obj$id_include), file.path(out_dir, "id_include.txt"))
+
+  meta <- list(
+    n = n,
+    p = p,
+    nnz = Matrix::nnzero(Sigma_i),
+    family = "binomial",
+    tractor_mix_score_sha = "4adb8f1814d9315ecd7868eb729d52ec0c723719"
+  )
+  write(toJSON(meta, auto_unbox = TRUE, pretty = TRUE), file.path(out_dir, "meta.json"))
+
+  # CSC binary: n, nnz, colptr (0-based), rowidx (0-based), values
+  con <- file(file.path(out_dir, "sigma_i.csc.bin"), "wb")
+  on.exit(close(con), add = TRUE)
+  write_i32(con, n)
+  write_i32(con, Matrix::nnzero(Sigma_i))
+  write_i32(con, Sigma_i@p)
+  write_i32(con, Sigma_i@i)
+  write_f64(con, Sigma_i@x)
+  close(con)
+  on.exit(NULL)
+
+  con <- file(file.path(out_dir, "sigma_i_x.bin"), "wb")
+  on.exit(close(con), add = TRUE)
+  write_i32(con, n)
+  write_i32(con, p)
+  write_f64(con, Sigma_iX)
+  close(con)
+  on.exit(NULL)
+
+  con <- file(file.path(out_dir, "cov.bin"), "wb")
+  on.exit(close(con), add = TRUE)
+  write_i32(con, p)
+  write_f64(con, cov_mat)
+  close(con)
+  on.exit(NULL)
+
+  con <- file(file.path(out_dir, "residuals.bin"), "wb")
+  on.exit(close(con), add = TRUE)
+  write_i32(con, n)
+  write_f64(con, residuals)
+  close(con)
+  on.exit(NULL)
+
+  message(sprintf("Wrote null export: %s (n=%d, p=%d, nnz=%d)", out_dir, n, p, meta$nnz))
+}
+
 opt <- parse_args(args)
 
 covars <- scan(opt$covariates, what = character(), quiet = TRUE)
@@ -137,7 +196,6 @@ if (length(missing_cov) > 0) {
   stop(sprintf("Missing covariate columns: %s", paste(missing_cov, collapse = ",")))
 }
 
-# Complete cases for this phenotype + covariates
 keep_cols <- c("ID", opt$phenotype, covars)
 cc <- stats::complete.cases(pheno[, keep_cols])
 pheno <- pheno[cc, , drop = FALSE]
@@ -163,7 +221,6 @@ if (length(missing_grm) > 0) {
   stop(sprintf("%d phenotype samples missing from GRM", length(missing_grm)))
 }
 
-# Align GRM to phenotype sample order and ensure PD for glmmkin
 GRM <- GRM[pheno$ID, pheno$ID, drop = FALSE]
 GRM <- regularize_kinship_for_gmmat(GRM)
 
@@ -182,14 +239,4 @@ Model_Null <- glmmkin(
 saveRDS(Model_Null, opt$out_null_rds)
 message("Wrote null model: ", opt$out_null_rds)
 
-source(opt$tractor_mix_score_r)
-# Decompress .gz dosages to plain txt if needed (TractorMix fread handles gz, but
-# ensure paths are passed as-is; TractorMix.score supports .gz via zcat).
-TractorMix.score(
-  obj = Model_Null,
-  infiles = opt$dosage_files,
-  outfiles = opt$out_tsv,
-  AC_threshold = opt$ac_threshold,
-  n_core = opt$n_core
-)
-message("Wrote Tractor-Mix results: ", opt$out_tsv)
+export_null_for_rust(Model_Null, opt$out_null_export)

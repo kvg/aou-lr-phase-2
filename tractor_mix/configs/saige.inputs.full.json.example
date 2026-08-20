@@ -20,5 +20,5 @@
   "SaigePilot.relatedness_cutoff": 0.05,
   "SaigePilot.num_random_markers": 2000,
   "SaigePilot.min_mac": 20,
-  "SaigePilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.3.2"
+  "SaigePilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
 }

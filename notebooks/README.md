@@ -36,3 +36,18 @@ SV annotation (run in this order):
 | `sv_03_manuscript_stats.ipynb` | SV site-count table + discovery plots (after the WDL) |
 
 WDLs stay in `tractor_mix/wdl/` and `sv_annotation/wdl/`.
+
+## Tractor-Mix WDL (Rust scorer)
+
+`TractorMixPilot.wdl` runs **FitNull** (`scripts/fit_null.R`) then **Score** (`tractor-mix-score --threads 8`).
+Shared `docker` default is `tractor-mix-pilot:0.4.2`. For Score-only image iteration, override nested
+`TractorMixPilot.Score.docker` (`allowNestedInputs: true`).
+Run `tractor_mix/tractor_mix_score/scripts/bench_realistic_in_docker.sh` before production Terra scoring.
+
+Before submitting on Terra, stage scripts (must include `fit_null.R`):
+
+```bash
+WORKSPACE_BUCKET=gs://... ./scripts/stage_tractor_scripts.sh
+```
+
+Do **not** use legacy `fit_null_and_score.R` on the workspace bucket.

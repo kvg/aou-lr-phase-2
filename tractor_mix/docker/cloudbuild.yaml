@@ -7,7 +7,7 @@
 
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot
-  _TAG: "0.3.2"
+  _TAG: "0.4.2"
 
 options:
   logging: CLOUD_LOGGING_ONLY

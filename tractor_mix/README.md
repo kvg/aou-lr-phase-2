@@ -11,6 +11,7 @@ scripts/                         # all CLIs used by notebooks + WDLs
 tractor_mix/
   docker/Dockerfile
   extract_tracts_flare/
+  tractor_mix_score/
   wdl/TractorMixPilot.wdl
   wdl/SaigePilot.wdl
   configs/pilot.inputs.{limited,full}.json.example
@@ -52,35 +53,49 @@ FLARE ancestries: `eas=0,amr=1,eur=2,afr=3,sas=4` → `num_ancs=5`.
 
 ## Run order (Tractor-Mix first)
 
-1. Build / push the Docker image if needed (tag `0.3.2`):
+1. Build / push the Docker image if needed (tag `0.4.2`):
 
 ```bash
 cd tractor_mix
 ./build_docker.sh
 ```
 
+Before Terra scoring, run the realistic benchmark locally or in Docker:
+
+```bash
+cd tractor_mix/tractor_mix_score
+./scripts/bench_realistic_in_docker.sh   # requires 0.4.2 image
+```
+
 2. Stage scripts + rebuilt covariates on the workspace bucket:
 
 ```bash
-gsutil -m cp scripts/* "$WORKSPACE_BUCKET/scripts/"
+# from repo root — uploads fit_null.R and other WDL CLIs
+WORKSPACE_BUCKET=gs://... ./scripts/stage_tractor_scripts.sh
+
 gsutil cp tractor_mix/covariates.source_rebuilt.csv.gz \
   "$WORKSPACE_BUCKET/covariates/covariates.source_rebuilt.csv.gz"
 ```
 
+Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/scripts/"`
+
 3. Run `notebooks/tractor_01_prepare_inputs.ipynb` on the Workbench.
-   It pulls `covariates.source_rebuilt.csv.gz` (default URI above, or
-   `TRACTOR_COVARIATES_GCS`), builds the shared recommended-model-complete
-   cohort, and uploads under `$WORKSPACE_BUCKET/tractor_mix_pilot/`:
-   `analysis_samples.txt`, `pheno_cov.tsv`, `covariate_columns_{limited,full}.txt`,
-   etc. Confirm `analysis_samples` line count ≫ 1000 before submitting.
+   It pulls `covariates.source_rebuilt.csv.gz`, builds the shared cohort, uploads
+   under `$WORKSPACE_BUCKET/tractor_mix_pilot/`, and can re-stage WDL scripts
+   (`fit_null.R`, etc.). Confirm `analysis_samples` line count ≫ 1000 before submitting.
 
 4. Submit **Tractor-Mix only** first (same cohort; only `covariate_columns` differs):
 
    - `TractorMixPilot.wdl` + `configs/pilot.inputs.limited.json.example`
    - `TractorMixPilot.wdl` + `configs/pilot.inputs.full.json.example`
 
-   Point `gs://BUCKET/...` at your workspace bucket. WDL script inputs should
-   use `$WORKSPACE_BUCKET/scripts/`.
+   Point `gs://BUCKET/...` in the input JSON at your workspace bucket. Use
+   `$WORKSPACE_BUCKET/scripts/fit_null.R` (not legacy `fit_null_and_score.R`).
+
+   Workflow: **FitNull** (`fit_null.R` + `glmmkin`, ~3h/phenotype) → **Score**
+   (`tractor-mix-score --threads 8`, ~30–45 min/phenotype on chr22). Shared
+   `docker` default is `0.4.2`. For Score-only image iteration, override nested
+   `TractorMixPilot.Score.docker` (`allowNestedInputs: true`).
 
 5. After Tractor-Mix succeeds, optionally submit SAIGE with the same cohort
    (`configs/saige.inputs.*.json.example`), then run
@@ -97,11 +112,14 @@ gsutil cp tractor_mix/covariates.source_rebuilt.csv.gz \
 
 ## Notes
 
-- Tractor-Mix: unconditional `TractorMix.score`, `AC_threshold=50`, logistic nulls.
+- Tractor-Mix: Rust `tractor-mix-score` (sparse GRM branch of pinned `TractorMix.score`), `AC_threshold=50`, logistic nulls via `fit_null.R` + `glmmkin`.
 - FLARE extract uses the local Rust `extract-tracts-flare` binary (not
   `/opt/Tractor/scripts/extract_tracts_flare.py`). See
   `extract_tracts_flare/README.md`.
+- Score tests use `tractor_mix_score/` (`tractor-mix-score` CLI); null fit stays R.
+  R-oracle parity and benchmarks: `./scripts/run_oracle_parity_in_docker.sh`,
+  `./scripts/bench_realistic_in_docker.sh`. Upstream contribution notes:
+  `tractor_mix_score/UPSTREAM.md`.
 - SAIGE: sparse GRM from the same chr1+chr22 markers, logistic null + SPA step2.
 - Global PCs from covariates (not PC-AiR); relatedness cutoff default `0.05`.
-- Image `0.3.2` ships an Alpine-static `extract-tracts-flare` and checks that
-  it can exec on `wzhou88/saige:1.3.3` at image-build time.
+- Image `0.4.2` ships Alpine-static `extract-tracts-flare` and `tractor-mix-score` (parallel `--threads`), verified to exec on `wzhou88/saige:1.3.3` at image-build time.
