@@ -135,15 +135,22 @@ task RunSaigeStep2 {
     File null_rda
     File variance_ratio
     File samples_used
+    # Required when Step1 used --useSparseGRMforVarRatio=TRUE (our default).
+    File sparse_grm_mtx
+    File sparse_grm_sample_ids
     File run_step2_script
     # Match Tractor-Mix AC_threshold=50 for calibration comparisons.
     Int min_mac = 50
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 16
-    Int disk_gb = 200
+    Int disk_gb_floor = 50
+    # reheader copies the VCF; leave room for SAIGE output.
+    Float disk_gb_multiplier = 3.0
     Int preemptible = 2
   }
+
+  Int disk_gb = ceil(size(flare_vcf, "GB") * disk_gb_multiplier) + disk_gb_floor
 
   command <<<
     set -euo pipefail
@@ -152,17 +159,14 @@ task RunSaigeStep2 {
     ln -sf "~{null_rda}" "step2/~{phenotype}.rda"
     ln -sf "~{variance_ratio}" "step2/~{phenotype}.varianceRatio.txt"
 
-    # Localize / index VCF
-    VCF="~{flare_vcf}"
-    if [[ ! -f "${VCF}.tbi" && ! -f "${VCF}.csi" ]]; then
-      bcftools index -t "${VCF}" || bcftools index -c "${VCF}"
-    fi
-
+    # run_saige_step2.R fixes duplicate FORMAT/GT and indexes.
     Rscript "~{run_step2_script}" \
-      --vcf "${VCF}" \
+      --vcf "~{flare_vcf}" \
       --chrom "~{chrom}" \
       --null-prefix "step2/~{phenotype}" \
       --sample-file "~{samples_used}" \
+      --sparse-grm "~{sparse_grm_mtx}" \
+      --sparse-grm-ids "~{sparse_grm_sample_ids}" \
       --min-mac ~{min_mac} \
       --n-threads ~{cpu} \
       --out-tsv "~{phenotype}.saige.tsv" \
@@ -250,6 +254,8 @@ workflow SaigePilot {
         null_rda = Null.null_rda,
         variance_ratio = Null.variance_ratio,
         samples_used = Null.samples_used,
+        sparse_grm_mtx = BuildGRM.sparse_grm_mtx,
+        sparse_grm_sample_ids = BuildGRM.sparse_grm_sample_ids,
         run_step2_script = run_saige_step2_script,
         min_mac = min_mac,
         docker = docker

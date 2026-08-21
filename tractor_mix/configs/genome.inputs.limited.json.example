@@ -1,0 +1,33 @@
+{
+  "_comment": "TractorMixGenome LIMITED covariates. chroms and flare_vcfs must be parallel (same order). Smoke example uses chr21+chr22; for full autosomes run: python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes --grm-chroms chr1 chr22. GRM stays small (chr1+chr22) — do not point grm_vcfs at all scan chroms.",
+  "TractorMixGenome.chroms": ["chr21", "chr22"],
+  "TractorMixGenome.flare_vcfs": [
+    "gs://BUCKET/REPLACE_chr21.anc.vcf.gz",
+    "gs://BUCKET/REPLACE_chr22.anc.vcf.gz"
+  ],
+  "TractorMixGenome.num_ancs": 5,
+
+  "TractorMixGenome.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
+  "TractorMixGenome.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
+  "TractorMixGenome.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
+  "TractorMixGenome.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_limited.txt",
+
+  "TractorMixGenome.grm_vcfs": [
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/c70fc078-7d46-4da1-8f59-30a7ebd4b738/flare/81ea1db7-94da-4a6b-b869-35b292d2f9a1/call-flare_task/aou_lr_phase2_v1.chr1.anc.vcf.gz",
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz"
+  ],
+
+  "TractorMixGenome.reorder_dosages_script": "gs://BUCKET/scripts/reorder_dosages.py",
+  "TractorMixGenome.sparsify_grm_script": "gs://BUCKET/scripts/sparsify_grm.R",
+  "TractorMixGenome.fit_null_script": "gs://BUCKET/scripts/fit_null.R",
+  "TractorMixGenome.make_plink_keep_script": "gs://BUCKET/scripts/make_plink_keep.py",
+
+  "TractorMixGenome.kinship_threshold": 0.05,
+  "TractorMixGenome.ac_threshold": 50,
+  "TractorMixGenome.score_threads": 8,
+  "TractorMixGenome.chunk_size": 2048,
+  "TractorMixGenome.extract_disk_gb_floor": 100,
+  "TractorMixGenome.extract_disk_gb_multiplier": 3.5,
+  "TractorMixGenome.score_disk_gb": 200,
+  "TractorMixGenome.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
+}

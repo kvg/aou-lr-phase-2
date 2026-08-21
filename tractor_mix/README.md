@@ -12,9 +12,11 @@ tractor_mix/
   docker/Dockerfile
   extract_tracts_flare/
   tractor_mix_score/
-  wdl/TractorMixPilot.wdl
+  wdl/TractorMixPilot.wdl        # chr22 calibration pilot
+  wdl/TractorMixGenome.wdl       # multi-chr: shared null, scatter extract/score
   wdl/SaigePilot.wdl
   configs/pilot.inputs.{limited,full}.json.example
+  configs/genome.inputs.limited.json.example
   configs/saige.inputs.{limited,full}.json.example
   resources/                     # local source exports (gitignored)
   summaries/                     # figures + TSV tables from tractor_03_ (gitignored)
@@ -45,11 +47,27 @@ Resolved live from the Terra data table `aou_lr_chrom` in workspace
 (`model_chr_anc_vcf`). Column `global_anc` is `*.global.anc.gz`, not the LAI VCF.
 
 ```bash
+# Pilot (single scan chrom)
 python3 ../scripts/resolve_flare_uris.py --from-firecloud \
   --scan-chrom chr22 --grm-chroms chr1 chr22
+
+# Genome-wide TractorMixGenome inputs (chroms + flare_vcfs + grm_vcfs)
+python3 ../scripts/resolve_flare_uris.py --from-firecloud \
+  --autosomes --grm-chroms chr1 chr22
 ```
 
 FLARE ancestries: `eas=0,amr=1,eur=2,afr=3,sas=4` → `num_ancs=5`.
+
+### Genome-wide (`TractorMixGenome.wdl`)
+
+Same cohort / scripts / docker as the pilot. Differences:
+
+- `flare_vcfs` + parallel `chroms` (Terra chrom-set friendly)
+- **MakeGRM** + **FitNull** once; **Extract** / **Score** scatter over chromosomes
+- Results: `{phenotype}.{chrom}.tractor_mix.tsv` (nested `Array[Array[File]]`)
+- `grm_vcfs` stays separate and small by default (chr1+chr22) — do not feed all autosomes into GRM on the first pass
+- Larger Extract/MakeGRM disks scale with `size(vcf)` (plus a floor); Check only
+  compares array lengths and does **not** localize FLARE VCFs.
 
 ## Run order (Tractor-Mix first)
 

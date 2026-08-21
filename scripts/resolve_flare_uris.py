@@ -66,6 +66,21 @@ def fetch_chrom_table_firecloud(
     return load_chrom_table_entities(entities)
 
 
+DEFAULT_AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
+
+
+def _uri_for(table: dict[str, dict[str, str]], chrom: str, uri_column: str) -> str:
+    if chrom not in table:
+        raise SystemExit(f"Chromosome not in table: {chrom}; have {sorted(table)}")
+    u = (table[chrom].get(uri_column) or "").strip()
+    if not u:
+        raise SystemExit(
+            f"{chrom}: empty {uri_column}. "
+            f"global_anc={table[chrom].get('global_anc')!r}"
+        )
+    return u
+
+
 def resolve_uris(
     table: dict[str, dict[str, str]],
     *,
@@ -73,24 +88,39 @@ def resolve_uris(
     grm_chroms: list[str],
     uri_column: str = DEFAULT_URI_COLUMN,
 ) -> dict[str, Any]:
+    """Pilot helper: one scan VCF + GRM VCF list."""
     missing = [c for c in [scan_chrom, *grm_chroms] if c not in table]
     if missing:
         raise SystemExit(f"Chromosomes not in table: {missing}; have {sorted(table)}")
 
-    def uri(chrom: str) -> str:
-        u = (table[chrom].get(uri_column) or "").strip()
-        if not u:
-            raise SystemExit(
-                f"{chrom}: empty {uri_column}. "
-                f"global_anc={table[chrom].get('global_anc')!r}"
-            )
-        return u
-
     return {
-        "flare_vcf": uri(scan_chrom),
-        "grm_vcfs": [uri(c) for c in grm_chroms],
+        "flare_vcf": _uri_for(table, scan_chrom, uri_column),
+        "grm_vcfs": [_uri_for(table, c, uri_column) for c in grm_chroms],
         "scan_chrom": scan_chrom,
         "grm_chroms": grm_chroms,
+        "uri_column": uri_column,
+    }
+
+
+def resolve_genome_uris(
+    table: dict[str, dict[str, str]],
+    *,
+    scan_chroms: list[str],
+    grm_chroms: list[str],
+    uri_column: str = DEFAULT_URI_COLUMN,
+) -> dict[str, Any]:
+    """Genome-wide helper: parallel chroms + flare_vcfs for TractorMixGenome."""
+    if not scan_chroms:
+        raise SystemExit("scan_chroms must be non-empty")
+    missing = [c for c in [*scan_chroms, *grm_chroms] if c not in table]
+    if missing:
+        raise SystemExit(f"Chromosomes not in table: {missing}; have {sorted(table)}")
+
+    return {
+        "chroms": list(scan_chroms),
+        "flare_vcfs": [_uri_for(table, c, uri_column) for c in scan_chroms],
+        "grm_vcfs": [_uri_for(table, c, uri_column) for c in grm_chroms],
+        "grm_chroms": list(grm_chroms),
         "uri_column": uri_column,
     }
 
@@ -112,7 +142,23 @@ def main() -> None:
     p.add_argument("--namespace", default=DEFAULT_NAMESPACE)
     p.add_argument("--workspace", default=DEFAULT_WORKSPACE)
     p.add_argument("--entity-type", default=DEFAULT_ENTITY_TYPE)
-    p.add_argument("--scan-chrom", default="chr22")
+    p.add_argument(
+        "--scan-chrom",
+        default=None,
+        help="Single scan chrom for TractorMixPilot (default chr22 if neither "
+        "--scan-chroms nor --autosomes)",
+    )
+    p.add_argument(
+        "--scan-chroms",
+        nargs="+",
+        default=None,
+        help="Scan chrom list for TractorMixGenome (parallel to flare_vcfs)",
+    )
+    p.add_argument(
+        "--autosomes",
+        action="store_true",
+        help="Shortcut: --scan-chroms chr1 .. chr22 for TractorMixGenome",
+    )
     p.add_argument("--grm-chroms", nargs="+", default=["chr1", "chr22"])
     p.add_argument("--uri-column", default=DEFAULT_URI_COLUMN)
     p.add_argument("--out-json", type=Path)
@@ -126,12 +172,27 @@ def main() -> None:
     else:
         table = fetch_chrom_table_firecloud(args.namespace, args.workspace, args.entity_type)
 
-    payload = resolve_uris(
-        table,
-        scan_chrom=args.scan_chrom,
-        grm_chroms=args.grm_chroms,
-        uri_column=args.uri_column,
-    )
+    if args.autosomes and args.scan_chroms:
+        raise SystemExit("Use only one of --autosomes or --scan-chroms")
+    if args.autosomes:
+        scan_chroms = list(DEFAULT_AUTOSOMES)
+    else:
+        scan_chroms = args.scan_chroms
+
+    if scan_chroms is not None:
+        payload = resolve_genome_uris(
+            table,
+            scan_chroms=scan_chroms,
+            grm_chroms=args.grm_chroms,
+            uri_column=args.uri_column,
+        )
+    else:
+        payload = resolve_uris(
+            table,
+            scan_chrom=args.scan_chrom or "chr22",
+            grm_chroms=args.grm_chroms,
+            uri_column=args.uri_column,
+        )
     print(json.dumps(payload, indent=2))
     if args.out_json:
         args.out_json.write_text(json.dumps(payload, indent=2) + "\n")

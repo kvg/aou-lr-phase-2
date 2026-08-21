@@ -13,6 +13,8 @@ parse_args <- function(args) {
     chrom = "chr22",
     null_prefix = NA_character_,
     sample_file = NA_character_,
+    sparse_grm = NA_character_,
+    sparse_grm_ids = NA_character_,
     min_mac = 20L,
     n_threads = 8L,
     step2_r = "/opt/SAIGE/extdata/step2_SPAtests.R",
@@ -28,6 +30,8 @@ parse_args <- function(args) {
     else if (key == "--chrom") out$chrom <- val
     else if (key == "--null-prefix") out$null_prefix <- val
     else if (key == "--sample-file") out$sample_file <- val
+    else if (key == "--sparse-grm") out$sparse_grm <- val
+    else if (key == "--sparse-grm-ids") out$sparse_grm_ids <- val
     else if (key == "--min-mac") out$min_mac <- as.integer(val)
     else if (key == "--n-threads") out$n_threads <- as.integer(val)
     else if (key == "--step2-r") out$step2_r <- val
@@ -36,7 +40,7 @@ parse_args <- function(args) {
     else stop(paste("Unknown arg:", key))
     i <- i + 2
   }
-  req <- c("vcf", "null_prefix", "out_tsv")
+  req <- c("vcf", "null_prefix", "out_tsv", "sparse_grm", "sparse_grm_ids")
   for (r in req) {
     if (is.na(out[[r]]) || !nzchar(out[[r]])) stop(paste("Missing required", r))
   }
@@ -54,6 +58,32 @@ pick_col <- function(df, candidates) {
 }
 
 opt <- parse_args(args)
+
+# FLARE anc VCFs often declare ##FORMAT=<ID=GT,...> twice; SAIGE/htslib can fail.
+vcf_in <- opt$vcf
+dir.create("saige_vcf_fix", showWarnings = FALSE)
+hdr <- "saige_vcf_fix/header.fixed.txt"
+vcf_fixed <- "saige_vcf_fix/plink_in.vcf.gz"
+status <- system(paste(
+  "bcftools view -h", shQuote(vcf_in),
+  "| awk '/^##FORMAT=<ID=GT,/{ if (gt++) next } { print }' >", shQuote(hdr)
+))
+if (status != 0) stop("bcftools view -h / awk header fix failed")
+n_orig <- as.integer(system(paste(
+  "bcftools view -h", shQuote(vcf_in), "| grep -c '^##FORMAT=<ID=GT,' || true"
+), intern = TRUE)[[1]])
+n_fix <- as.integer(system(paste(
+  "grep -c '^##FORMAT=<ID=GT,'", shQuote(hdr), "|| true"
+), intern = TRUE)[[1]])
+message(sprintf("FORMAT/GT header lines: %d -> %d", n_orig, n_fix))
+status <- system(paste("bcftools reheader -h", shQuote(hdr), "-o", shQuote(vcf_fixed), shQuote(vcf_in)))
+if (status != 0) stop("bcftools reheader failed")
+status <- system(paste("bcftools index -t", shQuote(vcf_fixed)))
+if (status != 0) {
+  status <- system(paste("bcftools index -c", shQuote(vcf_fixed)))
+  if (status != 0) stop("bcftools index failed on fixed VCF")
+}
+opt$vcf <- vcf_fixed
 
 # Ensure VCF index exists beside the localized file
 idx_tbi <- paste0(opt$vcf, ".tbi")
@@ -79,11 +109,17 @@ if (!file.exists(var_ratio)) {
   var_ratio <- cands[[1]]
 }
 
-sample_arg <- ""
+# SAIGE >=0.38: --sampleFile is for BGEN only. For VCF, IDs come from the
+# VCF header and are matched to the null model. If Step1 samples may be
+# missing from the VCF, use --subSampleFile (optional).
+subsample_arg <- ""
 if (!is.na(opt$sample_file) && nzchar(opt$sample_file) && file.exists(opt$sample_file)) {
-  # For VCF input SAIGE >=0.38 does not require sampleFile, but passing the
-  # Step1 complete-case IDs keeps Step2 aligned with the null cohort.
-  sample_arg <- paste0("--sampleFile=", shQuote(opt$sample_file))
+  subsample_arg <- paste0("--subSampleFile=", shQuote(opt$sample_file))
+}
+
+if (!file.exists(opt$sparse_grm)) stop(paste("sparse GRM not found:", opt$sparse_grm))
+if (!file.exists(opt$sparse_grm_ids)) {
+  stop(paste("sparse GRM sample IDs not found:", opt$sparse_grm_ids))
 }
 
 # Step2 has no --nThreads; pin BLAS/OpenMP to the WDL cpu allotment.
@@ -107,7 +143,9 @@ cmd <- paste(
   paste0("--GMMATmodelFile=", shQuote(gmmat)),
   paste0("--varianceRatioFile=", shQuote(var_ratio)),
   paste0("--SAIGEOutputFile=", shQuote(opt$out_raw)),
-  sample_arg,
+  paste0("--sparseGRMFile=", shQuote(opt$sparse_grm)),
+  paste0("--sparseGRMSampleIDFile=", shQuote(opt$sparse_grm_ids)),
+  subsample_arg,
   "--is_Firth_beta=TRUE",
   "--is_output_moreDetails=TRUE",
   "--LOCO=FALSE"

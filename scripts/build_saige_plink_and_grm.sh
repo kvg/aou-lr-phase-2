@@ -76,6 +76,15 @@ else
   INPUT_VCF=grm_build/concat.vcf.gz
 fi
 
+# FLARE anc VCFs often declare ##FORMAT=<ID=GT,...> twice; PLINK2 rejects that.
+bcftools view -h "${INPUT_VCF}" \
+  | awk '/^##FORMAT=<ID=GT,/{ if (gt++) next } { print }' \
+  > grm_build/header.fixed.txt
+echo "FORMAT/GT header lines: $(bcftools view -h "${INPUT_VCF}" | grep -c '^##FORMAT=<ID=GT,' || true) -> $(grep -c '^##FORMAT=<ID=GT,' grm_build/header.fixed.txt || true)"
+bcftools reheader -h grm_build/header.fixed.txt -o grm_build/plink_in.vcf.gz "${INPUT_VCF}"
+bcftools index -t grm_build/plink_in.vcf.gz || bcftools index -c grm_build/plink_in.vcf.gz
+INPUT_VCF=grm_build/plink_in.vcf.gz
+
 plink2 --vcf "${INPUT_VCF}" \
   --double-id \
   --make-bed \

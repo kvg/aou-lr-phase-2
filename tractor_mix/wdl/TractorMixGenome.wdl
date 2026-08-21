@@ -1,31 +1,82 @@
 version 1.0
 
-# This file is intentionally self-contained so it can be imported directly
-# into a Terra Methods Repository, which does not resolve sibling WDL imports.
+# Genome-wide Tractor-Mix for Terra Methods Repository (self-contained; no imports).
+#
+# Shape:
+#   MakeGRM once (separate grm_vcfs; keep small — do not dump all autosomes here)
+#   FitNull once per phenotype
+#   Extract once per chromosome
+#   Score once per (phenotype × chromosome)
+#
+# Terra chrom-set launch: pass parallel Arrays
+#   flare_vcfs <- this.chrom_set.model_chr_anc_vcf
+#   chroms     <- this.chrom_set.aou_lr_chrom_id  (or explicit chr1..chr22 names)
+# in matching order. generate URIs with scripts/resolve_flare_uris.py --autosomes.
+
+task CheckChromVcfPairs {
+  input {
+    # Lengths only — do NOT pass Array[File] here or Cromwell localizes every
+    # FLARE VCF onto this tiny disk (chr1 alone OOMs a 10 GB boot disk).
+    Int n_chroms
+    Int n_vcfs
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
+  }
+
+  command <<<
+    set -euo pipefail
+    N_CHROM=~{n_chroms}
+    N_VCF=~{n_vcfs}
+    if [[ "${N_CHROM}" -ne "${N_VCF}" ]]; then
+      echo "chroms length (${N_CHROM}) != flare_vcfs length (${N_VCF})" >&2
+      exit 1
+    fi
+    if [[ "${N_CHROM}" -lt 1 ]]; then
+      echo "Need at least one chromosome / FLARE VCF" >&2
+      exit 1
+    fi
+    echo "OK: ${N_CHROM} chrom × VCF pairs"
+  >>>
+
+  output {
+    Int n_chroms_out = n_chroms
+  }
+
+  runtime {
+    docker: docker
+    cpu: 1
+    memory: "1 GB"
+    disks: "local-disk 10 HDD"
+    preemptible: 3
+  }
+}
 
 task ExtractTractsFlare {
   input {
     File flare_vcf
+    String chrom
     File analysis_samples
     Int num_ancs
-    # Kept for Terra config compatibility; sample reorder is done in-extract.
     File reorder_dosages_script
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 4
-    Int memory_gb = 8
-    Int disk_gb = 500
+    Int memory_gb = 16
+    # Floor added on top of size-based disk (see runtime). Override via workflow.
+    Int disk_gb_floor = 100
+    Float disk_gb_multiplier = 3.5
     Int preemptible = 0
   }
+
+  # Localized VCF + extract outputs (dosages) + headroom. chr1 FLARE is huge.
+  Int disk_gb = ceil(size(flare_vcf, "GB") * disk_gb_multiplier) + disk_gb_floor
 
   command <<<
     set -euo pipefail
     mkdir -p extract ordered
 
+    echo "chrom=~{chrom}"
     echo "Host memory (MB):"; free -m || true
     echo "Disk:"; df -h . || true
     echo "Starting extract-tracts-flare at $(date -Is)"
-    ls -l /usr/local/bin/extract-tracts-flare
-    extract-tracts-flare --help | head -n 5
 
     extract-tracts-flare \
       --vcf "~{flare_vcf}" \
@@ -36,7 +87,6 @@ task ExtractTractsFlare {
 
     echo "Finished extract-tracts-flare at $(date -Is)"
     ls -lh extract/ || true
-    df -h . || true
 
     python3 - <<'PY'
 import re
@@ -61,26 +111,33 @@ if not order.exists():
 shutil.copy2(order, od / "dosage_sample_order.txt")
 PY
     cp "~{analysis_samples}" ordered/analysis_samples.txt
+    # Strip accidental JSON quotes from Terra Array[String] members.
+    python3 -c "import pathlib,sys; pathlib.Path('ordered/chrom.txt').write_text(sys.argv[1].strip().strip(chr(34)).strip(chr(39)) + chr(10))" "~{chrom}"
 
     python3 - <<'PY'
 from pathlib import Path
 import gzip
 
-samples = Path("~{analysis_samples}").read_text().split()
+chrom = Path("ordered/chrom.txt").read_text().strip()
+samples = Path("ordered/analysis_samples.txt").read_text().split()
 dfiles = sorted(Path("ordered").glob("anc_*.dosage.txt.gz"))
 assert dfiles, "no ordered dosage files"
 with gzip.open(dfiles[0], "rt") as fh:
     got = fh.readline().rstrip("\n").split("\t")[5:]
 if got != samples:
-    raise SystemExit(f"sample order mismatch: dosage has {len(got)}, analysis has {len(samples)}")
-print(f"OK: {len(samples)} samples ordered across {len(dfiles)} dosage files")
+    raise SystemExit(
+        f"sample order mismatch: dosage has {len(got)}, analysis has {len(samples)}"
+    )
+print(f"OK {chrom}: {len(samples)} samples, {len(dfiles)} dosage files")
 PY
   >>>
 
   output {
+    String chrom_id = read_string("ordered/chrom.txt")
     Array[File] dosage_files = glob("ordered/anc_*.dosage.txt.gz")
     Array[File] hapcount_files = glob("ordered/anc_*.hapcount.txt.gz")
     File dosage_sample_order = "ordered/dosage_sample_order.txt"
+    File chrom_txt = "ordered/chrom.txt"
   }
 
   runtime {
@@ -102,9 +159,13 @@ task MakeSparseGRM {
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 32
-    Int disk_gb = 300
-    Int preemptible = 2
+    Int disk_gb_floor = 100
+    # reheader writes a full copy; concat may write another; bed/rel on top.
+    Float disk_gb_multiplier = 4.0
+    Int preemptible = 0
   }
+
+  Int disk_gb = ceil(size(grm_vcfs, "GB") * disk_gb_multiplier) + disk_gb_floor
 
   command <<<
     set -euo pipefail
@@ -125,7 +186,8 @@ task MakeSparseGRM {
     fi
 
     # FLARE anc VCFs often declare ##FORMAT=<ID=GT,...> twice. Recent PLINK2
-    # errors with "Duplicate FORMAT/GT header line".
+    # errors with "Duplicate FORMAT/GT header line" (pilot chr1+chr22 concat
+    # sometimes masked this; single-VCF GRM hits the raw header).
     bcftools view -h "$INPUT_VCF" \
       | awk '/^##FORMAT=<ID=GT,/{ if (gt++) next } { print }' \
       > grm/header.fixed.txt
@@ -134,7 +196,6 @@ task MakeSparseGRM {
     bcftools index -t grm/plink_in.vcf.gz || bcftools index -c grm/plink_in.vcf.gz
     INPUT_VCF=grm/plink_in.vcf.gz
 
-    # Quick ID overlap check against VCF before the expensive PLINK convert
     echo "=== analysis_samples diagnostics ==="
     ls -l "~{analysis_samples}" || true
     wc -l "~{analysis_samples}" || true
@@ -158,7 +219,6 @@ task MakeSparseGRM {
       --out grm/all \
       --threads ~{cpu}
 
-    # Rebuild keep against the FAM (FID=IID pairs for --double-id beds)
     python3 "~{make_plink_keep_script}" \
       --analysis-samples grm/analysis_samples.intersect.txt \
       --fam grm/all.fam \
@@ -263,6 +323,7 @@ task FitNull {
 task Score {
   input {
     String phenotype
+    String chrom
     File null_export_tar
     Array[File] dosage_files
     Int ac_threshold = 50
@@ -271,12 +332,17 @@ task Score {
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 32
-    Int disk_gb = 100
+    Int disk_gb = 200
     Int preemptible = 0
   }
 
   command <<<
     set -euo pipefail
+    # Sanitize in case Terra Array[String] members include JSON quotes.
+    CHROM=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{chrom}")
+    PHENO=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{phenotype}")
+    OUT="${PHENO}.${CHROM}.tractor_mix.tsv"
+
     tar xzf "~{null_export_tar}"
     DOSAGE_ARGS=()
     for f in ~{sep=" " dosage_files}; do
@@ -286,14 +352,19 @@ task Score {
     tractor-mix-score \
       --null-export null_export \
       --dosage-files "${DOSAGE_ARGS[@]}" \
-      --out "~{phenotype}.tractor_mix.tsv" \
+      --out "${OUT}" \
       --ac-threshold ~{ac_threshold} \
       --threads ~{score_threads} \
       --chunk-size ~{chunk_size}
+
+    # Stable name for WDL output declaration (avoids quote chars in ~{chrom}).
+    cp "${OUT}" results.tractor_mix.tsv
+    printf '%s\n' "${OUT}" > results.output_name.txt
   >>>
 
   output {
-    File results_tsv = "~{phenotype}.tractor_mix.tsv"
+    File results_tsv = "results.tractor_mix.tsv"
+    File results_name = "results.output_name.txt"
   }
 
   runtime {
@@ -305,25 +376,23 @@ task Score {
   }
 }
 
-workflow TractorMixPilot {
+workflow TractorMixGenome {
   input {
-    # chr22 (or other) phased VCF with FLARE AN1/AN2 annotations
-    File flare_vcf
-    Int num_ancs
+    # Parallel arrays (same length / order). Terra chrom-set:
+    #   flare_vcfs = this.SET.model_chr_anc_vcf
+    #   chroms     = explicit chr names matching those files
+    Array[File] flare_vcfs
+    Array[String] chroms
+    Int num_ancs = 5
 
-    # Sample / phenotype table from notebooks/tractor_01_prepare_inputs.ipynb.
-    # Use the shared recommended-full-complete cohort for all matched runs.
-    # `pheno_cov` contains phenotypes and both covariate matrices; select one
-    # with covariate_columns_limited.txt or covariate_columns_full.txt.
     File analysis_samples
     File pheno_cov
     File selected_phenotypes
     File covariate_columns
 
-    # VCFs used to build the GRM (chr22-only OK for pilot; more chroms better)
+    # Keep GRM chroms separate and usually small (e.g. chr1+chr22).
     Array[File] grm_vcfs
 
-    # Pipeline scripts (from this repo)
     File reorder_dosages_script
     File sparsify_grm_script
     File fit_null_script
@@ -334,20 +403,24 @@ workflow TractorMixPilot {
     Int score_threads = 8
     Int chunk_size = 2048
 
-    # Shared image for all tasks. allowNestedInputs is true, so for Score-only
-    # iteration you can still override e.g. TractorMixPilot.Score.docker without
-    # changing this workflow-level default.
+    Int extract_cpu = 4
+    Int extract_memory_gb = 16
+    # Added to size(flare_vcf)*multiplier for Extract (not a fixed total disk).
+    Int extract_disk_gb_floor = 100
+    Float extract_disk_gb_multiplier = 3.5
+    Int score_disk_gb = 200
+    Int grm_disk_gb_floor = 100
+    Float grm_disk_gb_multiplier = 4.0
+
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)
 
-  call ExtractTractsFlare as Extract {
+  call CheckChromVcfPairs as Check {
     input:
-      flare_vcf = flare_vcf,
-      analysis_samples = analysis_samples,
-      num_ancs = num_ancs,
-      reorder_dosages_script = reorder_dosages_script,
+      n_chroms = length(chroms),
+      n_vcfs = length(flare_vcfs),
       docker = docker
   }
 
@@ -358,7 +431,9 @@ workflow TractorMixPilot {
       sparsify_grm_script = sparsify_grm_script,
       make_plink_keep_script = make_plink_keep_script,
       kinship_threshold = kinship_threshold,
-      docker = docker
+      docker = docker,
+      disk_gb_floor = grm_disk_gb_floor,
+      disk_gb_multiplier = grm_disk_gb_multiplier
   }
 
   scatter (pheno in phenotypes) {
@@ -371,33 +446,58 @@ workflow TractorMixPilot {
         fit_null_script = fit_null_script,
         docker = docker
     }
+  }
 
-    call Score {
+  scatter (pair in zip(chroms, flare_vcfs)) {
+    String chrom = pair.left
+    File flare_vcf = pair.right
+
+    call ExtractTractsFlare as Extract {
       input:
-        phenotype = pheno,
-        null_export_tar = FitNull.null_export_tar,
-        dosage_files = Extract.dosage_files,
-        ac_threshold = ac_threshold,
-        score_threads = score_threads,
-        chunk_size = chunk_size,
-        docker = docker
+        flare_vcf = flare_vcf,
+        chrom = chrom,
+        analysis_samples = analysis_samples,
+        num_ancs = num_ancs,
+        reorder_dosages_script = reorder_dosages_script,
+        docker = docker,
+        cpu = extract_cpu,
+        memory_gb = extract_memory_gb,
+        disk_gb_floor = extract_disk_gb_floor,
+        disk_gb_multiplier = extract_disk_gb_multiplier
+    }
+
+    scatter (i in range(length(phenotypes))) {
+      call Score {
+        input:
+          phenotype = phenotypes[i],
+          chrom = chrom,
+          null_export_tar = FitNull.null_export_tar[i],
+          dosage_files = Extract.dosage_files,
+          ac_threshold = ac_threshold,
+          score_threads = score_threads,
+          chunk_size = chunk_size,
+          docker = docker,
+          disk_gb = score_disk_gb
+      }
     }
   }
 
   output {
-    Array[File] dosage_files = Extract.dosage_files
-    Array[File] hapcount_files = Extract.hapcount_files
+    Int n_chroms = Check.n_chroms_out
     File grm_sparse_rds = MakeGRM.grm_sparse_rds
     File grm_summary = MakeGRM.grm_summary
     File grm_histogram = MakeGRM.grm_histogram
     File grm_bands = MakeGRM.grm_bands
     File grm_close_pairs = MakeGRM.grm_close_pairs
-    Array[File] results_tsvs = Score.results_tsv
     Array[File] null_model_rds = FitNull.null_model_rds
+    # Outer = chrom, inner = phenotype (same order as chroms / phenotypes).
+    Array[Array[File]] results_tsvs = Score.results_tsv
+    Array[Array[File]] dosage_files = Extract.dosage_files
+    Array[String] chrom_ids = Extract.chrom_id
   }
 
   meta {
-    description: "Tractor-Mix chr22 pilot: Rust FLARE extract, sparse GRM, R null + Rust score."
+    description: "Genome-wide Tractor-Mix: shared sparse GRM + nulls; per-chr FLARE extract and score."
     allowNestedInputs: true
   }
 }
