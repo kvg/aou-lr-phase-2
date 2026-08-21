@@ -5,8 +5,9 @@ Build Ebert-style cumulative discovery tables.
 Outputs a long TSV with cumulative counts after each ancestry-ordered sample,
 optionally stratified by region_class and/or cadd_sv_bin.
 
-Streams ``--sites`` and ``--carriers`` in lockstep (same order as
-fill_af_and_carriers.py). Does not keep a per-site ID map in memory.
+Joins sites to carriers by variant ``id`` (order-independent). Streams sites
+into discovery buckets so a multi-million-site table does not sit in RAM as
+row dicts; only a compact id→first-carrier-rank map is retained.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from sv_site_utils import iter_sites, open_text, order_samples_by_ancestry  # noqa: E402
+from sv_site_utils import open_text, order_samples_by_ancestry  # noqa: E402
 
 
 def load_ancestry(path: str) -> dict[str, str]:
@@ -48,6 +49,29 @@ def first_carrier_rank(carriers_field: str, sample_rank: dict[str, int]) -> int 
         if best is None or rank < best:
             best = rank
     return best
+
+
+def load_first_carrier_rank(path: str, sample_rank: dict[str, int]) -> dict[str, int]:
+    """Map site id -> earliest ancestry-ordered carrier rank (ints only)."""
+    out: dict[str, int] = {}
+    n = 0
+    with open_text(path, "rt") as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+        i_id = header.index("id")
+        i_c = header.index("carriers")
+        for line in fh:
+            n += 1
+            if n % 500000 == 0:
+                print(f"[ebert_discovery] carriers {n:,}", file=sys.stderr, flush=True)
+            parts = line.rstrip("\n").split("\t")
+            if i_id >= len(parts):
+                continue
+            carriers_field = parts[i_c] if i_c < len(parts) else ""
+            first = first_carrier_rank(carriers_field, sample_rank)
+            if first is not None:
+                out[parts[i_id]] = first
+    print(f"[ebert_discovery] first-rank map: {len(out):,} / {n:,}", file=sys.stderr, flush=True)
+    return out
 
 
 def stratum_key(strata: str, region_class: str, cadd_sv_bin: str) -> str:
@@ -146,6 +170,7 @@ def main() -> None:
     order = order_samples_by_ancestry(ancestry)
     include = set(args.include_sources.split(","))
     sample_rank = {s: i for i, s in enumerate(order)}
+    first_rank_by_id = load_first_carrier_rank(args.carriers, sample_rank)
 
     buckets_by_strata: dict[str, dict[tuple[str, str], list[int]]] = {
         s: defaultdict(list) for s in strata_list
@@ -153,43 +178,40 @@ def main() -> None:
 
     n = 0
     n_used = 0
-    with open_text(args.carriers, "rt") as carr_fh:
-        carr_header = carr_fh.readline().rstrip("\n").split("\t")
-        i_id = carr_header.index("id")
-        i_c = carr_header.index("carriers")
-        sites_iter = iter_sites(args.sites)
-        for site, carr_line in zip(sites_iter, carr_fh):
+    with open_text(args.sites, "rt") as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+        col = {name: i for i, name in enumerate(header)}
+        for required in ("id", "source_vcf", "freq_class"):
+            if required not in col:
+                raise SystemExit(f"sites TSV missing column: {required}")
+        i_id = col["id"]
+        i_src = col["source_vcf"]
+        i_freq = col["freq_class"]
+        i_region = col.get("region_class")
+        i_cadd = col.get("cadd_sv_bin")
+        for line in fh:
             n += 1
             if n % 500000 == 0:
-                print(f"[ebert_discovery] {n:,} rows", file=sys.stderr, flush=True)
-            parts = carr_line.rstrip("\n").split("\t")
-            carr_id = parts[i_id] if i_id < len(parts) else ""
-            if site["id"] != carr_id:
-                raise RuntimeError(
-                    f"sites/carriers order mismatch at row {n}: "
-                    f"site={site['id']} carriers={carr_id}"
-                )
-            if site["source_vcf"] not in include:
+                print(f"[ebert_discovery] sites {n:,}", file=sys.stderr, flush=True)
+            parts = line.rstrip("\n").split("\t")
+            if parts[i_src] not in include:
                 continue
-            carriers_field = parts[i_c] if i_c < len(parts) else ""
-            first = first_carrier_rank(carriers_field, sample_rank)
+            first = first_rank_by_id.get(parts[i_id])
             if first is None:
                 continue
             n_used += 1
-            freq = site["freq_class"]
-            region = site.get("region_class", "non_repetitive")
-            cadd = site.get("cadd_sv_bin", "unscored")
+            freq = parts[i_freq]
+            region = parts[i_region] if i_region is not None and i_region < len(parts) else "non_repetitive"
+            cadd = parts[i_cadd] if i_cadd is not None and i_cadd < len(parts) else "unscored"
             for strata in strata_list:
                 sk = stratum_key(strata, region, cadd)
                 buckets_by_strata[strata][(sk, freq)].append(first)
 
-        extra_site = next(sites_iter, None)
-        extra_carr = next(carr_fh, None)
-        if extra_site is not None or extra_carr is not None:
-            raise RuntimeError("sites and carriers TSV lengths differ")
+    # Free the join map before writing long discovery TSVs.
+    first_rank_by_id.clear()
 
     print(
-        f"[ebert_discovery] scanned {n:,} rows; used {n_used:,} for discovery",
+        f"[ebert_discovery] scanned {n:,} sites; used {n_used:,} for discovery",
         file=sys.stderr,
         flush=True,
     )

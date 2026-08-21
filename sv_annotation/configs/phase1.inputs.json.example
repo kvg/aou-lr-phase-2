@@ -7,5 +7,5 @@
   "AnnotateSvCallset.sample_ancestry_tsv": "gs://BUCKET/metadata/phase1.sample_ancestry.tsv",
   "AnnotateSvCallset.caddsv_annotations_tar": "gs://BUCKET/refs/caddsv/caddsv-v2.0-annotations.tar.gz",
   "AnnotateSvCallset.prefix": "aou_lr_phase1",
-  "AnnotateSvCallset.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.5"
+  "AnnotateSvCallset.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
 }

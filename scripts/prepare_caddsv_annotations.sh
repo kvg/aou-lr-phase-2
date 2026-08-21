@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-IMAGE="${SV_ANNOTATION_IMAGE:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.5}"
+IMAGE="${SV_ANNOTATION_IMAGE:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6}"
 OUT="${1:-$ROOT/caddsv-v2.0-annotations.tar.gz}"
 
 mkdir -p "$(dirname "$OUT")"

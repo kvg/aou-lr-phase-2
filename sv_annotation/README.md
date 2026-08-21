@@ -39,7 +39,7 @@ python3 -m pytest tests/ -q
 
 ```bash
 cd sv_annotation
-./build_docker.sh                 # Cloud Build → aou-sv-annotation:0.1.5
+./build_docker.sh                 # Cloud Build → aou-sv-annotation:0.1.6
 # or: ./build_docker.sh --local --push
 ```
 

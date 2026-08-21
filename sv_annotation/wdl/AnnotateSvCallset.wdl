@@ -270,9 +270,7 @@ task IntegrateAndSummarize {
         --out-json ~{prefix}.manuscript_counts.json
     fi
 
-    # Discovery: stream main scored sites + carriers in lockstep (same order).
-    # Do not use the unified table here — it reorders/drops main∩large rows and
-    # would break the 1:1 join with main.carriers.tsv.
+    # Discovery joins main scored sites to carriers by variant id (order-independent).
     python3 /opt/aou_sv/scripts/ebert_discovery.py \
       --sites "~{main_sites}" \
       --carriers "~{main_carriers}" \
