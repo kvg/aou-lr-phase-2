@@ -9,18 +9,22 @@ task BuildSaigePlinkAndSparseGRM {
     Array[File] grm_vcfs
     File analysis_samples
     File build_script
+    File make_plink_keep_script
     Float relatedness_cutoff = 0.05
     Int num_random_markers = 2000
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 300
-    Int preemptible = 2
+    # GRM build is expensive; avoid preemption (matches Tractor Mix MakeGRM / FitNull).
+    Int preemptible = 0
   }
 
   command <<<
     set -euo pipefail
     chmod +x "~{build_script}"
+    # Localized build_script is alone in its cromwell dir; point at staged helper.
+    export MAKE_PLINK_KEEP_PY="~{make_plink_keep_script}"
     "~{build_script}" \
       --analysis-samples "~{analysis_samples}" \
       --relatedness-cutoff ~{relatedness_cutoff} \
@@ -71,9 +75,10 @@ task FitSaigeNull {
     File fit_null_script
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
-    Int memory_gb = 16
+    Int memory_gb = 32
     Int disk_gb = 100
-    Int preemptible = 2
+    # Null fit is multi-hour; do not preempt (matches TractorMixPilot.FitNull).
+    Int preemptible = 0
   }
 
   command <<<
@@ -131,7 +136,8 @@ task RunSaigeStep2 {
     File variance_ratio
     File samples_used
     File run_step2_script
-    Int min_mac = 20
+    # Match Tractor-Mix AC_threshold=50 for calibration comparisons.
+    Int min_mac = 50
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
     Int cpu = 8
     Int memory_gb = 16
@@ -193,12 +199,14 @@ workflow SaigePilot {
     Array[File] grm_vcfs
 
     File build_saige_grm_script
+    File make_plink_keep_script
     File fit_saige_null_script
     File run_saige_step2_script
 
     Float relatedness_cutoff = 0.05
     Int num_random_markers = 2000
-    Int min_mac = 20
+    # Match Tractor-Mix AC_threshold=50 for calibration comparisons.
+    Int min_mac = 50
 
     # Shared image for all tasks. allowNestedInputs is true, so individual
     # tasks can still override docker when iterating (e.g. SaigePilot.Score.docker).
@@ -212,6 +220,7 @@ workflow SaigePilot {
       grm_vcfs = grm_vcfs,
       analysis_samples = analysis_samples,
       build_script = build_saige_grm_script,
+      make_plink_keep_script = make_plink_keep_script,
       relatedness_cutoff = relatedness_cutoff,
       num_random_markers = num_random_markers,
       docker = docker

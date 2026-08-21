@@ -81,7 +81,20 @@ if (!file.exists(var_ratio)) {
 
 sample_arg <- ""
 if (!is.na(opt$sample_file) && nzchar(opt$sample_file) && file.exists(opt$sample_file)) {
+  # For VCF input SAIGE >=0.38 does not require sampleFile, but passing the
+  # Step1 complete-case IDs keeps Step2 aligned with the null cohort.
   sample_arg <- paste0("--sampleFile=", shQuote(opt$sample_file))
+}
+
+# Step2 has no --nThreads; pin BLAS/OpenMP to the WDL cpu allotment.
+Sys.setenv(
+  OMP_NUM_THREADS = as.character(opt$n_threads),
+  OPENBLAS_NUM_THREADS = as.character(opt$n_threads),
+  MKL_NUM_THREADS = as.character(opt$n_threads)
+)
+if (requireNamespace("RhpcBLASctl", quietly = TRUE)) {
+  RhpcBLASctl::blas_set_num_threads(opt$n_threads)
+  RhpcBLASctl::omp_set_num_threads(opt$n_threads)
 }
 
 cmd <- paste(

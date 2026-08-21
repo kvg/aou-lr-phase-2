@@ -97,9 +97,16 @@ Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/s
    `docker` default is `0.4.2`. For Score-only image iteration, override nested
    `TractorMixPilot.Score.docker` (`allowNestedInputs: true`).
 
-5. After Tractor-Mix succeeds, optionally submit SAIGE with the same cohort
-   (`configs/saige.inputs.*.json.example`), then run
+5. After Tractor-Mix succeeds, submit SAIGE with the same cohort
+   (`SaigePilot.wdl` + `configs/saige.inputs.*.json.example`), then run
    `notebooks/tractor_02_qc_results.ipynb`.
+
+   SAIGE inputs mirror Tractor: same `analysis_samples` / `pheno_cov` /
+   `selected_phenotypes` / `grm_vcfs`, plus staged
+   `build_saige_plink_and_grm.sh`, `make_plink_keep.py`, `fit_saige_null.R`,
+   `run_saige_step2.R`. Default `min_mac=50` matches Tractor `ac_threshold`.
+   Image `0.4.2` already includes SAIGE 1.3.3, PLINK2, and bcftools — no
+   rebuild needed for SAIGE-only iteration.
 
 ## Cohort covariates (rebuild + atlas)
 
@@ -120,6 +127,7 @@ Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/s
   R-oracle parity and benchmarks: `./scripts/run_oracle_parity_in_docker.sh`,
   `./scripts/bench_realistic_in_docker.sh`. Upstream contribution notes:
   `tractor_mix_score/UPSTREAM.md`.
-- SAIGE: sparse GRM from the same chr1+chr22 markers, logistic null + SPA step2.
+- SAIGE: sparse GRM from the same chr1+chr22 markers, logistic null + SPA step2
+  (`--vcfField=GT`, `min_mac=50`). BuildGRM / FitNull use `preemptible=0`.
 - Global PCs from covariates (not PC-AiR); relatedness cutoff default `0.05`.
 - Image `0.4.2` ships Alpine-static `extract-tracts-flare` and `tractor-mix-score` (parallel `--threads`), verified to exec on `wzhou88/saige:1.3.3` at image-build time.
