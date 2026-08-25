@@ -31,5 +31,8 @@ covariate fills: control rows, global / within-pop `lr_PC*`, ancestry Rule A
 | `lr_ancestry_knn_fills.tsv` | 80 ancestry fills (`from_population` / `lr_pc_knn`) |
 | `lr_soft_field_fills.tsv` | 4 soft field fills (`population` / `sex_at_birth`) |
 
+Replay soft fills: `scripts/apply_lr_soft_field_fills.py` (add `--discover` to
+catch new joint-callset gaps).
+
 Mainline notebook for ancestry: `notebooks/tractor_05a_fill_lr_ancestry.ipynb`
 (CLI: `scripts/fill_lr_ancestry_from_pcs.py`).

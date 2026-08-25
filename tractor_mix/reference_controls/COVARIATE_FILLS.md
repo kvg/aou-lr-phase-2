@@ -36,7 +36,7 @@ Rebuild source covariates, then apply LR fills in this order:
 3. `notebooks/tractor_05a_fill_lr_ancestry.ipynb` (or `scripts/fill_lr_ancestry_from_pcs.py`) — ancestry / population gaps
 4. `notebooks/tractor_05b_pca_within_population.ipynb` — produce `population_pcs.tsv`
 5. `scripts/merge_lr_pop_pcs_into_covariates.py` — `lr_pop_PC*`
-6. Soft field backfills documented below (`population` / `sex_at_birth` nits)
+6. `scripts/apply_lr_soft_field_fills.py` — soft `population` / `sex_at_birth` nits
 
 Canonical PC inputs:
 
@@ -144,10 +144,19 @@ Audit `method`: `lr_pc_knn`.
 
 ## 5. Soft field backfills (joint-callset nits)
 
+**Script:** `scripts/apply_lr_soft_field_fills.py`  
 **Audit:** `lr_soft_field_fills.tsv` (**4** rows)
 
+```bash
+python3 scripts/apply_lr_soft_field_fills.py \
+  --audit tractor_mix/reference_controls/lr_soft_field_fills.tsv
+# optional after rebuilds:
+#   --discover
+```
+
 Applied after PC/ancestry merges so continental population and usable sex are
-complete for every `has_lr_pcs` sample.
+complete for every `has_lr_pcs` sample. Default mode replays the audit; `--discover`
+also fills any remaining joint-callset gaps with the same rules.
 
 | research_id | Field | Before | After | Method |
 | --- | --- | --- | --- | --- |
@@ -185,7 +194,7 @@ After this step: joint callset missing `population` = **0**, missing
 | --- | --- |
 | `control_sample_metadata.tsv` | Control ancestry/sex/SV provenance |
 | `lr_ancestry_knn_fills.tsv` | Ancestry Rule A/B audit (80 rows) |
-| `lr_soft_field_fills.tsv` | Soft `population` / `sex_at_birth` audit (4 rows) |
+| `lr_soft_field_fills.tsv` | Soft `population` / `sex_at_birth` audit (4 rows); replay via `scripts/apply_lr_soft_field_fills.py` |
 | `../pca/deepvariant_lr_v1/global_pcs.tsv` | Global LR PC source |
 | `../pca/deepvariant_lr_v1/population_pcs.tsv` | Within-pop LR PC source |
 | `../covariates.source_rebuilt.csv.gz` | Filled covariates table |

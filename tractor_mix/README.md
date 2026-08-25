@@ -161,10 +161,17 @@ python3 scripts/merge_lr_pop_pcs_into_covariates.py \
 
    Adds `lr_pop_PC1`–`lr_pop_PC32`, `has_lr_pop_pcs`, and `lr_pop_population`
    (does not replace short-read `pop_PC*`).
-6. Soft joint-callset nits (if needed): copy missing `population` from
-   `lr_pop_population`, and missing `sex_at_birth` from `inferred_sex`
-   (`XX`→`Female`, `XY`→`Male`). Audit:
-   `reference_controls/lr_soft_field_fills.tsv`.
+6. Soft joint-callset nits (`population` / `sex_at_birth`):
+
+```bash
+python3 scripts/apply_lr_soft_field_fills.py \
+  --audit tractor_mix/reference_controls/lr_soft_field_fills.tsv
+```
+
+   Replays the audit TSV. Add `--discover` after a rebuild to catch any new
+   `has_lr_pcs` gaps with the same rules (`lr_pop_population` → `population`,
+   `inferred_sex` XX/XY → Female/Male). Does not overwrite sentinels like
+   `PMI: Skip`.
 7. Run `notebooks/tractor_03_cov_summarize.ipynb` → inline QC plus
    `summaries/{figures,tables,manuscript}/` (gitignored). Small crosstab cells
    (`n < 20`) are redacted in exports.
