@@ -1,0 +1,24 @@
+[package]
+name = "propagate-annotations"
+version = "0.3.1"
+edition = "2021"
+rust-version = "1.80"
+description = "Union SNV/indel, SV, and FLARE into one annotated callset"
+license = "MIT"
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+memchr = "2"
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "propagate-annotations"
+path = "src/main.rs"

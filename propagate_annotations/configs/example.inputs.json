@@ -1,0 +1,18 @@
+{
+  "PropagateAnnotations.chromosome": "chr22",
+  "PropagateAnnotations.snv_indel_vcf": "gs://BUCKET/callsets/aou_lr_phase2_v1.chr22.vcf.gz",
+  "PropagateAnnotations.sv_vcf": "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf",
+  "PropagateAnnotations.sv_vcf_index": "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf.csi",
+  "PropagateAnnotations.flare_vcf": "gs://BUCKET/flare/aou_lr_phase2_v1.chr22.anc.vcf.gz",
+  "PropagateAnnotations.prefix": "aou_lr_phase2_v1.chr22",
+  "PropagateAnnotations.sv_is_whole_genome": true,
+  "PropagateAnnotations.n_shards": 8,
+  "PropagateAnnotations.min_match_rate_flare": 0.95,
+  "PropagateAnnotations.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-propagate-annotations:0.3.1",
+  "PropagateAnnotations.cpu": 4,
+  "PropagateAnnotations.memory_gb": 8,
+  "PropagateAnnotations.disk_gb_floor": 100,
+  "PropagateAnnotations.disk_gb_multiplier": 2.0,
+  "PropagateAnnotations.shard_disk_gb_floor": 50,
+  "PropagateAnnotations.shard_disk_gb_multiplier": 3.0
+}

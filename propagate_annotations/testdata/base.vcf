@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr22>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2
+chr22	100	rs1	A	G	30	PASS	.	GT	0/1	0/0
+chr22	200	rs2	C	T	25	PASS	.	GT	0/0	1/1
+chr22	300	.	T	C	20	.	.	GT	./.	0/0
+chr22	400	rs4	G	A	40	PASS	.	GT	0/1	0/0
+chr22	500	sv_del	N	<DEL>	10	PASS	.	GT	0/1	./.
