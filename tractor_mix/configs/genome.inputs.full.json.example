@@ -1,5 +1,5 @@
 {
-  "_comment": "TractorMixGenome LIMITED covariates. chroms and flare_vcfs must be parallel (same order). Smoke example uses chr21+chr22; for full autosomes run: python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes --grm-chroms chr1 chr22. GRM stays small (chr1+chr22) — do not point grm_vcfs at all scan chroms.",
+  "_comment": "TractorMixGenome FULL (recommended) covariates = limited + coverage + GC. Same chrom/GRM notes as genome.inputs.limited.json.example.",
   "TractorMixGenome.chroms": ["chr21", "chr22"],
   "TractorMixGenome.flare_vcfs": [
     "gs://BUCKET/REPLACE_chr21.anc.vcf.gz",
@@ -10,7 +10,7 @@
   "TractorMixGenome.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
   "TractorMixGenome.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
   "TractorMixGenome.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
-  "TractorMixGenome.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_limited.txt",
+  "TractorMixGenome.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_full.txt",
 
   "TractorMixGenome.grm_vcfs": [
     "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/c70fc078-7d46-4da1-8f59-30a7ebd4b738/flare/81ea1db7-94da-4a6b-b869-35b292d2f9a1/call-flare_task/aou_lr_phase2_v1.chr1.anc.vcf.gz",

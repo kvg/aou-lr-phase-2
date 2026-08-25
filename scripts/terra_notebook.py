@@ -38,11 +38,18 @@ def sync_scripts_from_bucket(dest: Path | None = None) -> Path:
     return dest
 
 
-def ensure_scripts_on_path(*required: str) -> Path:
+def ensure_scripts_on_path(*required: str, refresh: bool | None = None) -> Path:
     """Ensure scripts/ exists on sys.path and required files are present."""
+    if refresh is None:
+        refresh = os.environ.get("TERRA_SYNC_SCRIPTS", os.environ.get("PCA_SYNC_SCRIPTS", "")).lower() in {
+            "1",
+            "true",
+            "yes",
+        }
     scripts_dir = find_scripts_dir()
-    if scripts_dir is None:
-        scripts_dir = sync_scripts_from_bucket()
+    if scripts_dir is None or refresh:
+        dest = scripts_dir if scripts_dir is not None else None
+        scripts_dir = sync_scripts_from_bucket(dest)
     path = str(scripts_dir)
     if path not in sys.path:
         sys.path.insert(0, path)

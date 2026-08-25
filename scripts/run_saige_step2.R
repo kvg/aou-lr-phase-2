@@ -78,21 +78,13 @@ n_fix <- as.integer(system(paste(
 message(sprintf("FORMAT/GT header lines: %d -> %d", n_orig, n_fix))
 status <- system(paste("bcftools reheader -h", shQuote(hdr), "-o", shQuote(vcf_fixed), shQuote(vcf_in)))
 if (status != 0) stop("bcftools reheader failed")
-status <- system(paste("bcftools index -t", shQuote(vcf_fixed)))
-if (status != 0) {
-  status <- system(paste("bcftools index -c", shQuote(vcf_fixed)))
-  if (status != 0) stop("bcftools index failed on fixed VCF")
-}
+# SAIGE 1.3.3 checkGenoInput requires the index path to be <vcf>.csi (not .tbi).
+status <- system(paste("bcftools index -c -f", shQuote(vcf_fixed)))
+if (status != 0) stop("bcftools index -c failed on fixed VCF")
 opt$vcf <- vcf_fixed
 
-# Ensure VCF index exists beside the localized file
-idx_tbi <- paste0(opt$vcf, ".tbi")
 idx_csi <- paste0(opt$vcf, ".csi")
-if (!file.exists(idx_tbi) && !file.exists(idx_csi)) {
-  message("Indexing VCF with bcftools...")
-  status <- system(paste("bcftools index -t", shQuote(opt$vcf)))
-  if (status != 0) stop("bcftools index failed")
-}
+if (!file.exists(idx_csi)) stop(paste("Missing CSI index:", idx_csi))
 
 gmmat <- paste0(opt$null_prefix, ".rda")
 if (!file.exists(gmmat)) {
@@ -136,7 +128,7 @@ if (requireNamespace("RhpcBLASctl", quietly = TRUE)) {
 cmd <- paste(
   "Rscript", shQuote(opt$step2_r),
   paste0("--vcfFile=", shQuote(opt$vcf)),
-  paste0("--vcfFileIndex=", shQuote(if (file.exists(idx_tbi)) idx_tbi else idx_csi)),
+  paste0("--vcfFileIndex=", shQuote(idx_csi)),
   "--vcfField=GT",
   paste0("--chrom=", opt$chrom),
   paste0("--minMAC=", opt$min_mac),

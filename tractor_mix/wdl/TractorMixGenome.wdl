@@ -7,6 +7,8 @@ version 1.0
 #   FitNull once per phenotype
 #   Extract once per chromosome
 #   Score once per (phenotype × chromosome)
+#   Concat → one merged TSV per phenotype
+#   Summarize → phenotype-named copies, λGC / QQ / Manhattan, PheWAS hit table
 #
 # Terra chrom-set launch: pass parallel Arrays
 #   flare_vcfs <- this.chrom_set.model_chr_anc_vcf
@@ -376,6 +378,168 @@ task Score {
   }
 }
 
+task ConcatPhenotypeScores {
+  input {
+    String phenotype
+    # One Tractor-Mix TSV per chromosome (identical header), chrom order arbitrary.
+    Array[File] shard_tsvs
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
+    Int cpu = 1
+    Int memory_gb = 4
+    Int disk_gb_floor = 20
+    Float disk_gb_multiplier = 2.5
+    Int preemptible = 1
+  }
+
+  Int disk_gb = ceil(size(shard_tsvs, "GB") * disk_gb_multiplier) + disk_gb_floor
+
+  command <<<
+    set -euo pipefail
+    PHENO=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{phenotype}")
+    OUT="${PHENO}.tractor_mix.tsv"
+    export PHENO OUT
+    LIST=shards.txt
+    cat > "${LIST}" <<'EOF'
+~{sep="\n" shard_tsvs}
+EOF
+
+    python3 - <<'PY'
+from pathlib import Path
+import os
+
+pheno = os.environ["PHENO"]
+out = Path(os.environ["OUT"])
+shards = [Path(l.strip()) for l in Path("shards.txt").read_text().splitlines() if l.strip()]
+if not shards:
+    raise SystemExit("no shard TSVs to concatenate")
+
+header = None
+nrows = 0
+tmp = Path(str(out) + ".unsorted")
+with tmp.open("w", encoding="utf-8") as fo:
+    for path in shards:
+        with path.open(encoding="utf-8") as fi:
+            h = fi.readline()
+            if not h:
+                raise SystemExit(f"empty shard: {path}")
+            if header is None:
+                header = h
+                fo.write(header)
+            elif h != header:
+                raise SystemExit(
+                    f"header mismatch in {path}:\n  got: {h!r}\n  exp: {header!r}"
+                )
+            for line in fi:
+                if line.strip():
+                    fo.write(line)
+                    nrows += 1
+
+# Stable genomic order for QC / Manhattan plots.
+hdr = header.rstrip("\n")
+body = tmp.read_text(encoding="utf-8").splitlines()[1:]
+body_sorted = sorted(
+    body,
+    key=lambda line: (
+        line.split("\t", 2)[0],
+        int(line.split("\t", 2)[1]) if line.split("\t", 2)[1].isdigit() else line.split("\t", 2)[1],
+    ),
+)
+with out.open("w", encoding="utf-8") as fo:
+    fo.write(hdr + "\n")
+    for line in body_sorted:
+        fo.write(line + "\n")
+tmp.unlink()
+print(f"Wrote {out} ({nrows} variant rows from {len(shards)} chrom shards for {pheno})")
+PY
+    wc -l "${OUT}"
+    # Stable WDL output path (sanitized phenotype may differ from ~{phenotype}).
+    cp "${OUT}" merged.tractor_mix.tsv
+    printf '%s\n' "${OUT}" > merged.output_name.txt
+  >>>
+
+  output {
+    File merged_tsv = "merged.tractor_mix.tsv"
+    File merged_name = "merged.output_name.txt"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
+# Cohort-level QC + phenotype-named result copies / manifest for Terra + notebooks.
+task SummarizeGenomeResults {
+  input {
+    Array[File] result_tsvs
+    Array[String] phenotypes
+    File pheno_cov
+    File summarize_script
+    Float p_threshold = 0.00000005
+    Int top_n = 50
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/tractor-mix-pilot:0.4.2"
+    Int cpu = 2
+    Int memory_gb = 16
+    Int disk_gb_floor = 50
+    Float disk_gb_multiplier = 2.0
+    Int preemptible = 1
+  }
+
+  Int disk_gb = ceil(size(result_tsvs, "GB") * disk_gb_multiplier) + disk_gb_floor
+
+  command <<<
+    set -euo pipefail
+    mkdir -p summary
+    cat > phenotypes.txt <<'EOF'
+~{sep="\n" phenotypes}
+EOF
+    cat > results.txt <<'EOF'
+~{sep="\n" result_tsvs}
+EOF
+
+    mapfile -t RESULT_ARR < results.txt
+    mapfile -t PHENO_ARR < phenotypes.txt
+    if [[ "${#RESULT_ARR[@]}" -ne "${#PHENO_ARR[@]}" ]]; then
+      echo "results (${#RESULT_ARR[@]}) != phenotypes (${#PHENO_ARR[@]})" >&2
+      exit 1
+    fi
+
+    python3 "~{summarize_script}" \
+      --results "${RESULT_ARR[@]}" \
+      --phenotypes "${PHENO_ARR[@]}" \
+      --pheno-cov "~{pheno_cov}" \
+      --out-dir summary \
+      --top-n ~{top_n} \
+      --p-threshold ~{p_threshold}
+
+    ls -lh summary/results_by_phenotype/ || true
+    wc -l summary/results_manifest.tsv summary/calibration_summary.tsv
+  >>>
+
+  output {
+    File results_manifest = "summary/results_manifest.tsv"
+    File calibration_summary = "summary/calibration_summary.tsv"
+    File calibration_summary_md = "summary/calibration_summary.md"
+    File lambda_gc_wide = "summary/lambda_gc_wide.tsv"
+    File phewas_genomewide_hits = "summary/phewas_genomewide_hits.tsv"
+    Array[File] results_tsvs_named = glob("summary/results_by_phenotype/*.tractor_mix.tsv")
+    Array[File] qq_plots = glob("summary/qc/*/qq_joint_acpass.png")
+    Array[File] manhattan_plots = glob("summary/qc/*/manhattan_joint.png")
+    Array[File] top_hits_tables = glob("summary/qc/*/top_hits.tsv")
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
 workflow TractorMixGenome {
   input {
     # Parallel arrays (same length / order). Terra chrom-set:
@@ -397,11 +561,14 @@ workflow TractorMixGenome {
     File sparsify_grm_script
     File fit_null_script
     File make_plink_keep_script
+    File summarize_script
 
     Float kinship_threshold = 0.05
     Int ac_threshold = 50
     Int score_threads = 8
     Int chunk_size = 2048
+    Float summarize_p_threshold = 0.00000005
+    Int summarize_top_n = 50
 
     Int extract_cpu = 4
     Int extract_memory_gb = 16
@@ -482,6 +649,30 @@ workflow TractorMixGenome {
     }
   }
 
+  # Score.results_tsv is Array[Array[File]] with outer=chrom, inner=phenotype.
+  # Transpose → one array of chrom shards per phenotype for QC-friendly merges.
+  Array[Array[File]] results_by_pheno = transpose(Score.results_tsv)
+
+  scatter (i in range(length(phenotypes))) {
+    call ConcatPhenotypeScores as Concat {
+      input:
+        phenotype = phenotypes[i],
+        shard_tsvs = results_by_pheno[i],
+        docker = docker
+    }
+  }
+
+  call SummarizeGenomeResults as Summarize {
+    input:
+      result_tsvs = Concat.merged_tsv,
+      phenotypes = phenotypes,
+      pheno_cov = pheno_cov,
+      summarize_script = summarize_script,
+      p_threshold = summarize_p_threshold,
+      top_n = summarize_top_n,
+      docker = docker
+  }
+
   output {
     Int n_chroms = Check.n_chroms_out
     File grm_sparse_rds = MakeGRM.grm_sparse_rds
@@ -490,14 +681,27 @@ workflow TractorMixGenome {
     File grm_bands = MakeGRM.grm_bands
     File grm_close_pairs = MakeGRM.grm_close_pairs
     Array[File] null_model_rds = FitNull.null_model_rds
-    # Outer = chrom, inner = phenotype (same order as chroms / phenotypes).
-    Array[Array[File]] results_tsvs = Score.results_tsv
+    # Ordered merged TSVs (WDL-stable names) + parallel true phenotype filenames.
+    Array[File] results_tsvs = Concat.merged_tsv
+    Array[File] results_names = Concat.merged_name
+    # Phenotype-named copies + QC summaries (prefer these for notebooks / data tables).
+    Array[File] results_tsvs_named = Summarize.results_tsvs_named
+    File results_manifest = Summarize.results_manifest
+    File calibration_summary = Summarize.calibration_summary
+    File calibration_summary_md = Summarize.calibration_summary_md
+    File lambda_gc_wide = Summarize.lambda_gc_wide
+    File phewas_genomewide_hits = Summarize.phewas_genomewide_hits
+    Array[File] qq_plots = Summarize.qq_plots
+    Array[File] manhattan_plots = Summarize.manhattan_plots
+    Array[File] top_hits_tables = Summarize.top_hits_tables
+    # Optional per-chrom shards (outer=chrom, inner=phenotype) for debugging.
+    Array[Array[File]] results_tsvs_by_chrom = Score.results_tsv
     Array[Array[File]] dosage_files = Extract.dosage_files
     Array[String] chrom_ids = Extract.chrom_id
   }
 
   meta {
-    description: "Genome-wide Tractor-Mix: shared sparse GRM + nulls; per-chr FLARE extract and score."
+    description: "Genome-wide Tractor-Mix: shared sparse GRM + nulls; per-chr extract/score; phenotype-named QC summary."
     allowNestedInputs: true
   }
 }
