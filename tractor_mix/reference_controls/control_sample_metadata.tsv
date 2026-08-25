@@ -1,0 +1,293 @@
+research_id	is_reference_control	is_phase1_control	ancestry_pred	ancestry_pred_other	sex_at_birth	inferred_sex	population_code	ancestry_source	has_sv_counts	n_sv_del	n_sv_ins
+HG00096	True	False	eur	eur	Male	XY	GBR	1kg_phase3_panel	False		
+HG00097	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00099	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00126	True	False	eur	eur	Male	XY	GBR	1kg_phase3_panel	False		
+HG00128	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00133	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00140	True	False	eur	eur	Male	XY	GBR	1kg_phase3_panel	False		
+HG00146	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00171	True	False	eur	eur	Female	XX	FIN	1kg_phase3_panel	False		
+HG002	True	True	oth	oth	Male	XY		curated_hprc_giab	True	6350.0	9534.0
+HG00232	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00235	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00253	True	False	eur	eur	Female	XX	GBR	1kg_phase3_panel	False		
+HG00268	True	False	eur	eur	Female	XX	FIN	1kg_phase3_panel	False		
+HG00272	True	False	eur	eur	Female	XX	FIN	1kg_phase3_panel	False		
+HG00280	True	False	eur	eur	Male	XY	FIN	1kg_phase3_panel	False		
+HG00290	True	False	eur	eur	Male	XY	FIN	1kg_phase3_panel	False		
+HG00320	True	False	eur	eur	Female	XX	FIN	1kg_phase3_panel	False		
+HG00321	True	False	eur	eur	Male	XY	FIN	1kg_phase3_panel	False		
+HG00323	True	False	eur	eur	Female	XX	FIN	1kg_phase3_panel	False		
+HG00329	True	False	eur	eur	Male	XY	FIN	1kg_phase3_panel	False		
+HG00344	True	False	eur	eur	Female	XX	FIN	1kg_phase3_panel	False		
+HG00350	True	False	eur	eur	Female	XX	FIN	1kg_phase3_panel	False		
+HG00358	True	False	eur	eur	Male	XY	FIN	1kg_phase3_panel	False		
+HG00408	True	False	eas	eas	Female	XX	CHS	1kg_ped	False		
+HG00423	True	False	eas	eas	Female	XX	CHS	1kg_ped	False		
+HG00438	True	True	eas	eas	Female	XX	CHS	curated_hprc_giab	True	6130.0	9344.0
+HG005	True	True	eas	eas	Male	XY		curated_hprc_giab	True	6254.0	9475.0
+HG00512	True	False	eas	eas	Male	XY	CHS	1kg_ped	False		
+HG00513	True	False	eas	eas	Female	XX	CHS	1kg_phase3_panel	False		
+HG00514	True	False	eas	eas	Female	XX	CHS	1kg_ped	False		
+HG00544	True	False	eas	eas	Female	XX	CHS	1kg_ped	False		
+HG00558	True	False	eas	eas	Female	XX	CHS	1kg_ped	False		
+HG00597	True	False	eas	eas	Female	XX	CHS	1kg_ped	False		
+HG00609	True	False	eas	eas	Male	XY	CHS	1kg_ped	False		
+HG00621	True	True	eas	eas	Male	XY	CHS	curated_hprc_giab	True	6184.0	9323.0
+HG00639	True	False	amr	amr	Female	XX	PUR	1kg_ped	False		
+HG00642	True	False	amr	amr	Male	XY	PUR	1kg_ped	False		
+HG00658	True	False	eas	eas	Male	XY	CHS	1kg_ped	False		
+HG00673	True	True	eas	eas	Male	XY	CHS	curated_hprc_giab	True	6197.0	9252.0
+HG00706	True	False	eas	eas	Male	XY	CHS	1kg_ped	False		
+HG00731	True	False	amr	amr	Male	XY	PUR	1kg_phase3_panel	False		
+HG00732	True	False	amr	amr	Female	XX	PUR	1kg_phase3_panel	False		
+HG00733	True	True	amr	amr	Female	XX	PUR	curated_hprc_giab	True	6239.0	9196.0
+HG00735	True	True	amr	amr	Female	XX	PUR	curated_hprc_giab	True	6293.0	9387.0
+HG00738	True	False	amr	amr	Male	XY	PUR	1kg_ped	False		
+HG00741	True	True	amr	amr	Female	XX	PUR	curated_hprc_giab	True	6330.0	9273.0
+HG00864	True	False	eas	eas	Female	XX	CDX	1kg_phase3_panel	False		
+HG01071	True	True	amr	amr	Female	XX	PUR	curated_hprc_giab	True	6147.0	9149.0
+HG01074	True	False	amr	amr	Male	XY	PUR	1kg_ped	False		
+HG01081	True	False	amr	amr	Female	XX	PUR	1kg_ped	False		
+HG01099	True	False	amr	amr	Male	XY	PUR	1kg_ped	False		
+HG01106	True	True	amr	amr	Male	XY	PUR	curated_hprc_giab	True	6293.0	9424.0
+HG01109	True	True	amr	amr	Male	XY	PUR	curated_hprc_giab	True	6773.0	10085.0
+HG01114	True	False	amr	amr	Female	XX	CLM	1kg_ped	False		
+HG01123	True	True	amr	amr	Female	XX	CLM	curated_hprc_giab	True	6332.0	9423.0
+HG01150	True	False	amr	amr	Female	XX	CLM	1kg_ped	False		
+HG01167	True	False	amr	amr	Male	XY	PUR	1kg_phase3_panel	False		
+HG01175	True	True	amr	amr	Female	XX	PUR	curated_hprc_giab	True	6271.0	9306.0
+HG01192	True	False	amr	amr	Male	XY	PUR	1kg_ped	False		
+HG01243	True	True	amr	amr	Male	XY	PUR	curated_hprc_giab	True	6975.0	9909.0
+HG01252	True	False	amr	amr	Male	XY	CLM	1kg_ped	False		
+HG01255	True	False	amr	amr	Male	XY	CLM	1kg_ped	False		
+HG01258	True	True	amr	amr	Male	XY	CLM	curated_hprc_giab	True	5965.0	9175.0
+HG01261	True	False	amr	amr	Male	XY	CLM	1kg_ped	False		
+HG01346	True	False	amr	amr	Female	XX	CLM	1kg_ped	False		
+HG01352	True	False	amr	amr	Female	XX	CLM	1kg_ped	False		
+HG01358	True	True	amr	amr	Male	XY	CLM	curated_hprc_giab	True	6277.0	9305.0
+HG01361	True	True	amr	amr	Female	XX	CLM	curated_hprc_giab	True	6334.0	9352.0
+HG01433	True	False	amr	amr	Male	XY	CLM	1kg_ped	False		
+HG01457	True	False	amr	amr	Male	XY	CLM	1kg_ped	False		
+HG01496	True	False	amr	amr	Female	XX	CLM	1kg_ped	False		
+HG01505	True	False	eur	eur	Male	XY	IBS	1kg_ped	False		
+HG01530	True	False	eur	eur	Male	XY	IBS	1kg_phase3_panel	False		
+HG01573	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG01596	True	False	eas	eas	Male	XY	KHV	1kg_phase3_panel	False		
+HG01784	True	False	eur	eur	Female	XX	IBS	1kg_phase3_panel	False		
+HG01786	True	False	eur	eur	Female	XX	IBS	1kg_phase3_panel	False		
+HG01884	True	False	afr	afr	Female	XX	ACB	1kg_ped	False		
+HG01890	True	False	afr	afr	Male	XY	ACB	1kg_phase3_panel	False		
+HG01891	True	True	afr	afr	Female	XX	ACB	curated_hprc_giab	True	7467.0	10539.0
+HG01928	True	True	amr	amr	Male	XY	PEL	curated_hprc_giab	True	6016.0	8950.0
+HG01934	True	False	amr	amr	Male	XY	PEL	1kg_ped	False		
+HG01940	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG01943	True	False	amr	amr	Male	XY	PEL	1kg_ped	False		
+HG01952	True	True	amr	amr	Male	XY	PEL	curated_hprc_giab	True	6158.0	9075.0
+HG01960	True	False	afr	afr	Female	XX	ACB	1kg_ped	False		
+HG01969	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG01975	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG01978	True	True	amr	amr	Female	XX	PEL	curated_hprc_giab	True	6050.0	9169.0
+HG01981	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG01993	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG02004	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG02011	True	False	afr	afr	Male	XY	ACB	1kg_ped	False		
+HG02018	True	False	eas	eas	Female	XX	KHV	1kg_ped	False		
+HG02027	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02040	True	False	eas	eas	Male	XY	KHV	1kg_phase3_panel	False		
+HG02055	True	True	afr	afr	Male	XY	ACB	curated_hprc_giab	True	7416.0	10503.0
+HG02056	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02059	True	False	eas	eas	Female	XX	KHV	1kg_ped	False		
+HG02071	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02074	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02080	True	True	eas	eas	Female	XX	KHV	curated_hprc_giab	True	6276.0	9154.0
+HG02083	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02106	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG02109	True	True	afr	afr	Female	XX	ACB	curated_hprc_giab	True	7268.0	10164.0
+HG02129	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02132	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02135	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02145	True	True	afr	afr	Male	XY	ACB	curated_hprc_giab	True	7206.0	10418.0
+HG02148	True	True	amr	amr	Female	XX	PEL	curated_hprc_giab	True	5985.0	8889.0
+HG02155	True	False	eas	eas	Female	XX	CDX	1kg_phase3_panel	False		
+HG02165	True	False	eas	eas	Female	XX	CDX	1kg_phase3_panel	False		
+HG02178	True	False	eas	eas	Female	XX	CDX	1kg_phase3_panel	False		
+HG02257	True	True	afr	afr	Female	XX	ACB	curated_hprc_giab	True	7196.0	10397.0
+HG02258	True	False	afr	afr	Male	XY	ACB	1kg_ped	False		
+HG02273	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG02280	True	False	afr	afr	Female	XX	ACB	1kg_ped	False		
+HG02282	True	False	afr	afr	Female	XX	ACB	1kg_phase3_panel	False		
+HG02293	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
+HG02300	True	False	amr	amr	Male	XY	PEL	1kg_ped	False		
+HG02391	True	False	eas	eas	Male	XY	CDX	1kg_phase3_panel	False		
+HG02392	True	False	eas	eas	Male	XY	CDX	1kg_phase3_panel	False		
+HG02451	True	False	afr	afr	Female	XX	ACB	1kg_ped	False		
+HG02486	True	True	afr	afr	Male	XY	ACB	curated_hprc_giab	True	7208.0	10285.0
+HG02492	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG02514	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
+HG02523	True	False	eas	eas	Female	XX	KHV	1kg_ped	False		
+HG02554	True	False	afr	afr	Male	XY	ACB	1kg_phase3_panel	False		
+HG02559	True	True	afr	afr	Female	XX	ACB	curated_hprc_giab	True	7285.0	10369.0
+HG02572	True	True	afr	afr	Male	XY	GWD	curated_hprc_giab	True	7035.0	10082.0
+HG02583	True	False	afr	afr	Female	XX	GWD	1kg_phase3_panel	False		
+HG02587	True	False	afr	afr	Female	XX	GWD	1kg_ped	False		
+HG02602	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG02615	True	False	afr	afr	Female	XX	GWD	1kg_ped	False		
+HG02622	True	True	afr	afr	Female	XX	GWD	curated_hprc_giab	True	7465.0	10475.0
+HG02630	True	True	afr	afr	Female	XX	GWD	curated_hprc_giab	True	7401.0	10409.0
+HG02647	True	False	afr	afr	Male	XY	GWD	1kg_ped	False		
+HG02666	True	False	afr	afr	Male	XY	GWD	1kg_phase3_panel	False		
+HG02668	True	False	afr	afr	Male	XY	GWD	1kg_ped	False		
+HG02698	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG02717	True	True	afr	afr	Male	XY	GWD	curated_hprc_giab	True	7399.0	10325.0
+HG02723	True	True	afr	afr	Female	XX	GWD	curated_hprc_giab	True	7311.0	10444.0
+HG02735	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG02738	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG02769	True	False	afr	afr	Female	XX	GWD	1kg_phase3_panel	False		
+HG02809	True	False	afr	afr	Female	XX	GWD	1kg_ped	False		
+HG02818	True	True	afr	afr	Female	XX	GWD	curated_hprc_giab	True	7192.0	10103.0
+HG02841	True	False	afr	afr	Female	XX	GWD	1kg_ped	False		
+HG02886	True	True	afr	afr	Female	XX	GWD	curated_hprc_giab	True	7375.0	10285.0
+HG02922	True	False	afr	afr	Female	XX	ESN	1kg_phase3_panel	False		
+HG02953	True	False	afr	afr	Male	XY	ESN	1kg_phase3_panel	False		
+HG02965	True	False	afr	afr	Male	XY	ESN	1kg_ped	False		
+HG02976	True	False	afr	afr	Female	XX	ESN	1kg_phase3_panel	False		
+HG02984	True	False	afr	afr	Male	XY	GWD	1kg_ped	False		
+HG03009	True	False	sas	sas	Male	XY	BEB	1kg_phase3_panel	False		
+HG03017	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG03041	True	False	afr	afr	Female	XX	GWD	1kg_ped	False		
+HG03050	True	False	afr	afr	Male	XY	GWD	1kg_ped	False		
+HG03065	True	False	afr	afr	Male	XY	MSL	1kg_ped	False		
+HG03098	True	True	afr	afr	Male	XY	MSL	curated_hprc_giab	True	7277.0	10341.0
+HG03130	True	False	afr	afr	Male	XY	ESN	1kg_phase3_panel	False		
+HG03139	True	False	afr	afr	Male	XY	ESN	1kg_phase3_panel	False		
+HG03195	True	False	afr	afr	Female	XX	ESN	1kg_phase3_panel	False		
+HG03209	True	False	afr	afr	Male	XY	MSL	1kg_phase3_panel	False		
+HG03225	True	False	afr	afr	Male	XY	MSL	1kg_phase3_panel	False		
+HG03239	True	False	sas	sas	Female	XX	PJL	1kg_ped	False		
+HG03248	True	False	afr	afr	Male	XY	GWD	1kg_ped	False		
+HG03270	True	False	afr	afr	Female	XX	ESN	1kg_phase3_panel	False		
+HG03369	True	False	afr	afr	Female	XX	ESN	1kg_phase3_panel	False		
+HG03371	True	False	afr	afr	Male	XY	ESN	1kg_ped	False		
+HG03452	True	False	afr	afr	Female	XX	MSL	1kg_phase3_panel	False		
+HG03453	True	True	afr	afr	Female	XX	MSL	curated_hprc_giab	True	7387.0	10454.0
+HG03456	True	False	afr	afr	Male	XY	MSL	1kg_ped	False		
+HG03470	True	False	afr	afr	Female	XX	MSL	1kg_phase3_panel	False		
+HG03471	True	False	afr	afr	Male	XY	MSL	1kg_ped	False		
+HG03486	True	True	afr	afr	Female	XX	MSL	curated_hprc_giab	True	7542.0	10567.0
+HG03492	True	True	sas	sas	Male	XY	PJL	curated_hprc_giab	True	6393.0	9101.0
+HG03516	True	True	afr	afr	Female	XX	ESN	curated_hprc_giab	True	7284.0	10560.0
+HG03520	True	False	afr	afr	Female	XX	ESN	1kg_phase3_panel	False		
+HG03521	True	False	afr	afr	Male	XY	ESN	1kg_phase3_panel	False		
+HG03540	True	True	afr	afr	Female	XX	GWD	curated_hprc_giab	True	7366.0	10245.0
+HG03579	True	True	afr	afr	Male	XY	MSL	curated_hprc_giab	True	7401.0	10301.0
+HG03583	True	False	afr	afr	Female	XX	MSL	1kg_phase3_panel	False		
+HG03654	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG03669	True	False	sas	sas	Female	XX	PJL	1kg_ped	False		
+HG03683	True	False	sas	sas	Female	XX	STU	1kg_ped	False		
+HG03688	True	False	sas	sas	Male	XY	STU	1kg_ped	False		
+HG03704	True	False	sas	sas	Female	XX	PJL	1kg_ped	False		
+HG03710	True	False	sas	sas	Male	XY	PJL	1kg_ped	False		
+HG03732	True	False	sas	sas	Male	XY	ITU	1kg_ped	False		
+HG03742	True	False	sas	sas	Male	XY	ITU	1kg_phase3_panel	False		
+HG03784	True	False	sas	sas	Female	XX	ITU	1kg_phase3_panel	False		
+HG03804	True	False	sas	sas	Female	XX	BEB	1kg_ped	False		
+HG03807	True	False	sas	sas	Female	XX	BEB	1kg_ped	False		
+HG03816	True	False	sas	sas	Female	XX	BEB	1kg_ped	False		
+HG03831	True	False	sas	sas	Female	XX	BEB	1kg_ped	False		
+HG03834	True	False	sas	sas	Female	XX	BEB	1kg_ped	False		
+HG03874	True	False	sas	sas	Female	XX	ITU	1kg_phase3_panel	False		
+HG03927	True	False	sas	sas	Female	XX	BEB	1kg_ped	False		
+HG03942	True	False	sas	sas	Male	XY	BEB	1kg_ped	False		
+HG04036	True	False	sas	sas	Female	XX	STU	1kg_ped	False		
+HG04115	True	False	sas	sas	Male	XY	STU	1kg_ped	False		
+HG04157	True	False	sas	sas	Male	XY	BEB	1kg_ped	False		
+HG04160	True	False	sas	sas	Male	XY	BEB	1kg_ped	False		
+HG04184	True	False	sas	sas	Female	XX	BEB	1kg_ped	False		
+HG04187	True	False	sas	sas	Male	XY	BEB	1kg_ped	False		
+HG04199	True	False	sas	sas	Male	XY	STU	1kg_ped	False		
+HG04204	True	False	sas	sas	Male	XY	STU	1kg_ped	False		
+HG04217	True	False	sas	sas	Female	XX	ITU	1kg_ped	False		
+HG04228	True	False	sas	sas	Male	XY	STU	1kg_ped	False		
+HG06807	True	False	afr	afr	Female	XX	ASL	hprc_release2	False		
+NA12329	True	False	eur	eur	Female	XX	CEU	1kg_ped	False		
+NA18505	True	False	afr	afr	Female	XX	YRI	1kg_phase3_panel	False		
+NA18508	True	False	afr	afr	Female	XX	YRI	1kg_phase3_panel	False		
+NA18522	True	False	afr	afr	Male	XY	YRI	1kg_phase3_panel	False		
+NA18534	True	False	eas	eas	Male	XY	CHB	1kg_phase3_panel	False		
+NA18565	True	False	eas	eas	Female	XX	CHB	1kg_phase3_panel	False		
+NA18570	True	False	eas	eas	Female	XX	CHB	1kg_phase3_panel	False		
+NA18608	True	False	eas	eas	Male	XY	CHB	1kg_phase3_panel	False		
+NA18620	True	False	eas	eas	Male	XY	CHB	1kg_phase3_panel	False		
+NA18747	True	False	eas	eas	Male	XY	CHB	1kg_phase3_panel	False		
+NA18879	True	False	afr	afr	Male	XY	YRI	1kg_phase3_panel	False		
+NA18906	True	True	afr	afr	Female	XX	YRI	curated_hprc_giab	True	7376.0	10459.0
+NA18939	True	False	eas	eas	Female	XX	JPT	1kg_phase3_panel	False		
+NA18940	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18943	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18944	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18945	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18948	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18952	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18959	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18960	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18967	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18970	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18971	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18974	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18976	True	False	eas	eas	Female	XX	JPT	1kg_phase3_panel	False		
+NA18982	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18983	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA18989	True	False	eas	eas	Male	XY	JPT	1kg_phase3_panel	False		
+NA19036	True	False	afr	afr	Female	XX	LWK	1kg_phase3_panel	False		
+NA19043	True	False	afr	afr	Male	XY	LWK	1kg_phase3_panel	False		
+NA19087	True	False	eas	eas	Female	XX	JPT	1kg_phase3_panel	False		
+NA19129	True	False	afr	afr	Female	XX	YRI	1kg_phase3_panel	False		
+NA19159	True	False	afr	afr	Female	XX	YRI	1kg_phase3_panel	False		
+NA19185	True	False	afr	afr	Female	XX	YRI	1kg_phase3_panel	False		
+NA19238	True	False	afr	afr	Female	XX	YRI	1kg_phase3_panel	False		
+NA19239	True	False	afr	afr	Male	XY	YRI	1kg_phase3_panel	False		
+NA19240	True	True	afr	afr	Female	XX	YRI	curated_hprc_giab	True	7302.0	10294.0
+NA19317	True	False	afr	afr	Male	XY	LWK	1kg_phase3_panel	False		
+NA19331	True	False	afr	afr	Male	XY	LWK	1kg_phase3_panel	False		
+NA19338	True	False	afr	afr	Female	XX	LWK	1kg_phase3_panel	False		
+NA19347	True	False	afr	afr	Male	XY	LWK	1kg_phase3_panel	False		
+NA19384	True	False	afr	afr	Male	XY	LWK	1kg_phase3_panel	False		
+NA19391	True	False	afr	afr	Female	XX	LWK	1kg_phase3_panel	False		
+NA19434	True	False	afr	afr	Female	XX	LWK	1kg_phase3_panel	False		
+NA19443	True	False	afr	afr	Male	XY	LWK	1kg_phase3_panel	False		
+NA19468	True	False	afr	afr	Female	XX	LWK	1kg_phase3_panel	False		
+NA19650	True	False	amr	amr	Male	XY	MXL	1kg_ped	False		
+NA19682	True	False	amr	amr	Male	XY	MXL	1kg_phase3_panel	False		
+NA19700	True	False	afr	afr	Male	XY	ASW	1kg_phase3_panel	False		
+NA19705	True	False	afr	afr	Male	XY	ASW	1kg_ped	False		
+NA19776	True	False	amr	amr	Female	XX	MXL	1kg_phase3_panel	False		
+NA19835	True	False	afr	afr	Female	XX	ASW	1kg_phase3_panel	False		
+NA19836	True	False	afr	afr	Female	XX	ASW	1kg_ped	False		
+NA19909	True	False	afr	afr	Female	XX	ASW	1kg_phase3_panel	False		
+NA19983	True	False	afr	afr	Female	XX	ASW	1kg_ped	False		
+NA20129	True	True	afr	afr	Female	XX	ASW	curated_hprc_giab	True	7127.0	9875.0
+NA20282	True	False	afr	afr	Female	XX	ASW	1kg_phase3_panel	False		
+NA20346	True	False	afr	afr	Male	XY	ASW	1kg_phase3_panel	False		
+NA20355	True	False	afr	afr	Female	XX	ASW	1kg_phase3_panel	False		
+NA20503	True	False	eur	eur	Female	XX	TSI	1kg_phase3_panel	False		
+NA20509	True	False	eur	eur	Male	XY	TSI	1kg_phase3_panel	False		
+NA20752	True	False	eur	eur	Male	XY	TSI	1kg_phase3_panel	False		
+NA20762	True	False	eur	eur	Male	XY	TSI	1kg_phase3_panel	False		
+NA20799	True	False	eur	eur	Female	XX	TSI	1kg_phase3_panel	False		
+NA20805	True	False	eur	eur	Male	XY	TSI	1kg_phase3_panel	False		
+NA20806	True	False	eur	eur	Male	XY	TSI	1kg_phase3_panel	False		
+NA20809	True	False	eur	eur	Male	XY	TSI	1kg_phase3_panel	False		
+NA20827	True	False	eur	eur	Male	XY	TSI	1kg_phase3_panel	False		
+NA20847	True	False	sas	sas	Female	XX	GIH	1kg_phase3_panel	False		
+NA20850	True	False	sas	sas	Male	XY	GIH	1kg_phase3_panel	False		
+NA20870	True	False	sas	sas	Male	XY	GIH	1kg_phase3_panel	False		
+NA20905	True	False	sas	sas	Male	XY	GIH	1kg_phase3_panel	False		
+NA21093	True	False	sas	sas	Male	XY	GIH	1kg_phase3_panel	False		
+NA21102	True	False	sas	sas	Female	XX	GIH	1kg_phase3_panel	False		
+NA21106	True	False	sas	sas	Female	XX	GIH	1kg_phase3_panel	False		
+NA21110	True	False	sas	sas	Female	XX	GIH	1kg_phase3_panel	False		
+NA21144	True	False	sas	sas	Female	XX	GIH	1kg_phase3_panel	False		
+NA21309	True	True	afr	afr	Female	XX		curated_hprc_giab	True	7081.0	9948.0
+NA21487	True	False	afr	afr	Female	XX	MAS	coriell_NA21487_maasai	False		

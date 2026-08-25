@@ -64,10 +64,17 @@ Same cohort / scripts / docker as the pilot. Differences:
 
 - `flare_vcfs` + parallel `chroms` (Terra chrom-set friendly)
 - **MakeGRM** + **FitNull** once; **Extract** / **Score** scatter over chromosomes
-- Results: `{phenotype}.{chrom}.tractor_mix.tsv` (nested `Array[Array[File]]`)
+- **Concat** merges chrom shards → one `{phenotype}.tractor_mix.tsv` per phenotype
+  (`results_tsvs`); per-chrom shards kept as `results_tsvs_by_chrom`
+- **Summarize** copies phenotype-named TSVs (`results_tsvs_named`), writes
+  `results_manifest.tsv`, λGC / QQ / Manhattan / top hits, and
+  `phewas_genomewide_hits.tsv`
 - `grm_vcfs` stays separate and small by default (chr1+chr22) — do not feed all autosomes into GRM on the first pass
 - Larger Extract/MakeGRM disks scale with `size(vcf)` (plus a floor); Check only
   compares array lengths and does **not** localize FLARE VCFs.
+
+Post-workflow notebook: `notebooks/tractor_07_genome_post_workflow.ipynb`
+(cross-phenotype λ / hit plots, optional limited-vs-full comparison).
 
 ## Run order (Tractor-Mix first)
 
@@ -131,9 +138,39 @@ Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/s
 1. Place CDRv9 source exports in `resources/` (gitignored).
 2. Run `notebooks/tractor_00_cov_rebuild_source.ipynb` →
    `covariates.source_rebuilt.csv.gz` (+ data dictionary).
-3. Run `notebooks/tractor_03_cov_summarize.ipynb` → inline QC plus
+3. Merge long-read global PCs + HPRC/HGSVC3 control rows (re-run after each
+   rebuild):
+
+```bash
+python3 scripts/merge_lr_global_pcs_into_covariates.py \
+  --global-pcs tractor_mix/pca/deepvariant_lr_v1/global_pcs.tsv \
+  --control-metadata tractor_mix/reference_controls/control_sample_metadata.tsv
+```
+
+   This adds `lr_PC1`–`lr_PC32`, `has_lr_pcs`, `is_reference_control`, and 292
+   `HG*`/`NA*` control rows (ancestry/sex/SV fills where known).
+4. Fill remaining long-read ancestry gaps via population copy + `lr_PC` kNN:
+   `notebooks/tractor_05a_fill_lr_ancestry.ipynb` (writes audit TSV under
+   `reference_controls/`). Required before within-pop PCA.
+5. After `tractor_05b_pca_within_population.ipynb`, merge within-pop PCs:
+
+```bash
+python3 scripts/merge_lr_pop_pcs_into_covariates.py \
+  --population-pcs tractor_mix/pca/deepvariant_lr_v1/population_pcs.tsv
+```
+
+   Adds `lr_pop_PC1`–`lr_pop_PC32`, `has_lr_pop_pcs`, and `lr_pop_population`
+   (does not replace short-read `pop_PC*`).
+6. Soft joint-callset nits (if needed): copy missing `population` from
+   `lr_pop_population`, and missing `sex_at_birth` from `inferred_sex`
+   (`XX`→`Female`, `XY`→`Male`). Audit:
+   `reference_controls/lr_soft_field_fills.tsv`.
+7. Run `notebooks/tractor_03_cov_summarize.ipynb` → inline QC plus
    `summaries/{figures,tables,manuscript}/` (gitignored). Small crosstab cells
    (`n < 20`) are redacted in exports.
+
+Fill provenance (controls, PCs, kNN ancestry, soft fields):
+`reference_controls/COVARIATE_FILLS.md`.
 
 ## Notes
 

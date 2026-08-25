@@ -1,5 +1,5 @@
 column	source	notes
-research_id	multiomics research_id	primary key
+research_id	multiomics research_id (+ HG/NA reference-control sample IDs)	primary key; AoU numeric research IDs plus HPRC/HGSVC3 HG*/NA* controls
 lr_phase	multiomics long_read phase	phase_1 / phase_2 / phase_1_phase_2
 lr_meet_qc	multiomics long_read meet QC	bool; blank→False
 lr_releasable_v9	multiomics long_read releasable v9	bool; blank→False
@@ -10,7 +10,7 @@ has_proteomics	multiomics Proteomics releasable	v3-compatible
 has_exposomics	multiomics Exposomics releasable v9	bool; blank→False
 has_srWGS	multiomics rid_no_srWGS	True unless source marks person as lacking short-read WGS
 age	part.csv.gz age_at_cdr	
-sex_at_birth	part.csv.gz (+ lr_1027_sex_at_birth.csv / merged_all_df.csv.gz fills)	retains existing part value; supplied Phase 1 mapping then one-value-per-person merged_all fill missing usable values; sentinels are treated as missing in supplemental sources
+sex_at_birth	part.csv.gz (+ lr_1027_sex_at_birth.csv / merged_all_df.csv.gz fills; + inferred_sex soft fill)	retains existing part value; supplied Phase 1 mapping then one-value-per-person merged_all fill missing usable values; sentinels are treated as missing in supplemental sources; joint-callset nits may map missing values from inferred_sex XX→Female / XY→Male (see reference_controls/lr_soft_field_fills.tsv)
 zip3	part.csv.gz zip3_as_string	
 has_ehr_data	part.csv.gz (+ merged_all_df.csv.gz fill)	nullable bool; merged_all fills only missing values when person-level value is unique
 has_demographics	derived	True if matched in part.csv.gz
@@ -18,10 +18,12 @@ extraction_method	lr_dna_extraction_method_cdrv9.tsv (+ HA sample fills)	Chemage
 has_extraction_method	derived	True when extraction_method is non-missing (CDR or HA fill)
 has_trgt	trgt_table.txt	True if one or more TRGT VCFs are listed
 n_trgt_vcfs	trgt_table.txt	count of listed TRGT VCF paths
-population	pc.log.gz member name	population-specific PCA training set
+population	pc.log.gz member name (+ control ancestry_pred_other; + lr_pop_population / kNN soft fills)	continental code for population-specific PCA (AFR/AMR/EAS/EUR/SAS/OTH/MID); HG/NA controls use ancestry_pred_other uppercased; ancestry kNN and rare joint-callset nits may fill from lr_PC inference or lr_pop_population (see reference_controls/COVARIATE_FILLS.md)
+lr_pop_population	population_pcs.tsv population	continental subset used for this sample's long-read within-pop PCA (lowercase afr/amr/eas/eur/sas/mid/oth); usually equals ancestry_pred_other
 ancestry_pred	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external six-class ancestry prediction; merged_all fills missing values only when person-level value is unique
 ancestry_pred_other	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external ancestry prediction that permits oth; merged_all fills missing values only when person-level value is unique
 has_ancestry_annotation	derived	True if either ancestry prediction is non-missing after source supplements
+is_reference_control	derived	True for HPRC/HGSVC3/GIAB reference controls with HG*/NA* sample IDs
 in_pedigree	aou_phase2.ped	True if person is represented in the user-maintained Phase 2 pedigree; Phase 1 has no pedigrees
 pedigree_family_id	aou_phase2.ped ped	family identifier; no parental IDs are exported
 pedigree_is_founder	aou_phase2.ped father/mother	True when both parent IDs are 0
@@ -59,6 +61,70 @@ PC29	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC30	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC31	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC32	full.tsv.gz global full-training PCA	canonical PCs; match v3
+lr_PC1	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC1; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC1
+lr_PC2	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC2; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC2
+lr_PC3	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC3; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC3
+lr_PC4	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC4; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC4
+lr_PC5	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC5; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC5
+lr_PC6	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC6; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC6
+lr_PC7	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC7; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC7
+lr_PC8	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC8; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC8
+lr_PC9	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC9; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC9
+lr_PC10	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC10; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC10
+lr_PC11	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC11; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC11
+lr_PC12	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC12; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC12
+lr_PC13	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC13; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC13
+lr_PC14	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC14; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC14
+lr_PC15	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC15; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC15
+lr_PC16	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC16; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC16
+lr_PC17	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC17; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC17
+lr_PC18	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC18; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC18
+lr_PC19	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC19; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC19
+lr_PC20	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC20; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC20
+lr_PC21	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC21; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC21
+lr_PC22	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC22; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC22
+lr_PC23	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC23; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC23
+lr_PC24	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC24; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC24
+lr_PC25	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC25; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC25
+lr_PC26	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC26; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC26
+lr_PC27	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC27; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC27
+lr_PC28	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC28; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC28
+lr_PC29	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC29; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC29
+lr_PC30	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC30; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC30
+lr_PC31	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC31; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC31
+lr_PC32	propagate_annotations/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC32; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC32
+lr_pop_PC1	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC1; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC2	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC2; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC3	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC3; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC4	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC4; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC5	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC5; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC6	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC6; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC7	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC7; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC8	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC8; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC9	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC9; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC10	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC10; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC11	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC11; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC12	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC12; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC13	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC13; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC14	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC14; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC15	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC15; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC16	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC16; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC17	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC17; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC18	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC18; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC19	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC19; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC20	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC20; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC21	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC21; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC22	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC22; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC23	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC23; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC24	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC24; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC25	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC25; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC26	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC26; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC27	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC27; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC28	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC28; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC29	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC29; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC30	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC30; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC31	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC31; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
+lr_pop_PC32	population_pcs.tsv (DeepVariant long-read within-population PCA)	long-read within-population PC32; computed within ancestry_pred_other subsets; does not replace short-read pop_PC*
 pop_PC1	pc.log.gz population-specific PCA	within-population PCA axis
 pop_PC2	pc.log.gz population-specific PCA	within-population PCA axis
 pop_PC3	pc.log.gz population-specific PCA	within-population PCA axis
@@ -92,6 +158,8 @@ pop_PC30	pc.log.gz population-specific PCA	within-population PCA axis
 pop_PC31	pc.log.gz population-specific PCA	within-population PCA axis
 pop_PC32	pc.log.gz population-specific PCA	within-population PCA axis
 has_global_pcs	derived	True if matched to a global full-training PCA row
+has_lr_pcs	derived	True if matched to a long-read global PCA row in global_pcs.tsv
+has_lr_pop_pcs	derived	True if matched to a long-read within-population PCA row in population_pcs.tsv
 has_pop_pcs	derived	True if matched to a population-specific PCA row
 in_cdr_v7	lr.tsv	any repeated membership record marked v7
 in_cdr_v8	lr.tsv	any repeated membership record marked v8

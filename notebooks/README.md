@@ -23,8 +23,14 @@ Tractor-Mix (run in this order):
 | `tractor_02_qc_results.ipynb` | Calibration QC |
 | `tractor_03_cov_summarize.ipynb` | Covariate atlas |
 | `tractor_04_table1_cohort_summary.ipynb` | Manuscript Table 1 |
-| `tractor_05_pca_deepvariant_long_read.ipynb` | Hail DeepVariant PCA |
+| `tractor_05_pca_deepvariant_long_read.ipynb` | Hail DeepVariant **global** PCA (genotype-only; no covariates) |
+| `tractor_05b_pca_within_population.ipynb` | Hail within-population PCA (after filled covariates + `qc_for_pca.mt`) |
 | `tractor_06_qc_grm.ipynb` | GRM kinship QC |
+
+Both PCA notebooks (`tractor_05*`) are **resumable**: completed stages are skipped when
+their outputs already exist under the same `PCA_RUN_LABEL`. Use `PCA_FORCE_REIMPORT`,
+`PCA_FORCE_GLOBAL_PCA`, or `PCA_FORCE_WITHIN_POPULATION` to rerun a stage. See each
+notebook’s intro for details.
 
 SV annotation (run in this order):
 
@@ -35,7 +41,13 @@ SV annotation (run in this order):
 | `sv_02_stage_sample_ancestry.ipynb` | Phase 1 / Phase 2 sample ancestry TSVs |
 | `sv_03_manuscript_stats.ipynb` | SV site-count table + discovery plots (after the WDL) |
 
-WDLs stay in `tractor_mix/wdl/` and `sv_annotation/wdl/`.
+FLARE annotation QC:
+
+| Notebook | Use |
+|---|---|
+| `flare_01_switch_gq_dp.ipynb` | Ancestry-switch sites vs `GQ`/`DP` (after `PropagateAnnotations.wdl`) |
+
+WDLs stay in `tractor_mix/wdl/`, `sv_annotation/wdl/`, and `propagate_annotations/wdl/`.
 
 ## Tractor-Mix WDL (Rust scorer)
 

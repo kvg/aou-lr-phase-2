@@ -26,3 +26,4 @@ sv_annotation/.docker_scripts/
 
 # Rust extract-tracts-flare build artifacts
 tractor_mix/extract_tracts_flare/target/
+.venv-pca/

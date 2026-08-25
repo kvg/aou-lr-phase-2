@@ -1,0 +1,5 @@
+research_id	field	before	after	method	source_value	notes
+2638375	population		EUR	from_lr_pop_population	eur	Joint-callset sample missing short-read population; copy uppercase lr_pop_population
+1027261	sex_at_birth		Male	from_inferred_sex	XY	Map inferred_sex XY → Male; did not overwrite PMI:Skip/sentinels
+1690804	sex_at_birth		Female	from_inferred_sex	XX	Map inferred_sex XX → Female; did not overwrite PMI:Skip/sentinels
+1902721	sex_at_birth		Female	from_inferred_sex	XX	Map inferred_sex XX → Female; did not overwrite PMI:Skip/sentinels

@@ -1,0 +1,81 @@
+research_id	method	suggested	population_before	population_after	high_confidence	knn15_frac	centroid_margin	centroid	knn15_counts
+1027261	from_population	afr	AFR	AFR	True				
+1073121	from_population	afr	AFR	AFR	True				
+1149182	from_population	eas	EAS	EAS	True				
+1162500	from_population	mid	MID	MID	True				
+1174276	from_population	afr	AFR	AFR	True				
+1179960	from_population	oth	OTH	OTH	True				
+1190651	from_population	sas	SAS	SAS	True				
+1203368	from_population	amr	AMR	AMR	True				
+1254344	from_population	afr	AFR	AFR	True				
+1286158	from_population	oth	OTH	OTH	True				
+1308393	from_population	oth	OTH	OTH	True				
+1317624	from_population	amr	AMR	AMR	True				
+1321119	from_population	eur	EUR	EUR	True				
+1360567	from_population	oth	OTH	OTH	True				
+1383227	from_population	amr	AMR	AMR	True				
+1400517	from_population	afr	AFR	AFR	True				
+1404528	from_population	amr	AMR	AMR	True				
+1407570	from_population	afr	AFR	AFR	True				
+1516478	from_population	afr	AFR	AFR	True				
+1538239	from_population	afr	AFR	AFR	True				
+1550622	from_population	eur	EUR	EUR	True				
+1579601	from_population	eas	EAS	EAS	True				
+1656238	from_population	afr	AFR	AFR	True				
+1690804	from_population	eur	EUR	EUR	True				
+1714557	from_population	amr	AMR	AMR	True				
+1766807	from_population	eas	EAS	EAS	True				
+1847510	from_population	amr	AMR	AMR	True				
+1865868	from_population	oth	OTH	OTH	True				
+1893198	from_population	amr	AMR	AMR	True				
+1902721	from_population	afr	AFR	AFR	True				
+1958378	from_population	oth	OTH	OTH	True				
+1979884	from_population	mid	MID	MID	True				
+1986329	from_population	eas	EAS	EAS	True				
+2013114	from_population	amr	AMR	AMR	True				
+2014863	from_population	eur	EUR	EUR	True				
+2024732	from_population	sas	SAS	SAS	True				
+2025863	from_population	afr	AFR	AFR	True				
+2178379	from_population	afr	AFR	AFR	True				
+2252941	from_population	afr	AFR	AFR	True				
+2286685	from_population	eur	EUR	EUR	True				
+2346025	from_population	mid	MID	MID	True				
+2365228	from_population	eas	EAS	EAS	True				
+2399583	from_population	sas	SAS	SAS	True				
+2404994	from_population	sas	SAS	SAS	True				
+2626440	from_population	eur	EUR	EUR	True				
+2680267	from_population	amr	AMR	AMR	True				
+2691108	from_population	oth	OTH	OTH	True				
+2795651	from_population	eur	EUR	EUR	True				
+2911678	from_population	oth	OTH	OTH	True				
+3429800	from_population	amr	AMR	AMR	True				
+4679422	from_population	amr	AMR	AMR	True				
+4880553	from_population	sas	SAS	SAS	True				
+5123250	from_population	eur	EUR	EUR	True				
+5549148	from_population	eur	EUR	EUR	True				
+6275840	from_population	amr	AMR	AMR	True				
+7959375	from_population	oth	OTH	OTH	True				
+8062974	from_population	amr	AMR	AMR	True				
+8074330	from_population	sas	SAS	SAS	True				
+1136937	lr_pc_knn	amr		AMR	True	1.0	1.7884378665379592	amr	{'amr': 15}
+1155146	lr_pc_knn	amr		AMR	True	1.0	1.3159942221705179	amr	{'amr': 15}
+1159644	lr_pc_knn	afr		AFR	True	1.0	1.41180766069051	afr	{'afr': 15}
+1166396	lr_pc_knn	amr		AMR	True	1.0	0.26449179453542015	amr	{'amr': 15}
+1227907	lr_pc_knn	amr		AMR	False	0.7333333333333333	0.2718843565394591	eur	{'amr': 11, 'oth': 4}
+1267940	lr_pc_knn	afr		AFR	True	1.0	1.897215101586597	afr	{'afr': 15}
+1275295	lr_pc_knn	afr		AFR	True	1.0	1.8751191750524763	afr	{'afr': 15}
+1280341	lr_pc_knn	eur		EUR	True	1.0	0.6836508645666886	eur	{'eur': 15}
+1295692	lr_pc_knn	amr		AMR	True	1.0	1.762881411885375	amr	{'amr': 15}
+1313724	lr_pc_knn	amr		AMR	False	0.7333333333333333	0.01084752273683165	amr	{'oth': 4, 'amr': 11}
+1324332	lr_pc_knn	amr		AMR	True	1.0	0.9715346748669667	amr	{'amr': 15}
+1340678	lr_pc_knn	oth		OTH	False	0.6666666666666666	0.3160594820213931	eur	{'amr': 5, 'oth': 10}
+1490799	lr_pc_knn	oth		OTH	False	0.8	0.8043114761990184	eur	{'oth': 12, 'eur': 3}
+1591198	lr_pc_knn	eur		EUR	True	1.0	0.9443927535650192	eur	{'eur': 15}
+1644088	lr_pc_knn	afr		AFR	True	1.0	1.85829550099461	afr	{'afr': 15}
+1681536	lr_pc_knn	eur		EUR	True	1.0	0.9598163838316558	eur	{'eur': 15}
+1736036	lr_pc_knn	afr		AFR	True	1.0	1.6768184199190372	afr	{'afr': 15}
+1760233	lr_pc_knn	afr		AFR	True	1.0	1.713208897067636	afr	{'afr': 15}
+1974036	lr_pc_knn	eur		EUR	True	1.0	0.8979196470999027	eur	{'eur': 15}
+2026547	lr_pc_knn	amr		AMR	True	1.0	0.9694776534377136	amr	{'amr': 15}
+2058025	lr_pc_knn	amr		AMR	True	1.0	1.5817420931661577	amr	{'amr': 15}
+2934489	lr_pc_knn	eur		EUR	False	0.5333333333333333	0.06115993154823629	oth	{'eur': 8, 'oth': 7}
