@@ -1,8 +1,11 @@
 # Reference-control metadata (HPRC / HGSVC3 / GIAB)
 
-`control_sample_metadata.tsv` annotates the **292** `HG*` / `NA*` samples present in
-`tractor_mix/pca/deepvariant_lr_v1/global_pcs.tsv` (Phase-2 long-read joint callset controls,
-including the original Phase-1 set of 47).
+`control_sample_metadata.tsv` annotates the **293** `HG*` / `NA*` reference
+controls (the **292** samples present in
+`tractor_mix/pca/deepvariant_lr_v1/global_pcs.tsv`, plus `HG02015`). `HG02015`
+is in the joint DeepVariant VCF and in this metadata table (HPRC Phase 2 / 1KG
+KHV) but failed PCA sample QC (`sample_qc.call_rate < 0.98`), so it has no
+`lr_PC*` / `has_lr_pcs=False`. This includes the original Phase-1 set of 47.
 
 | Field | Notes |
 | --- | --- |
@@ -34,5 +37,5 @@ covariate fills: control rows, global / within-pop `lr_PC*`, ancestry Rule A
 Replay soft fills: `scripts/apply_lr_soft_field_fills.py` (add `--discover` to
 catch new joint-callset gaps).
 
-Mainline notebook for ancestry: `notebooks/tractor_05a_fill_lr_ancestry.ipynb`
+Mainline notebook for ancestry: `notebooks/terra/tractor_06_fill_lr_ancestry.ipynb`
 (CLI: `scripts/fill_lr_ancestry_from_pcs.py`).

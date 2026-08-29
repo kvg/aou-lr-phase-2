@@ -141,7 +141,7 @@ def main() -> None:
             "ERROR: analysis_samples file is empty (0 IDs after parsing). "
             "This is not a VCF/FAM ID mismatch — the Terra input File has no sample IDs. "
             "Check gsutil cat/wc -l on the analysis_samples URI in your inputs JSON, "
-            "re-run notebooks/tractor_01_prepare_inputs.ipynb, and re-upload "
+            "re-run notebooks/terra/tractor_01_prepare_inputs.ipynb, and re-upload "
             "tractor_mix_pilot/analysis_samples.txt."
         )
 

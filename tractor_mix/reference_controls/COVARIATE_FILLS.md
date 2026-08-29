@@ -8,7 +8,7 @@ Target use cases: joint-callset PCA, within-population PCA, and association
 models that need ancestry / continental population / LR PCs for AoU samples and
 HPRC/HGSVC3 `HG*`/`NA*` controls.
 
-Final table size after fills: **17,518** rows (17,226 AoU + **292** controls),
+Final table size after fills: **17,519** rows (17,226 AoU + **293** controls),
 **198** columns.
 
 ---
@@ -31,10 +31,10 @@ Final table size after fills: **17,518** rows (17,226 AoU + **292** controls),
 
 Rebuild source covariates, then apply LR fills in this order:
 
-1. `notebooks/tractor_00_cov_rebuild_source.ipynb`
+1. `notebooks/terra/tractor_00_cov_rebuild_source.ipynb`
 2. `scripts/merge_lr_global_pcs_into_covariates.py` — global `lr_PC*` + control rows
-3. `notebooks/tractor_05a_fill_lr_ancestry.ipynb` (or `scripts/fill_lr_ancestry_from_pcs.py`) — ancestry / population gaps
-4. `notebooks/tractor_05b_pca_within_population.ipynb` — produce `population_pcs.tsv`
+3. `notebooks/terra/tractor_06_fill_lr_ancestry.ipynb` (or `scripts/fill_lr_ancestry_from_pcs.py`) — ancestry / population gaps
+4. `notebooks/terra/tractor_07_pca_within_population.ipynb` — produce `population_pcs.tsv`
 5. `scripts/merge_lr_pop_pcs_into_covariates.py` — `lr_pop_PC*`
 6. `scripts/apply_lr_soft_field_fills.py` — soft `population` / `sex_at_birth` nits
 
@@ -45,14 +45,14 @@ Canonical PC inputs:
 
 ---
 
-## 1. Reference controls (292 `HG*` / `NA*`)
+## 1. Reference controls (293 `HG*` / `NA*`)
 
 **Script:** `scripts/merge_lr_global_pcs_into_covariates.py`  
 **Metadata:** `control_sample_metadata.tsv`
 
 | Field | How filled |
 | --- | --- |
-| Row presence | Every sample ID in `global_pcs.tsv` that is `HG*`/`NA*` is appended if absent from AoU covariates |
+| Row presence | Every `HG*`/`NA*` ID in `control_sample_metadata.tsv` is appended if absent from AoU covariates. **292** of these are in `global_pcs.tsv`. `HG02015` is in the joint VCF but failed PCA sample QC (call rate `< 0.98`), so it is a metadata-only row (`has_lr_pcs=False`, no `lr_PC*`) |
 | `lr_PC1`–`lr_PC32`, `has_lr_pcs` | Joined from `global_pcs.tsv` |
 | `ancestry_pred` / `ancestry_pred_other` | Public 1KG / HPRC / Coriell labels mapped to AoU-style continents (`afr`/`amr`/`eas`/`eur`/`sas`/`oth`) |
 | `population` | Uppercase of `ancestry_pred_other` (continental only; **not** fine-grained 1KG codes such as `YRI`) |
@@ -73,7 +73,10 @@ Fine-grained codes (when known) stay in metadata column `population_code` only.
 **Input:** `pca/deepvariant_lr_v1/global_pcs.tsv`
 
 - Adds `lr_PC1`–`lr_PC32` and `has_lr_pcs=True` for **12,553** samples
-  (12,261 AoU + 292 controls).
+  (12,261 AoU + 292 controls). `HG02015` is a 293rd control row without `lr_PC*`
+  because it failed PCA sample QC (call rate `< 0.98`), not because it is absent
+  from the joint VCF. Other samples without `lr_PC*` are mostly releasable
+  long-read IDs that were never in this joint callset.
 - Does **not** overwrite short-read `PC1`–`PC16` / `has_global_pcs`.
 - Releasable samples outside the joint callset (~1,269) correctly remain without
   `lr_PC*` (no genotypes → no LR PCs).
@@ -82,7 +85,7 @@ Fine-grained codes (when known) stay in metadata column `population_code` only.
 
 ## 3. Ancestry backfills (AoU gaps)
 
-**Notebook:** `notebooks/tractor_05a_fill_lr_ancestry.ipynb`  
+**Notebook:** `notebooks/terra/tractor_06_fill_lr_ancestry.ipynb`  
 **CLI:** `scripts/fill_lr_ancestry_from_pcs.py`  
 **Audit:** `lr_ancestry_knn_fills.tsv` (**80** applied fills)
 
@@ -133,7 +136,7 @@ Audit `method`: `lr_pc_knn`.
 ## 4. Long-read within-population PCs
 
 **Script:** `scripts/merge_lr_pop_pcs_into_covariates.py`  
-**Input:** `pca/deepvariant_lr_v1/population_pcs.tsv` (from `tractor_05b`)
+**Input:** `pca/deepvariant_lr_v1/population_pcs.tsv` (from `tractor_07`)
 
 - Adds `lr_pop_PC1`–`lr_pop_PC32`, `has_lr_pop_pcs`, `lr_pop_population`
   for the same **12,553** joint-callset samples.

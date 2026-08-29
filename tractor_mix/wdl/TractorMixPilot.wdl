@@ -311,7 +311,7 @@ workflow TractorMixPilot {
     File flare_vcf
     Int num_ancs
 
-    # Sample / phenotype table from notebooks/tractor_01_prepare_inputs.ipynb.
+    # Sample / phenotype table from notebooks/terra/tractor_01_prepare_inputs.ipynb.
     # Use the shared recommended-full-complete cohort for all matched runs.
     # `pheno_cov` contains phenotypes and both covariate matrices; select one
     # with covariate_columns_limited.txt or covariate_columns_full.txt.

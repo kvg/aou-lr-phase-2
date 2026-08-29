@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-NOTEBOOKS = REPO / "notebooks"
+NOTEBOOKS = REPO / "notebooks" / "terra"
 
 BOOTSTRAP = '''from pathlib import Path
 import os
@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 # Bootstrap scripts/ from $WORKSPACE_BUCKET/scripts/ when not on the VM.
-for _d in (Path.cwd() / "scripts", Path.cwd().parent / "scripts"):
+for _d in (Path.cwd() / "scripts", Path.cwd().parent / "scripts", Path.cwd().parent.parent / "scripts"):
     if (_d / "terra_notebook.py").is_file():
         sys.path.insert(0, str(_d.resolve()))
         break
@@ -317,7 +317,7 @@ except NameError:
 
 ROOT = data_root()
 WORKSPACE_BUCKET = os.environ.get("WORKSPACE_BUCKET", "").rstrip("/")
-RUN_LABEL = os.environ.get("PCA_RUN_LABEL", "deepvariant_lr_v1")
+RUN_LABEL = os.environ.get("PCA_RUN_LABEL", "deepvariant_lr_v2")
 
 if WORKSPACE_BUCKET:
     _bucket = (
@@ -376,7 +376,7 @@ print("INPUT_MODE:", INPUT_MODE)
 print("RUN_PIPELINE:", RUN_PIPELINE)
 ''',
     ),
-    "tractor_06_qc_grm.ipynb": (
+    "tractor_08_qc_grm.ipynb": (
         1,
         BOOTSTRAP
         + '''from terra_notebook import init_notebook

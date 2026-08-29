@@ -6,7 +6,8 @@ standard mixed-model (SAIGE) association on All of Us / Terra.
 ## Layout
 
 ```
-notebooks/                       # all Workbench notebooks (upload with scripts/)
+notebooks/terra/                 # Terra notebooks (upload with scripts/)
+notebooks/rw/                    # Verily Workbench notebooks
 scripts/                         # all CLIs used by notebooks + WDLs
 tractor_mix/
   docker/Dockerfile
@@ -73,7 +74,7 @@ Same cohort / scripts / docker as the pilot. Differences:
 - Larger Extract/MakeGRM disks scale with `size(vcf)` (plus a floor); Check only
   compares array lengths and does **not** localize FLARE VCFs.
 
-Post-workflow notebook: `notebooks/tractor_07_genome_post_workflow.ipynb`
+Post-workflow notebook: `notebooks/terra/tractor_09_genome_post_workflow.ipynb`
 (cross-phenotype λ / hit plots, optional limited-vs-full comparison).
 
 ## Run order (Tractor-Mix first)
@@ -104,7 +105,7 @@ gsutil cp tractor_mix/covariates.source_rebuilt.csv.gz \
 
 Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/scripts/"`
 
-3. Run `notebooks/tractor_01_prepare_inputs.ipynb` on the Workbench.
+3. Run `notebooks/terra/tractor_01_prepare_inputs.ipynb` on the Workbench.
    It pulls `covariates.source_rebuilt.csv.gz`, builds the shared cohort, uploads
    under `$WORKSPACE_BUCKET/tractor_mix_pilot/`, and can re-stage WDL scripts
    (`fit_null.R`, etc.). Confirm `analysis_samples` line count ≫ 1000 before submitting.
@@ -124,7 +125,7 @@ Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/s
 
 5. After Tractor-Mix succeeds, submit SAIGE with the same cohort
    (`SaigePilot.wdl` + `configs/saige.inputs.*.json.example`), then run
-   `notebooks/tractor_02_qc_results.ipynb`.
+   `notebooks/terra/tractor_02_qc_results.ipynb`.
 
    SAIGE inputs mirror Tractor: same `analysis_samples` / `pheno_cov` /
    `selected_phenotypes` / `grm_vcfs`, plus staged
@@ -136,7 +137,7 @@ Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/s
 ## Cohort covariates (rebuild + atlas)
 
 1. Place CDRv9 source exports in `resources/` (gitignored).
-2. Run `notebooks/tractor_00_cov_rebuild_source.ipynb` →
+2. Run `notebooks/terra/tractor_00_cov_rebuild_source.ipynb` →
    `covariates.source_rebuilt.csv.gz` (+ data dictionary).
 3. Merge long-read global PCs + HPRC/HGSVC3 control rows (re-run after each
    rebuild):
@@ -147,12 +148,12 @@ python3 scripts/merge_lr_global_pcs_into_covariates.py \
   --control-metadata tractor_mix/reference_controls/control_sample_metadata.tsv
 ```
 
-   This adds `lr_PC1`–`lr_PC32`, `has_lr_pcs`, `is_reference_control`, and 292
+   This adds `lr_PC1`–`lr_PC32`, `has_lr_pcs`, `is_reference_control`, and 293
    `HG*`/`NA*` control rows (ancestry/sex/SV fills where known).
 4. Fill remaining long-read ancestry gaps via population copy + `lr_PC` kNN:
-   `notebooks/tractor_05a_fill_lr_ancestry.ipynb` (writes audit TSV under
+   `notebooks/terra/tractor_06_fill_lr_ancestry.ipynb` (writes audit TSV under
    `reference_controls/`). Required before within-pop PCA.
-5. After `tractor_05b_pca_within_population.ipynb`, merge within-pop PCs:
+5. After `tractor_07_pca_within_population.ipynb`, merge within-pop PCs:
 
 ```bash
 python3 scripts/merge_lr_pop_pcs_into_covariates.py \
@@ -172,7 +173,7 @@ python3 scripts/apply_lr_soft_field_fills.py \
    `has_lr_pcs` gaps with the same rules (`lr_pop_population` → `population`,
    `inferred_sex` XX/XY → Female/Male). Does not overwrite sentinels like
    `PMI: Skip`.
-7. Run `notebooks/tractor_03_cov_summarize.ipynb` → inline QC plus
+7. Run `notebooks/terra/tractor_03_cov_summarize.ipynb` → inline QC plus
    `summaries/{figures,tables,manuscript}/` (gitignored). Small crosstab cells
    (`n < 20`) are redacted in exports.
 

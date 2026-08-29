@@ -10,7 +10,8 @@ from pathlib import Path
 
 def find_scripts_dir() -> Path | None:
     """Return local scripts/ if workspace_paths.py is present."""
-    for d in (Path.cwd() / "scripts", Path.cwd().parent / "scripts"):
+    here = Path.cwd()
+    for d in (here / "scripts", here.parent / "scripts", here.parent.parent / "scripts"):
         if (d / "workspace_paths.py").is_file():
             return d.resolve()
     return None

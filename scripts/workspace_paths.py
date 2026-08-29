@@ -2,7 +2,8 @@
 
 On Terra Workbench, CLIs live at ``$WORKSPACE_BUCKET/scripts/``. Notebooks call
 ``terra_notebook.init_notebook(...)`` to rsync or copy them locally before use.
-Local git checkouts can keep ``notebooks/`` and ``scripts/`` as siblings.
+Local git checkouts keep ``notebooks/terra/`` (and ``notebooks/rw/``) under
+``notebooks/``, with ``scripts/`` as a sibling of ``notebooks/``.
 """
 
 from __future__ import annotations

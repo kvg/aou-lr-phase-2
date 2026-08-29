@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Post-workflow helpers for TractorMixGenome QC / PheWAS-style plots.
 
-Used by notebooks/tractor_07_genome_post_workflow.ipynb. Not required inside the WDL.
+Used by notebooks/terra/tractor_09_genome_post_workflow.ipynb. Not required inside the WDL.
 """
 
 from __future__ import annotations

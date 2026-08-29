@@ -192,7 +192,7 @@ workflow SaigePilot {
     File flare_vcf
     String chrom = "chr22"
 
-    # Shared cohort / table from notebooks/tractor_01_prepare_inputs.ipynb.
+    # Shared cohort / table from notebooks/terra/tractor_01_prepare_inputs.ipynb.
     # `pheno_cov` contains phenotypes and both covariate matrices; select one
     # with covariate_columns_limited.txt or covariate_columns_full.txt.
     File analysis_samples
