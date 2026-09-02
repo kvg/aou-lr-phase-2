@@ -1,0 +1,39 @@
+# Cloud Build config for tractor_mix/docker/Dockerfile.felix
+# Invoked from tractor_mix/ via:
+#   gcloud builds submit . --config=docker/cloudbuild.felix.yaml --substitutions=_IMAGE=...,_TAG=...
+#
+# Context directory is tractor_mix/ (parent of docker/). build_felix_docker.sh
+# stages repo-root scripts/ into .docker_scripts/ before this submit.
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot
+  _TAG: "0.1.0"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_32
+  diskSizeGb: 200
+
+timeout: 7200s
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --platform
+      - linux/amd64
+      - -f
+      - docker/Dockerfile.felix
+      - -t
+      - ${_IMAGE}:${_TAG}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - ${_IMAGE}:${_TAG}
+
+images:
+  - ${_IMAGE}:${_TAG}

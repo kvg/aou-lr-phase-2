@@ -6,7 +6,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use tempfile::TempDir;
 use tractor_mix_score::null::{write_sigma_i_csc, CscMatrix};
-use tractor_mix_score::{run_score, ScoreConfig};
+use tractor_mix_score::{run_score, ScoreConfig, ScoreModeArg};
 
 fn write_i32(w: &mut impl Write, x: i32) {
     w.write_all(&x.to_le_bytes()).unwrap();
@@ -105,6 +105,9 @@ fn parallel_matches_serial_on_synthetic_fixture() {
         ac_threshold: 5,
         chunk_size: 16,
         threads: 1,
+        mode: ScoreModeArg::Legacy,
+        variance_ratio: None,
+        min_copy_var: 1e-6,
     })
     .unwrap();
     run_score(&ScoreConfig {
@@ -114,6 +117,9 @@ fn parallel_matches_serial_on_synthetic_fixture() {
         ac_threshold: 5,
         chunk_size: 16,
         threads: 4,
+        mode: ScoreModeArg::Legacy,
+        variance_ratio: None,
+        min_copy_var: 1e-6,
     })
     .unwrap();
 

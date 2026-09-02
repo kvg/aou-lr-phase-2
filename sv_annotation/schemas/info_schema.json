@@ -34,6 +34,11 @@
   "optional_info_fields": [
     {"id": "TR_DETECTED", "number": "1", "type": "Integer", "description": "Tandem-repeat flag from str_analysis"},
     {"id": "TR_MOTIF", "number": "1", "type": "String", "description": "Tandem-repeat motif"},
+    {"id": "RU_TEST", "number": "0", "type": "Flag", "description": "INS/DEL/DUP overlapping a tandem array with a usable period; eligible for repeat-unit dosage"},
+    {"id": "PERIOD", "number": "1", "type": "Integer", "description": "Tandem repeat period in bp from simpleRepeat/TRF or allele sequence"},
+    {"id": "MOTIF", "number": "1", "type": "String", "description": "Tandem repeat consensus motif"},
+    {"id": "CN_REF", "number": "1", "type": "Float", "description": "Reference copy number of the overlapping tandem array; omitted means extra-units-vs-REF"},
+    {"id": "RU", "number": "A", "type": "Integer", "description": "Repeat-unit count of each ALT (SVLEN/PERIOD for symbolic ALTs)"},
     {"id": "REMAP_CLASS", "number": "1", "type": "String", "description": "truvari anno remap classification"},
     {"id": "ME_TYPE", "number": "1", "type": "String", "description": "MEI type from L1ME-AID (ALU/LINE/SVA)"},
     {"id": "ME_SUBFAM", "number": "1", "type": "String", "description": "MEI subfamily"}

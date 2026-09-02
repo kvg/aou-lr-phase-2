@@ -6,13 +6,52 @@ use serde::Deserialize;
 
 use crate::error::{Result, ScoreError};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoringKind {
+    Gmmat,
+    Felix,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct NullMeta {
     pub n: usize,
     pub p: usize,
     pub nnz: usize,
     pub family: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub variance_ratio: Option<f64>,
+    #[serde(default)]
+    pub tau0: Option<f64>,
+    #[serde(default)]
+    pub trait_type: Option<String>,
     pub tractor_mix_score_sha: Option<String>,
+}
+
+impl NullMeta {
+    pub fn is_quantitative(&self) -> bool {
+        let fam = self.family.to_ascii_lowercase();
+        fam == "gaussian" || fam == "quantitative" || fam == "gaussian()"
+    }
+
+    pub fn is_binomial(&self) -> bool {
+        let fam = self.family.to_ascii_lowercase();
+        fam == "binomial" || fam == "binary"
+    }
+
+    pub fn scoring_kind(&self) -> ScoringKind {
+        let src = self
+            .source
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if src == "felix" || src == "saige" || self.is_quantitative() {
+            ScoringKind::Felix
+        } else {
+            ScoringKind::Gmmat
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -23,6 +62,18 @@ pub struct NullModel {
     pub sigma_i_x: Vec<f64>,
     pub cov: Vec<f64>,
     pub residuals: Vec<f64>,
+    pub variance_ratio: f64,
+    /// Optional p x n column-major XV for FELIX getadjG.
+    pub xv: Option<Vec<f64>>,
+    /// Optional n x p column-major XXVX_inv for FELIX getadjG.
+    pub xxvx_inv: Option<Vec<f64>>,
+    pub scoring: ScoringKind,
+}
+
+impl NullModel {
+    pub fn has_getadj(&self) -> bool {
+        self.xv.is_some() && self.xxvx_inv.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -45,11 +96,32 @@ fn read_f64_le(r: &mut impl Read) -> Result<f64> {
     Ok(f64::from_le_bytes(buf))
 }
 
+pub fn parse_variance_ratio_file_public(path: &Path) -> Option<f64> {
+    parse_variance_ratio_file(path)
+}
+
+fn parse_variance_ratio_file(path: &Path) -> Option<f64> {
+    let text = std::fs::read_to_string(path).ok()?;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let first = t.split_whitespace().next()?;
+        if let Ok(v) = first.parse::<f64>() {
+            if v.is_finite() && v > 0.0 {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
 pub fn load_null_export(dir: &Path) -> Result<NullModel> {
     let meta: NullMeta = serde_json::from_reader(File::open(dir.join("meta.json"))?)?;
-    if meta.family != "binomial" {
+    if !meta.is_binomial() && !meta.is_quantitative() {
         return Err(ScoreError::msg(format!(
-            "unsupported family {} (binomial only)",
+            "unsupported family {} (binomial or quantitative/gaussian)",
             meta.family
         )));
     }
@@ -73,6 +145,31 @@ pub fn load_null_export(dir: &Path) -> Result<NullModel> {
     let cov = read_dense_p(&dir.join("cov.bin"), meta.p)?;
     let residuals = read_residuals(&dir.join("residuals.bin"), meta.n)?;
 
+    let mut variance_ratio = meta.variance_ratio.unwrap_or(1.0);
+    if let Some(vr) = parse_variance_ratio_file(&dir.join("variance_ratio.txt")) {
+        if meta.variance_ratio.is_none() {
+            variance_ratio = vr;
+        }
+    }
+    if !(variance_ratio.is_finite() && variance_ratio > 0.0) {
+        return Err(ScoreError::msg(format!(
+            "invalid variance_ratio {variance_ratio}"
+        )));
+    }
+
+    let xv_path = dir.join("xv.bin");
+    let xx_path = dir.join("xxvx_inv.bin");
+    let (xv, xxvx_inv) = if xv_path.exists() && xx_path.exists() {
+        (
+            Some(read_dense_np(&xv_path, meta.p, meta.n)?),
+            Some(read_dense_np(&xx_path, meta.n, meta.p)?),
+        )
+    } else {
+        (None, None)
+    };
+
+    let scoring = meta.scoring_kind();
+
     Ok(NullModel {
         meta,
         id_include,
@@ -80,6 +177,10 @@ pub fn load_null_export(dir: &Path) -> Result<NullModel> {
         sigma_i_x,
         cov,
         residuals,
+        variance_ratio,
+        xv,
+        xxvx_inv,
+        scoring,
     })
 }
 
@@ -113,7 +214,8 @@ fn read_dense_np(path: &Path, n: usize, p: usize) -> Result<Vec<f64>> {
     let rp = read_i32_le(&mut f)? as usize;
     if rn != n || rp != p {
         return Err(ScoreError::msg(format!(
-            "matrix dims {rn}x{rp} != expected {n}x{p}"
+            "matrix dims {rn}x{rp} != expected {n}x{p} ({})",
+            path.display()
         )));
     }
     let mut out = vec![0.0; n * p];
@@ -226,5 +328,26 @@ mod tests {
         let mut y = vec![0.0; 3];
         csc_matvec(&mat, &x, &mut y);
         assert_eq!(y, vec![2.0, 6.0, 12.0]);
+    }
+
+    #[test]
+    fn family_detection() {
+        let mut m = NullMeta {
+            n: 1,
+            p: 1,
+            nnz: 1,
+            family: "binomial".into(),
+            source: None,
+            variance_ratio: None,
+            tau0: None,
+            trait_type: None,
+            tractor_mix_score_sha: None,
+        };
+        assert_eq!(m.scoring_kind(), ScoringKind::Gmmat);
+        m.family = "gaussian".into();
+        assert_eq!(m.scoring_kind(), ScoringKind::Felix);
+        m.family = "binomial".into();
+        m.source = Some("felix".into());
+        assert_eq!(m.scoring_kind(), ScoringKind::Felix);
     }
 }

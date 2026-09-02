@@ -1,0 +1,17 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr22>
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type">
+##INFO=<ID=SVLEN,Number=A,Type=Integer,Description="Length">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2	S3
+chr22	100	snv1	A	G	.	PASS	.	GT	0|1	0|0	1|1
+chr22	500	vntr_ins	A	ACAGCAGCAG	.	PASS	SVTYPE=INS;SVLEN=9	GT	0|1	1|1	0|0
+chr22	1000	vntr_del	N	<DEL>	.	PASS	SVTYPE=DEL;SVLEN=-10;END=1010	GT	0|1	0|0	1|1
+chr22	2000	vntr_dup	N	<DUP>	.	PASS	SVTYPE=DUP;SVLEN=20;END=2020	GT	0|1	0|1	0|0
+chr22	3000	inv1	N	<INV>	.	PASS	SVTYPE=INV;SVLEN=140;END=3140	GT	0|0	0|0	0|1
+chr22	4000	bnd1	N	N]chr1:100]	.	PASS	SVTYPE=BND	GT	0|1	0|0	0|0
+chr22	5000	uniq_del	N	<DEL>	.	PASS	SVTYPE=DEL;SVLEN=-17;END=5017	GT	0|1	0|0	0|0
+chr22	6000	vntr_multi	A	ACAG,ACAGCAGCAG	.	PASS	SVTYPE=INS;SVLEN=3,9	GT	1|2	0|1	0|0
+chr22	7000	nohit_ins	A	ACAGCAG	.	PASS	SVTYPE=INS;SVLEN=6	GT	0|1	0|0	0|0
+chr22	8000	hom_ins	A	AAAAAAAAAA	.	PASS	SVTYPE=INS;SVLEN=10	GT	0|1	0|0	0|0

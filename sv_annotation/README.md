@@ -81,3 +81,12 @@ extract_sites_from_vcf.py
 
 Optional landscape producers (TR / remap / MEI / external AF) format TSVs for later
 `bcftools annotate` transfer; they are not required for the main table or Ebert plots.
+
+Repeat-unit dosage (FELIX Score B path) is a separate VCF-INFO annotator:
+
+```bash
+python3 ../scripts/annotate_repeat_units.py \
+  --vcf JOINT.vcf.gz \
+  --simple-repeat-bed simpleRepeat.bed.gz \
+  --out JOINT.ru.vcf.gz
+```

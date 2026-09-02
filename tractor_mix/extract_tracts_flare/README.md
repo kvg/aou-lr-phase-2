@@ -15,6 +15,23 @@ extract-tracts-flare \
   --compress-output
 ```
 
+Annotate repeat-mediated SVs first, then extract (same CLI; `RU_TEST` sites
+switch to copy-number dosage automatically):
+
+```bash
+python3 scripts/annotate_repeat_units.py \
+  --vcf JOINT.vcf.gz \
+  --simple-repeat-bed simpleRepeat.bed.gz \
+  --out JOINT.ru.vcf.gz
+
+mkdir -p OUTDIR
+extract-tracts-flare \
+  --vcf JOINT.ru.vcf.gz \
+  --num-ancs 5 \
+  --output-dir OUTDIR \
+  --compress-output
+```
+
 Flags matching the Python script:
 
 | Flag | Meaning |
@@ -36,7 +53,16 @@ Outputs (prefix = VCF basename without `.vcf` / `.vcf.gz`):
 
 - `{prefix}.anc{i}.dosage.txt[.gz]`
 - `{prefix}.anc{i}.hapcount.txt[.gz]`
+- `{prefix}.collapse.anc{i}.dosage.txt[.gz]` — biallelic 0/1 collapse of `RU_TEST` sites
+- `{prefix}.split.anc{i}.dosage.txt[.gz]` — one 0/1 row per ALT of each `RU_TEST` site (`ID:1`, `ID:2`, …)
 - `dosage_sample_order.txt` in the output directory
+
+Sites with INFO `RU_TEST` use repeat-unit copy-number dosage: `C = CN_REF` on the
+REF haplotype, or `C = CN_REF + sign(SVTYPE)×RU[a]` on ALT `a` (`sign` is −1 for
+DEL and +1 for INS/DUP). Missing `CN_REF` is extra-units-vs-REF (`CN_REF=0`).
+`dosage[anc] += C`. Multi-allelic VNTR-like records stay one locus in the main
+dosage file. Non-`RU_TEST` sites keep the classic biallelic allele-`1` 0/1/2
+dosage. Comparison encodings are written from the same haplotypes in one pass.
 
 ## Tests
 

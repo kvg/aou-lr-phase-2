@@ -58,6 +58,8 @@ fn list_outputs(dir: &Path, prefix: &str) -> Vec<PathBuf> {
                 && (n.contains(".dosage.")
                     || n.contains(".hapcount.")
                     || n.contains(".anc") && n.contains(".vcf"))
+                && !n.contains(".collapse.")
+                && !n.contains(".split.")
                 && n != "dosage_sample_order.txt"
         })
         .collect();

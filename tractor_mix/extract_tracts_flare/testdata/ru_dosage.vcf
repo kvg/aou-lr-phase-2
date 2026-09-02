@@ -1,0 +1,19 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type">
+##INFO=<ID=SVLEN,Number=A,Type=Integer,Description="Length">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+##INFO=<ID=RU_TEST,Number=0,Type=Flag,Description="Eligible INS/DEL/DUP overlapping a tandem array with a usable period">
+##INFO=<ID=PERIOD,Number=1,Type=Integer,Description="Tandem repeat period in bp">
+##INFO=<ID=MOTIF,Number=1,Type=String,Description="Tandem repeat consensus motif">
+##INFO=<ID=CN_REF,Number=1,Type=Float,Description="Reference copy number; omitted means extra-units-vs-REF">
+##INFO=<ID=RU,Number=A,Type=Integer,Description="Repeat-unit count of each ALT">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=AN1,Number=1,Type=Integer,Description="Ancestry hap 1">
+##FORMAT=<ID=AN2,Number=1,Type=Integer,Description="Ancestry hap 2">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2	S3
+chr22	100	snv1	A	G	.	PASS	.	GT:AN1:AN2	0|1:0:1	0|0:0:0	1|1:1:1
+chr22	500	vntr_ins	A	ACAGCAGCAG	.	PASS	SVTYPE=INS;SVLEN=9;RU_TEST;PERIOD=3;MOTIF=CAG;CN_REF=10;RU=3	GT:AN1:AN2	0|1:0:1	1|1:0:0	0|0:1:1
+chr22	1000	vntr_del	N	<DEL>	.	PASS	SVTYPE=DEL;SVLEN=-10;END=1010;RU_TEST;PERIOD=2;CN_REF=20;RU=5	GT:AN1:AN2	0|1:0:1	0|0:2:2	1|1:0:1
+chr22	6000	vntr_multi	A	ACAG,ACAGCAGCAG	.	PASS	SVTYPE=INS;SVLEN=3,9;RU_TEST;PERIOD=3;MOTIF=CAG;CN_REF=6;RU=1,3	GT:AN1:AN2	1|2:0:1	0|1:1:1	0|0:0:0
+chr22	700	rel_ins	A	ACAG	.	PASS	SVTYPE=INS;SVLEN=3;RU_TEST;PERIOD=3;MOTIF=CAG;RU=1	GT:AN1:AN2	0|1:0:0	1|1:1:1	0|0:2:2

@@ -51,6 +51,11 @@ FLARE annotation QC:
 
 WDLs stay in `tractor_mix/wdl/`, `sv_annotation/wdl/`, and `propagate_annotations/wdl/`.
 
+`FelixPilot.wdl` uses the `felix-pilot:0.1.0` image and staged
+`fit_saige_null.R`, `run_felix_step2.R`, and `summarize_tractor_genome_results.py`
+(FELIX summarize flags: `--p-column P_cct_admixed_c`). Same
+`stage_tractor_scripts.sh` upload as Tractor-Mix / SAIGE.
+
 ## Tractor-Mix WDL (Rust scorer)
 
 `TractorMixPilot.wdl` runs **FitNull** (`scripts/fit_null.R`) then **Score** (`tractor-mix-score --threads 8`).

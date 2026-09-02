@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize TractorMixGenome merged result TSVs.
+"""Summarize Tractor-Mix or FELIX association result TSVs.
 
 Writes phenotype-named association tables, per-trait QQ / Manhattan / top hits,
 a results manifest, and cohort-level λGC tables suitable for Terra outputs and
@@ -7,6 +7,10 @@ post-workflow notebooks.
 
 Expected Tractor-Mix columns include:
   CHR POS ID REF ALT Chi2 P Eff_anc* SE_anc* Pval_anc* AC_count* include_anc*
+
+FELIX Step 2 columns (pass --p-column P_cct_admixed_c --named-suffix .felix.tsv):
+  CHR POS MarkerID Allele1 Allele2 P_cct_admixed_c P_het_admixed_c
+  P_hom_admixed_c p.value_c_anc* BETA_c_anc* SE_c_anc*
 """
 
 from __future__ import annotations
@@ -69,16 +73,35 @@ def chrom_sort_key(chrom: str) -> tuple:
     return (1, order.get(c.upper(), 100), c)
 
 
-def ac_pass_mask(df: pd.DataFrame) -> pd.Series:
+def ac_pass_mask(df: pd.DataFrame, pcol: str = "P") -> pd.Series:
     include_cols = [c for c in df.columns if c.startswith("include_anc")]
     if include_cols:
         inc = df[include_cols].astype(str).apply(
             lambda s: s.str.lower().isin(["true", "1", "1.0", "t"])
         )
         return inc.any(axis=1)
+    if pcol in df.columns:
+        return df[pcol].notna()
     if "P" in df.columns:
         return df["P"].notna()
     return pd.Series(False, index=df.index)
+
+
+def default_extra_p_columns(df: pd.DataFrame, pcol: str) -> list[str]:
+    """QQ extras for FELIX _c_ columns without changing Tractor-Mix defaults."""
+    extras: list[str] = []
+    if pcol == "P_cct_admixed_c":
+        for c in ("P_het_admixed_c", "P_hom_admixed_c"):
+            if c in df.columns:
+                extras.append(c)
+        extras.extend(
+            sorted(
+                c
+                for c in df.columns
+                if c.startswith("p.value_c_anc") and c not in extras
+            )
+        )
+    return extras
 
 
 def qq_plot(pvals: np.ndarray, title: str, out_png: Path) -> float:
@@ -198,47 +221,63 @@ def summarize_one(
     pheno_cov: Path | None,
     top_n: int,
     p_threshold: float,
+    pcol: str = "P",
+    named_suffix: str = ".tractor_mix.tsv",
+    extra_p_columns: list[str] | None = None,
 ) -> dict:
     safe = sanitize_pheno(phenotype)
     ph_dir = out_dir / safe
     ph_dir.mkdir(parents=True, exist_ok=True)
 
     # Phenotype-named association table for Terra / notebooks
-    named_path = named_dir / f"{safe}.tractor_mix.tsv"
+    named_path = named_dir / f"{safe}{named_suffix}"
     shutil.copy2(path, named_path)
 
     df = pd.read_csv(path, sep="\t")
-    ac_pass = ac_pass_mask(df)
+    ac_pass = ac_pass_mask(df, pcol=pcol)
     n_var = len(df)
     n_pass = int(ac_pass.sum())
-    n_joint = int(df["P"].notna().sum()) if "P" in df.columns else 0
+    n_joint = int(df[pcol].notna().sum()) if pcol in df.columns else 0
 
     lam_all = float("nan")
     lam_pass = float("nan")
     n_gw_sig = 0
-    if "P" in df.columns:
+    if pcol in df.columns:
         lam_all = qq_plot(
-            df["P"].to_numpy(dtype=float),
-            f"{safe} joint P (all)",
+            df[pcol].to_numpy(dtype=float),
+            f"{safe} {pcol} (all)",
             ph_dir / "qq_joint_all.png",
         )
         lam_pass = qq_plot(
-            df.loc[ac_pass, "P"].to_numpy(dtype=float),
-            f"{safe} joint P (AC-pass)",
+            df.loc[ac_pass, pcol].to_numpy(dtype=float),
+            f"{safe} {pcol} (AC-pass)",
             ph_dir / "qq_joint_acpass.png",
         )
         manhattan_genome(
             df.loc[ac_pass],
-            "P",
-            f"{safe} joint (AC-pass)",
+            pcol,
+            f"{safe} {pcol} (AC-pass)",
             ph_dir / "manhattan_joint.png",
         )
         n_gw_sig = int(
             (
                 ac_pass
-                & df["P"].notna()
-                & (pd.to_numeric(df["P"], errors="coerce") < p_threshold)
+                & df[pcol].notna()
+                & (pd.to_numeric(df[pcol], errors="coerce") < p_threshold)
             ).sum()
+        )
+
+    extras = extra_p_columns
+    if extras is None:
+        extras = default_extra_p_columns(df, pcol)
+    extra_lams: dict[str, float] = {}
+    for c in extras:
+        if c not in df.columns:
+            continue
+        extra_lams[f"lambda_gc_{c}"] = qq_plot(
+            df.loc[ac_pass, c].to_numpy(dtype=float),
+            f"{safe} {c} (AC-pass)",
+            ph_dir / f"qq_{c}.png",
         )
 
     for c in [c for c in df.columns if c.startswith("Pval_anc")]:
@@ -248,11 +287,11 @@ def summarize_one(
             ph_dir / f"qq_{c}.png",
         )
 
-    if "P" in df.columns:
+    if pcol in df.columns:
         top = (
             df.loc[ac_pass]
-            .dropna(subset=["P"])
-            .assign(_p=lambda x: pd.to_numeric(x["P"], errors="coerce"))
+            .dropna(subset=[pcol])
+            .assign(_p=lambda x: pd.to_numeric(x[pcol], errors="coerce"))
             .sort_values("_p")
             .drop(columns=["_p"])
             .head(top_n)
@@ -263,9 +302,10 @@ def summarize_one(
     top.to_csv(top_path, sep="\t", index=False)
 
     counts = phenotype_counts(pheno_cov, phenotype)
-    return {
+    rec = {
         "phenotype": phenotype,
         "phenotype_safe": safe,
+        "p_column": pcol,
         "result_file": named_path.name,
         "result_path": str(named_path),
         "n_variants": n_var,
@@ -283,6 +323,8 @@ def summarize_one(
         "manhattan": str(ph_dir / "manhattan_joint.png"),
         "top_hits": str(top_path),
     }
+    rec.update(extra_lams)
+    return rec
 
 
 def write_phewas_hits(summary: pd.DataFrame, out_dir: Path, named_dir: Path) -> Path | None:
@@ -293,14 +335,15 @@ def write_phewas_hits(summary: pd.DataFrame, out_dir: Path, named_dir: Path) -> 
         if not path.exists():
             continue
         df = pd.read_csv(path, sep="\t")
-        if "P" not in df.columns:
+        pcol = str(rec["p_column"]) if "p_column" in rec.index and pd.notna(rec["p_column"]) else "P"
+        if pcol not in df.columns:
             continue
-        ac_pass = ac_pass_mask(df)
+        ac_pass = ac_pass_mask(df, pcol=pcol)
         thr = float(rec["p_threshold"])
         hit = df.loc[
             ac_pass
-            & df["P"].notna()
-            & (pd.to_numeric(df["P"], errors="coerce") < thr)
+            & df[pcol].notna()
+            & (pd.to_numeric(df[pcol], errors="coerce") < thr)
         ].copy()
         if hit.empty:
             continue
@@ -333,6 +376,28 @@ def main() -> None:
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--top-n", type=int, default=50)
     p.add_argument("--p-threshold", type=float, default=5e-8)
+    p.add_argument(
+        "--p-column",
+        default="P",
+        help="Primary p-value column (Tractor-Mix: P; FELIX: P_cct_admixed_c).",
+    )
+    p.add_argument(
+        "--named-suffix",
+        default=".tractor_mix.tsv",
+        help="Suffix for phenotype-named copies under results_by_phenotype/.",
+    )
+    p.add_argument(
+        "--extra-p-columns",
+        nargs="*",
+        default=None,
+        help="Additional p-value columns for QQ plots. Default: FELIX _c_ extras "
+        "when --p-column is P_cct_admixed_c; otherwise none besides Pval_anc*.",
+    )
+    p.add_argument(
+        "--report-title",
+        default="Tractor-Mix genome QC summary",
+        help="Markdown heading for calibration_summary.md.",
+    )
     args = p.parse_args()
 
     results = list(args.results)
@@ -344,9 +409,10 @@ def main() -> None:
         phenos = list(args.phenotypes)
     else:
         phenos = []
+        extra_suf = args.named_suffix if args.named_suffix.startswith(".") else f".{args.named_suffix}"
         for path in results:
             name = path.name
-            for suf in (".tractor_mix.tsv", ".tsv"):
+            for suf in (extra_suf, ".tractor_mix.tsv", ".felix.tsv", ".tsv"):
                 if name.endswith(suf):
                     name = name[: -len(suf)]
                     break
@@ -371,6 +437,9 @@ def main() -> None:
                 pheno_cov=args.pheno_cov,
                 top_n=args.top_n,
                 p_threshold=args.p_threshold,
+                pcol=args.p_column,
+                named_suffix=args.named_suffix,
+                extra_p_columns=args.extra_p_columns,
             )
         )
 
@@ -417,7 +486,8 @@ def main() -> None:
         body = "```\n" + summary.to_string(index=False) + "\n```"
 
     (out_dir / "calibration_summary.md").write_text(
-        "# Tractor-Mix genome QC summary\n\n"
+        f"# {args.report_title}\n\n"
+        f"Primary p-value column: `{args.p_column}`.\n"
         "Per-phenotype association tables: `results_by_phenotype/`.\n"
         "Figures and top hits: `qc/<phenotype>/`.\n\n"
         + body

@@ -20,6 +20,53 @@ pub fn signif_digits(x: f64, digits: i32) -> f64 {
     (x * factor).round() / factor
 }
 
+/// Cauchy combination test (FELIX `R/CCT_modified.R`).
+///
+/// Equal weights. NA inputs are dropped; an empty set yields NA. A p-value of
+/// exactly 0 returns 0; a p-value of exactly 1 returns `min(p)*k` (capped at 1).
+pub fn cct(pvals: &[f64]) -> f64 {
+    let pvals: Vec<f64> = pvals
+        .iter()
+        .copied()
+        .filter(|p| p.is_finite())
+        .collect();
+    if pvals.is_empty() {
+        return f64::NAN;
+    }
+    if pvals.iter().any(|&p| p < 0.0 || p > 1.0) {
+        return f64::NAN;
+    }
+    if pvals.iter().any(|&p| p == 0.0) {
+        return 0.0;
+    }
+    if pvals.iter().any(|&p| p == 1.0) {
+        let min_p = pvals.iter().copied().fold(1.0_f64, f64::min);
+        return (min_p * pvals.len() as f64).min(1.0);
+    }
+    let w = 1.0 / pvals.len() as f64;
+    let mut stat = 0.0;
+    for &p in &pvals {
+        if p < 1e-16 {
+            stat += (w / p) / std::f64::consts::PI;
+        } else {
+            stat += w * ((0.5 - p) * std::f64::consts::PI).tan();
+        }
+    }
+    if stat > 1e15 {
+        (1.0 / stat) / std::f64::consts::PI
+    } else {
+        pcauchy_upper(stat)
+    }
+}
+
+/// `1 - pcauchy(x)` (standard Cauchy, location 0 scale 1).
+pub fn pcauchy_upper(x: f64) -> f64 {
+    if !x.is_finite() {
+        return f64::NAN;
+    }
+    0.5 - x.atan() / std::f64::consts::PI
+}
+
 /// Upper tail chi-square CDF: P(X > x) for X ~ chi2(df).
 pub fn pchisq_upper(x: f64, df: usize) -> f64 {
     if !x.is_finite() || x < 0.0 {
@@ -132,5 +179,24 @@ mod tests {
     fn pchisq_upper_sanity() {
         let p = pchisq_upper(3.841, 1);
         assert!((p - 0.05).abs() < 0.01);
+    }
+
+    #[test]
+    fn cct_zero_and_one() {
+        assert_eq!(cct(&[0.0, 0.2]), 0.0);
+        let p = cct(&[1.0, 0.1]);
+        assert!((p - 0.2).abs() < 1e-12);
+    }
+
+    #[test]
+    fn cct_equal_half() {
+        let p = cct(&[0.5, 0.5]);
+        assert!((p - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cct_empty_is_nan() {
+        assert!(cct(&[]).is_nan());
+        assert!(cct(&[f64::NAN]).is_nan());
     }
 }

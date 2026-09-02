@@ -27,6 +27,7 @@ export_null_for_rust <- function(obj, export_dir) {
   writeLines(as.character(obj$id_include), file.path(export_dir, "id_include.txt"))
   meta <- list(
     n = n, p = p, nnz = Matrix::nnzero(Sigma_i), family = "binomial",
+    source = "gmmat", variance_ratio = 1,
     tractor_mix_score_sha = "4adb8f1814d9315ecd7868eb729d52ec0c723719"
   )
   write(toJSON(meta, auto_unbox = TRUE, pretty = TRUE), file.path(export_dir, "meta.json"))

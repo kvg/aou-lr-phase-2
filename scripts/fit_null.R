@@ -1,5 +1,6 @@
 #!/usr/bin/env Rscript
 # Fit GMMAT null model (binomial) and export sparse Sigma_i artifacts for tractor-mix-score.
+# FELIX/SAIGE Step 1 .rda: pass --step1-rda (delegates to export_felix_null.R).
 
 suppressPackageStartupMessages({
   library(GMMAT)
@@ -17,7 +18,11 @@ parse_args <- function(args) {
     covariates = NA_character_,
     grm_rds = NA_character_,
     out_null_rds = "null_model.rds",
-    out_null_export = "null_export"
+    out_null_export = "null_export",
+    step1_rda = NA_character_,
+    sparse_grm = NA_character_,
+    sparse_grm_ids = NA_character_,
+    variance_ratio = NA_character_
   )
   i <- 1
   while (i <= length(args)) {
@@ -30,12 +35,19 @@ parse_args <- function(args) {
     else if (key == "--grm-rds") out$grm_rds <- val
     else if (key == "--out-null-rds") out$out_null_rds <- val
     else if (key == "--out-null-export") out$out_null_export <- val
+    else if (key == "--step1-rda") out$step1_rda <- val
+    else if (key == "--sparse-grm") out$sparse_grm <- val
+    else if (key == "--sparse-grm-ids") out$sparse_grm_ids <- val
+    else if (key == "--variance-ratio") out$variance_ratio <- val
     else stop(paste("Unknown arg:", key))
     i <- i + 2
   }
+  if (!is.na(out$step1_rda) && nzchar(out$step1_rda)) {
+    return(out)
+  }
   if (is.na(out$pheno_cov) || is.na(out$phenotype) || is.na(out$covariates) ||
       is.na(out$grm_rds)) {
-    stop("Required: --pheno-cov --phenotype --covariates --grm-rds")
+    stop("Required: --pheno-cov --phenotype --covariates --grm-rds (or --step1-rda)")
   }
   out
 }
@@ -143,9 +155,12 @@ export_null_for_rust <- function(obj, out_dir) {
     p = p,
     nnz = Matrix::nnzero(Sigma_i),
     family = "binomial",
+    source = "gmmat",
+    variance_ratio = 1,
     tractor_mix_score_sha = "4adb8f1814d9315ecd7868eb729d52ec0c723719"
   )
   write(toJSON(meta, auto_unbox = TRUE, pretty = TRUE), file.path(out_dir, "meta.json"))
+  writeLines("1", file.path(out_dir, "variance_ratio.txt"))
 
   # CSC binary: n, nnz, colptr (0-based), rowidx (0-based), values
   con <- file(file.path(out_dir, "sigma_i.csc.bin"), "wb")
@@ -184,6 +199,40 @@ export_null_for_rust <- function(obj, out_dir) {
 }
 
 opt <- parse_args(args)
+
+if (!is.na(opt$step1_rda) && nzchar(opt$step1_rda)) {
+  script_file <- sub("^--file=", "", grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1])
+  script_dir <- if (length(script_file) && nzchar(script_file) && !is.na(script_file)) {
+    dirname(normalizePath(script_file, mustWork = FALSE))
+  } else {
+    getwd()
+  }
+  export_r <- file.path(script_dir, "export_felix_null.R")
+  if (!file.exists(export_r)) {
+    export_r <- file.path("/opt/tractor_mix_scripts/export_felix_null.R")
+  }
+  if (!file.exists(export_r)) {
+    stop("export_felix_null.R not found next to fit_null.R")
+  }
+  cmd <- paste(
+    "Rscript", shQuote(export_r),
+    "--null-rda", shQuote(opt$step1_rda),
+    "--out-dir", shQuote(opt$out_null_export)
+  )
+  if (!is.na(opt$sparse_grm) && nzchar(opt$sparse_grm)) {
+    cmd <- paste(cmd, "--sparse-grm", shQuote(opt$sparse_grm))
+  }
+  if (!is.na(opt$sparse_grm_ids) && nzchar(opt$sparse_grm_ids)) {
+    cmd <- paste(cmd, "--sparse-grm-ids", shQuote(opt$sparse_grm_ids))
+  }
+  if (!is.na(opt$variance_ratio) && nzchar(opt$variance_ratio)) {
+    cmd <- paste(cmd, "--variance-ratio", shQuote(opt$variance_ratio))
+  }
+  message("Delegating FELIX Step 1 export: ", cmd)
+  status <- system(cmd)
+  if (status != 0) stop(sprintf("export_felix_null.R failed with status %s", status))
+  quit(save = "no", status = 0)
+}
 
 covars <- scan(opt$covariates, what = character(), quiet = TRUE)
 pheno <- fread(opt$pheno_cov, sep = "\t", header = TRUE, data.table = FALSE)

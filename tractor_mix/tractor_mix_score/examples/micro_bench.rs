@@ -9,7 +9,7 @@ use std::time::Instant;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use tractor_mix_score::null::{write_sigma_i_csc, CscMatrix};
-use tractor_mix_score::{run_score, ScoreConfig};
+use tractor_mix_score::{run_score, ScoreConfig, ScoreModeArg};
 
 fn write_i32(w: &mut impl Write, x: i32) {
     w.write_all(&x.to_le_bytes()).unwrap();
@@ -193,6 +193,9 @@ fn main() {
             .nth(5)
             .and_then(|s| s.parse().ok())
             .unwrap_or(8),
+        mode: ScoreModeArg::Legacy,
+        variance_ratio: None,
+        min_copy_var: 1e-6,
     };
 
     let t2 = Instant::now();

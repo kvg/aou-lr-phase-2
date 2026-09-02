@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tempfile::TempDir;
-use tractor_mix_score::{run_score, ScoreConfig};
+use tractor_mix_score::{run_score, ScoreConfig, ScoreModeArg};
 
 fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -94,6 +94,9 @@ fn run_rust_score(
         ac_threshold,
         chunk_size: 16,
         threads,
+        mode: ScoreModeArg::Legacy,
+        variance_ratio: None,
+        min_copy_var: 1e-6,
     };
     run_score(&cfg).expect("rust score");
 }
@@ -233,4 +236,5 @@ fn cli_help() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("null-export"));
+    assert!(stdout.contains("mode"));
 }

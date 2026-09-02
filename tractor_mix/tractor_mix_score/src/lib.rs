@@ -13,9 +13,16 @@ use rayon::prelude::*;
 
 use dosage::{count_variants, read_dosage_header, DosageReader, VariantMeta};
 use error::{Result, ScoreError};
-use null::load_null_export;
+use null::{load_null_export, NullModel, ScoringKind};
 use output::{open_output, write_header, write_variant_row};
-use score::{score_variant, VariantStats};
+use score::{score_variant, ScoreMode, VariantStats};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoreModeArg {
+    Auto,
+    Legacy,
+    Felix,
+}
 
 pub struct ScoreConfig {
     pub null_export: std::path::PathBuf,
@@ -24,6 +31,11 @@ pub struct ScoreConfig {
     pub ac_threshold: i32,
     pub chunk_size: usize,
     pub threads: usize,
+    pub mode: ScoreModeArg,
+    /// Override scalar variance ratio (FELIX mode).
+    pub variance_ratio: Option<f64>,
+    /// Minimum total copy-number variance; FELIX mode only.
+    pub min_copy_var: f64,
 }
 
 struct Progress {
@@ -61,13 +73,34 @@ impl Progress {
     }
 }
 
+fn load_null(cfg: &ScoreConfig) -> Result<NullModel> {
+    let mut null = load_null_export(&cfg.null_export)?;
+    if let Some(vr) = cfg.variance_ratio {
+        null.variance_ratio = vr;
+    }
+    Ok(null)
+}
+
+fn requested_score_mode(cfg: &ScoreConfig, null: &NullModel) -> ScoreMode {
+    match cfg.mode {
+        ScoreModeArg::Auto => match null.scoring {
+            ScoringKind::Felix => ScoreMode::Felix,
+            ScoringKind::Gmmat => ScoreMode::Legacy,
+        },
+        ScoreModeArg::Legacy => ScoreMode::Legacy,
+        ScoreModeArg::Felix => ScoreMode::Felix,
+    }
+}
+
 fn score_chunk_variants(
-    null: &null::NullModel,
-    chunk_geno: &[Vec<u8>],
+    null: &NullModel,
+    chunk_geno: &[Vec<f64>],
     n: usize,
     n_anc: usize,
     n_chunk: usize,
     ac_threshold: i32,
+    score_mode: ScoreMode,
+    min_copy_var: f64,
     threads: usize,
 ) -> Vec<VariantStats> {
     let pool = rayon::ThreadPoolBuilder::new()
@@ -79,12 +112,26 @@ fn score_chunk_variants(
         (0..n_chunk)
             .into_par_iter()
             .map(|vi| {
-                let mut geno_all = vec![0u8; n * n_anc];
+                let mut geno_all = vec![0.0; n * n_anc];
                 for anc in 0..n_anc {
                     let src = &chunk_geno[anc][vi * n..(vi + 1) * n];
                     geno_all[anc * n..(anc + 1) * n].copy_from_slice(src);
                 }
-                score_variant(null, &geno_all, n_anc, ac_threshold)
+                if score_mode == ScoreMode::Felix {
+                    let mean = geno_all.iter().sum::<f64>() / geno_all.len() as f64;
+                    let var = geno_all
+                        .iter()
+                        .map(|x| {
+                            let d = x - mean;
+                            d * d
+                        })
+                        .sum::<f64>()
+                        / geno_all.len() as f64;
+                    if var < min_copy_var {
+                        return VariantStats::default();
+                    }
+                }
+                score_variant(null, &geno_all, n_anc, ac_threshold, score_mode)
             })
             .collect()
     })
@@ -95,7 +142,9 @@ pub fn run_score(cfg: &ScoreConfig) -> Result<()> {
         return Err(ScoreError::msg("--threads must be >= 1"));
     }
 
-    let null = load_null_export(&cfg.null_export)?;
+    let null = load_null(cfg)?;
+    let score_mode = requested_score_mode(cfg, &null);
+
     let n_anc = cfg.dosage_files.len();
     if n_anc == 0 {
         return Err(ScoreError::msg("at least one --dosage-file required"));
@@ -114,8 +163,14 @@ pub fn run_score(cfg: &ScoreConfig) -> Result<()> {
 
     let n_snps = count_variants(&cfg.dosage_files[0])?;
     eprintln!(
-        "tractor-mix-score: n={} variants={} ancestries={} threads={} chunk_size={}",
-        null.meta.n, n_snps, n_anc, cfg.threads, cfg.chunk_size
+        "tractor-mix-score: mode={:?} n={} variants={} ancestries={} threads={} chunk_size={} vr={:.4}",
+        cfg.mode,
+        null.meta.n,
+        n_snps,
+        n_anc,
+        cfg.threads,
+        cfg.chunk_size,
+        null.variance_ratio
     );
 
     let mut readers = Vec::with_capacity(n_anc);
@@ -126,11 +181,11 @@ pub fn run_score(cfg: &ScoreConfig) -> Result<()> {
     }
 
     let mut out = open_output(&cfg.out_tsv)?;
-    write_header(&mut out, n_anc)?;
+    write_header(&mut out, n_anc, score_mode)?;
 
     let n = null.meta.n;
     let mut chunk_meta: Vec<VariantMeta> = Vec::new();
-    let mut chunk_geno: Vec<Vec<u8>> = vec![Vec::new(); n_anc];
+    let mut chunk_geno: Vec<Vec<f64>> = vec![Vec::new(); n_anc];
     let mut processed = 0usize;
     let progress = Progress::new(n_snps);
     let run_start = Instant::now();
@@ -157,11 +212,13 @@ pub fn run_score(cfg: &ScoreConfig) -> Result<()> {
             n_anc,
             n_chunk,
             cfg.ac_threshold,
+            score_mode,
+            cfg.min_copy_var,
             cfg.threads,
         );
 
         for (vi, st) in stats.into_iter().enumerate() {
-            write_variant_row(&mut out, &chunk_meta[vi], &st, n_anc)?;
+            write_variant_row(&mut out, &chunk_meta[vi], &st, n_anc, score_mode)?;
         }
 
         processed += n_chunk;

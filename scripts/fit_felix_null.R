@@ -1,13 +1,8 @@
 #!/usr/bin/env Rscript
-# Fit a SAIGE / FELIX logistic null model (step 1) for one binary phenotype.
+# Fit a FELIX / SAIGE null model (step 1) for one phenotype (binary or quantitative).
 #
-# Aligns pheno_cov to analysis_samples, keeps complete cases for the phenotype
-# + selected covariates, then calls step1_fitNULLGLMM.R with the shared sparse
-# GRM / PLINK prefix from build_saige_plink_and_grm.sh.
-#
-# Default --step1-r is the SAIGE-style path used by both the tractor-mix-pilot
-# image and the FELIX pilot image (the latter symlinks FELIX wrappers there).
-# Override with --step1-r /usr/local/bin/step1_fitNULLGLMM.R on lhu1/felix.
+# Aligns pheno_cov to analysis_samples, runs step1_fitNULLGLMM.R, then exports
+# null_export artifacts for tractor-mix-score via export_felix_null.R.
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -24,7 +19,9 @@ parse_args <- function(args) {
     plink_prefix = NA_character_,
     sparse_grm = NA_character_,
     sparse_grm_ids = NA_character_,
-    step1_r = "/opt/SAIGE/extdata/step1_fitNULLGLMM.R",
+    trait_type = "binary",
+    step1_r = "step1_fitNULLGLMM.R",
+    export_r = NA_character_,
     n_threads = 8L,
     out_prefix = NA_character_
   )
@@ -40,29 +37,28 @@ parse_args <- function(args) {
     else if (key == "--plink-prefix") out$plink_prefix <- val
     else if (key == "--sparse-grm") out$sparse_grm <- val
     else if (key == "--sparse-grm-ids") out$sparse_grm_ids <- val
+    else if (key == "--trait-type") out$trait_type <- val
     else if (key == "--step1-r") out$step1_r <- val
+    else if (key == "--export-r") out$export_r <- val
     else if (key == "--n-threads") out$n_threads <- as.integer(val)
     else if (key == "--out-prefix") out$out_prefix <- val
     else stop(paste("Unknown arg:", key))
     i <- i + 2
   }
-  req <- c("pheno_cov", "phenotype", "covariates", "analysis_samples",
-           "plink_prefix", "sparse_grm", "sparse_grm_ids", "out_prefix")
+  req <- c(
+    "pheno_cov", "phenotype", "covariates", "analysis_samples",
+    "plink_prefix", "sparse_grm", "sparse_grm_ids", "out_prefix"
+  )
   for (r in req) {
     if (is.na(out[[r]]) || !nzchar(out[[r]])) stop(paste("Missing required", r))
+  }
+  if (!(out$trait_type %in% c("binary", "quantitative"))) {
+    stop("--trait-type must be binary or quantitative")
   }
   out
 }
 
 opt <- parse_args(args)
-
-if (!file.exists(opt$step1_r)) {
-  fallback <- "/usr/local/bin/step1_fitNULLGLMM.R"
-  if (file.exists(fallback)) {
-    message(sprintf("step1_r %s missing; using %s", opt$step1_r, fallback))
-    opt$step1_r <- fallback
-  }
-}
 
 covars <- scan(opt$covariates, what = character(), quiet = TRUE)
 if (length(covars) < 1) stop("No covariates listed")
@@ -90,11 +86,14 @@ for (cv in covars) {
   pheno[[cv]] <- as.numeric(pheno[[cv]])
 }
 
-# Binary check
-vals <- sort(unique(pheno[[opt$phenotype]]))
-if (!all(vals %in% c(0, 1))) {
-  stop(sprintf("Phenotype %s is not binary 0/1 after filtering: %s",
-               opt$phenotype, paste(vals, collapse = ",")))
+if (opt$trait_type == "binary") {
+  vals <- sort(unique(pheno[[opt$phenotype]]))
+  if (!all(vals %in% c(0, 1))) {
+    stop(sprintf(
+      "Phenotype %s is not binary 0/1 after filtering: %s",
+      opt$phenotype, paste(vals, collapse = ",")
+    ))
+  }
 }
 
 dir.create(dirname(opt$out_prefix), recursive = TRUE, showWarnings = FALSE)
@@ -106,12 +105,15 @@ writeLines(pheno$ID, sample_path)
 
 covar_list <- paste(covars, collapse = ",")
 meta_path <- paste0(opt$out_prefix, ".null_meta.tsv")
+n_cases <- if (opt$trait_type == "binary") sum(pheno[[opt$phenotype]] == 1) else NA_integer_
+n_controls <- if (opt$trait_type == "binary") sum(pheno[[opt$phenotype]] == 0) else NA_integer_
 fwrite(
   data.frame(
     phenotype = opt$phenotype,
+    trait_type = opt$trait_type,
     n_samples = nrow(pheno),
-    n_cases = sum(pheno[[opt$phenotype]] == 1),
-    n_controls = sum(pheno[[opt$phenotype]] == 0),
+    n_cases = n_cases,
+    n_controls = n_controls,
     covariates = covar_list,
     stringsAsFactors = FALSE
   ),
@@ -120,6 +122,7 @@ fwrite(
   quote = FALSE
 )
 
+saige_trait <- if (opt$trait_type == "binary") "binary" else "quantitative"
 cmd <- paste(
   "Rscript", shQuote(opt$step1_r),
   paste0("--plinkFile=", shQuote(opt$plink_prefix)),
@@ -127,7 +130,7 @@ cmd <- paste(
   paste0("--phenoCol=", opt$phenotype),
   paste0("--covarColList=", covar_list),
   "--sampleIDColinphenoFile=ID",
-  "--traitType=binary",
+  paste0("--traitType=", saige_trait),
   paste0("--outputPrefix=", shQuote(opt$out_prefix)),
   paste0("--sparseGRMFile=", shQuote(opt$sparse_grm)),
   paste0("--sparseGRMSampleIDFile=", shQuote(opt$sparse_grm_ids)),
@@ -140,10 +143,33 @@ cmd <- paste(
 )
 message("Running: ", cmd)
 status <- system(cmd)
-if (status != 0) stop(sprintf("SAIGE step1 failed with status %s", status))
+if (status != 0) stop(sprintf("FELIX/SAIGE step1 failed with status %s", status))
+
+export_r <- opt$export_r
+if (is.na(export_r) || !nzchar(export_r)) {
+  script_dir <- dirname(normalizePath(
+    sub("^--file=", "", grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1]),
+    mustWork = FALSE
+  ))
+  export_r <- file.path(script_dir, "export_felix_null.R")
+  if (!file.exists(export_r)) {
+    export_r <- file.path("/opt/tractor_mix_scripts/export_felix_null.R")
+  }
+}
+null_export_dir <- paste0(opt$out_prefix, ".null_export")
+export_cmd <- paste(
+  "Rscript", shQuote(export_r),
+  "--null-rda", shQuote(paste0(opt$out_prefix, ".rda")),
+  "--out-dir", shQuote(null_export_dir),
+  "--sparse-grm", shQuote(opt$sparse_grm),
+  "--sparse-grm-ids", shQuote(opt$sparse_grm_ids),
+  "--variance-ratio", shQuote(paste0(opt$out_prefix, ".varianceRatio.txt"))
+)
+message("Running: ", export_cmd)
+status <- system(export_cmd)
+if (status != 0) stop(sprintf("export_felix_null failed with status %s", status))
 
 message(sprintf(
-  "SAIGE null OK for %s: n=%d cases=%d controls=%d",
-  opt$phenotype, nrow(pheno),
-  sum(pheno[[opt$phenotype]] == 1), sum(pheno[[opt$phenotype]] == 0)
+  "FELIX null OK for %s (%s): n=%d",
+  opt$phenotype, opt$trait_type, nrow(pheno)
 ))

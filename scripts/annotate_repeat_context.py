@@ -4,6 +4,9 @@ Annotate sites with repetitive-region union overlaps.
 
 Inputs are BED files (possibly gzipped) with at least chrom, start, end
 (0-based, half-open). Track names map to hit_* columns.
+
+For VCF INFO RU_TEST / PERIOD / MOTIF / CN_REF / RU (dosage path), use
+annotate_repeat_units.py on the joint phased VCF.
 """
 
 from __future__ import annotations

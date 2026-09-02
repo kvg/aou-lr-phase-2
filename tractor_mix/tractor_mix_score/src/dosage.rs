@@ -51,7 +51,7 @@ impl DosageReader {
     pub fn read_chunk(
         &mut self,
         nrows: usize,
-        out_genotypes: &mut Vec<u8>,
+        out_genotypes: &mut Vec<f64>,
         out_meta: &mut Vec<VariantMeta>,
     ) -> Result<usize> {
         out_meta.clear();
@@ -83,11 +83,16 @@ impl DosageReader {
                 alt: fields[4].to_string(),
             });
             let base = out_genotypes.len();
-            out_genotypes.resize(base + n_out, 0);
+            out_genotypes.resize(base + n_out, 0.0);
             for (j, &col) in self.sample_cols.iter().enumerate() {
-                let v: u8 = fields[5 + col].parse().map_err(|_| {
-                    ScoreError::msg(format!("invalid genotype {}", fields[5 + col]))
-                })?;
+                let raw = fields[5 + col];
+                let v: f64 = if raw == "NA" || raw == "." || raw.is_empty() {
+                    0.0
+                } else {
+                    raw.parse().map_err(|_| {
+                        ScoreError::msg(format!("invalid genotype {raw}"))
+                    })?
+                };
                 out_genotypes[base + j] = v;
             }
             read += 1;
@@ -150,4 +155,29 @@ pub fn count_variants(path: &Path) -> Result<usize> {
         lines += 1;
     }
     Ok(lines.saturating_sub(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn parses_float_and_integer_dosages() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, "CHROM\tPOS\tID\tREF\tALT\ts1\ts2").unwrap();
+        writeln!(f, "1\t100\tv1\tA\tG\t0.5\t2").unwrap();
+        f.flush().unwrap();
+        let ids = vec!["s1".into(), "s2".into()];
+        let include = vec!["s1".into(), "s2".into()];
+        let mut r = DosageReader::open(f.path(), &include, &ids).unwrap();
+        r.skip_header().unwrap();
+        let mut g = Vec::new();
+        let mut m = Vec::new();
+        let n = r.read_chunk(10, &mut g, &mut m).unwrap();
+        assert_eq!(n, 1);
+        assert!((g[0] - 0.5).abs() < 1e-9);
+        assert!((g[1] - 2.0).abs() < 1e-9);
+    }
 }

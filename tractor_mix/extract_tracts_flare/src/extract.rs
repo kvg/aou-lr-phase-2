@@ -7,8 +7,11 @@ use flate2::read::MultiGzDecoder;
 use crate::error::{ExtractError, Result};
 use crate::io_out::OutWriter;
 use crate::parse::{
-    apply_haplotype, first_four_tokens, parse_vcf_filename, split_tab_max9, split_tabs,
-    strip_ascii_ws, strip_hash_space, trim_crlf, write_ancestry_gt,
+    apply_haplotype, first_four_tokens, parse_nonneg_int, parse_vcf_filename, split_tab_max9,
+    split_tabs, strip_ascii_ws, strip_hash_space, trim_crlf, write_ancestry_gt,
+};
+use crate::ru::{
+    count_alts, haplotype_c, nth_alt, parse_ru_site, push_number, split_locus_id, RuSite,
 };
 
 const READ_BUF: usize = 1 << 20;
@@ -76,6 +79,8 @@ pub fn extract_tracts_flare(cfg: &ExtractConfig) -> Result<()> {
 
     let mut dosage_writers: Vec<OutWriter> = Vec::new();
     let mut hap_writers: Vec<OutWriter> = Vec::new();
+    let mut collapse_writers: Vec<OutWriter> = Vec::new();
+    let mut split_writers: Vec<OutWriter> = Vec::new();
     let mut vcf_writers: Vec<OutWriter> = Vec::new();
 
     let mut vcf_sample_ids: Vec<String> = Vec::new();
@@ -83,9 +88,12 @@ pub fn extract_tracts_flare(cfg: &ExtractConfig) -> Result<()> {
 
     let mut dosage_row = vec![Vec::new(); cfg.num_ancs];
     let mut hap_row = vec![Vec::new(); cfg.num_ancs];
+    let mut collapse_row = vec![Vec::new(); cfg.num_ancs];
     let mut vcf_row = vec![Vec::new(); cfg.num_ancs];
     let mut counts_dos = vec![0u8; cfg.num_ancs];
     let mut counts_hap = vec![0u8; cfg.num_ancs];
+    let mut ru_dos = vec![0.0f64; cfg.num_ancs];
+    let mut coll_dos = vec![0u8; cfg.num_ancs];
 
     loop {
         line_buf.clear();
@@ -159,11 +167,17 @@ pub fn extract_tracts_flare(cfg: &ExtractConfig) -> Result<()> {
 
             dosage_writers.reserve(cfg.num_ancs);
             hap_writers.reserve(cfg.num_ancs);
+            collapse_writers.reserve(cfg.num_ancs);
+            split_writers.reserve(cfg.num_ancs);
             for i in 0..cfg.num_ancs {
                 let dos = format!("{}.anc{i}.dosage.txt{ext}", output_path.display());
                 let hap = format!("{}.anc{i}.hapcount.txt{ext}", output_path.display());
+                let coll = format!("{}.collapse.anc{i}.dosage.txt{ext}", output_path.display());
+                let split = format!("{}.split.anc{i}.dosage.txt{ext}", output_path.display());
                 dosage_writers.push(OutWriter::create(Path::new(&dos), cfg.compress_output)?);
                 hap_writers.push(OutWriter::create(Path::new(&hap), cfg.compress_output)?);
+                collapse_writers.push(OutWriter::create(Path::new(&coll), cfg.compress_output)?);
+                split_writers.push(OutWriter::create(Path::new(&split), cfg.compress_output)?);
                 if cfg.output_vcf {
                     let v = format!("{}.anc{i}.vcf{ext}", output_path.display());
                     vcf_writers.push(OutWriter::create(Path::new(&v), cfg.compress_output)?);
@@ -176,6 +190,8 @@ pub fn extract_tracts_flare(cfg: &ExtractConfig) -> Result<()> {
                 parts,
                 &out_sample_ids,
             )?;
+            write_sample_header(&mut collapse_writers, parts, &out_sample_ids)?;
+            write_sample_header(&mut split_writers, parts, &out_sample_ids)?;
             if cfg.output_vcf {
                 let projected = keep.is_some();
                 for w in &mut vcf_writers {
@@ -205,12 +221,17 @@ pub fn extract_tracts_flare(cfg: &ExtractConfig) -> Result<()> {
             &out_indices,
             &mut dosage_writers,
             &mut hap_writers,
+            &mut collapse_writers,
+            &mut split_writers,
             &mut vcf_writers,
             &mut dosage_row,
             &mut hap_row,
+            &mut collapse_row,
             &mut vcf_row,
             &mut counts_dos,
             &mut counts_hap,
+            &mut ru_dos,
+            &mut coll_dos,
         )?;
     }
 
@@ -222,6 +243,12 @@ pub fn extract_tracts_flare(cfg: &ExtractConfig) -> Result<()> {
         w.finish()?;
     }
     for w in hap_writers {
+        w.finish()?;
+    }
+    for w in collapse_writers {
+        w.finish()?;
+    }
+    for w in split_writers {
         w.finish()?;
     }
     for w in vcf_writers {
@@ -264,6 +291,28 @@ fn write_dosage_header(
     Ok(())
 }
 
+fn write_sample_header(
+    writers: &mut [OutWriter],
+    parts: [&[u8]; 10],
+    out_samples: &[String],
+) -> Result<()> {
+    let mut header = Vec::with_capacity(64 + out_samples.len() * 16);
+    header.extend_from_slice(trim_crlf(parts[0]));
+    for idx in 1..5 {
+        header.push(b'\t');
+        header.extend_from_slice(trim_crlf(parts[idx]));
+    }
+    for id in out_samples {
+        header.push(b'\t');
+        header.extend_from_slice(id.as_bytes());
+    }
+    header.push(b'\n');
+    for w in writers.iter_mut() {
+        w.write_all(&header)?;
+    }
+    Ok(())
+}
+
 fn write_chrom_header_vcf(
     w: &mut OutWriter,
     original_line: &[u8],
@@ -293,6 +342,7 @@ fn write_chrom_header_vcf(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_data_line(
     cfg: &ExtractConfig,
     line_no: usize,
@@ -301,12 +351,17 @@ fn process_data_line(
     out_indices: &[usize],
     dosage_writers: &mut [OutWriter],
     hap_writers: &mut [OutWriter],
+    collapse_writers: &mut [OutWriter],
+    split_writers: &mut [OutWriter],
     vcf_writers: &mut [OutWriter],
     dosage_row: &mut [Vec<u8>],
     hap_row: &mut [Vec<u8>],
+    collapse_row: &mut [Vec<u8>],
     vcf_row: &mut [Vec<u8>],
     counts_dos: &mut [u8],
     counts_hap: &mut [u8],
+    ru_dos: &mut [f64],
+    coll_dos: &mut [u8],
 ) -> Result<()> {
     let stripped = strip_ascii_ws(line_buf);
     if stripped.is_empty() {
@@ -322,6 +377,30 @@ fn process_data_line(
             path: cfg.vcf.clone(),
             line: line_no,
         });
+    }
+
+    if let Some(ru) = parse_ru_site(parts[7], parts[4]) {
+        return process_ru_line(
+            cfg,
+            line_no,
+            parts,
+            &genos,
+            vcf_sample_ids,
+            out_indices,
+            &ru,
+            dosage_writers,
+            hap_writers,
+            collapse_writers,
+            split_writers,
+            vcf_writers,
+            dosage_row,
+            hap_row,
+            collapse_row,
+            vcf_row,
+            counts_hap,
+            ru_dos,
+            coll_dos,
+        );
     }
 
     for j in 0..cfg.num_ancs {
@@ -381,6 +460,185 @@ fn process_data_line(
         hap_row[j].push(b'\n');
         dosage_writers[j].write_all(&dosage_row[j])?;
         hap_writers[j].write_all(&hap_row[j])?;
+        if cfg.output_vcf {
+            vcf_row[j].push(b'\n');
+            vcf_writers[j].write_all(&vcf_row[j])?;
+        }
+    }
+    Ok(())
+}
+
+fn write_locus_prefix(buf: &mut Vec<u8>, parts: [&[u8]; 10]) {
+    buf.clear();
+    for i in 0..5 {
+        if i > 0 {
+            buf.push(b'\t');
+        }
+        buf.extend_from_slice(parts[i]);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_ru_haplotype(
+    allele_tok: &[u8],
+    ancestry_tok: &[u8],
+    num_ancs: usize,
+    site: &RuSite,
+    n_alts: usize,
+    ru_dos: &mut [f64],
+    hap: &mut [u8],
+    collapse: &mut [u8],
+    split: &mut [Vec<u8>],
+) {
+    let Some(j) = parse_nonneg_int(ancestry_tok) else {
+        return;
+    };
+    if j >= num_ancs {
+        return;
+    }
+    hap[j] = hap[j].saturating_add(1);
+    let Some(allele) = parse_nonneg_int(allele_tok) else {
+        return;
+    };
+    ru_dos[j] += haplotype_c(allele, site);
+    if allele >= 1 && allele <= n_alts {
+        collapse[j] = collapse[j].saturating_add(1);
+        split[allele - 1][j] = split[allele - 1][j].saturating_add(1);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_ru_line(
+    cfg: &ExtractConfig,
+    line_no: usize,
+    parts: [&[u8]; 10],
+    genos: &[&[u8]],
+    vcf_sample_ids: &[String],
+    out_indices: &[usize],
+    site: &RuSite,
+    dosage_writers: &mut [OutWriter],
+    hap_writers: &mut [OutWriter],
+    collapse_writers: &mut [OutWriter],
+    split_writers: &mut [OutWriter],
+    vcf_writers: &mut [OutWriter],
+    dosage_row: &mut [Vec<u8>],
+    hap_row: &mut [Vec<u8>],
+    collapse_row: &mut [Vec<u8>],
+    vcf_row: &mut [Vec<u8>],
+    counts_hap: &mut [u8],
+    ru_dos: &mut [f64],
+    coll_dos: &mut [u8],
+) -> Result<()> {
+    let n_alts = count_alts(parts[4]).max(site.ru.len());
+    let mut split_counts: Vec<Vec<u8>> = (0..n_alts).map(|_| vec![0u8; cfg.num_ancs]).collect();
+    let mut split_rows: Vec<Vec<Vec<u8>>> = (0..n_alts)
+        .map(|ai| {
+            let id = split_locus_id(parts[2], parts[0], parts[1], ai + 1);
+            let alt = nth_alt(parts[4], ai).unwrap_or(b".");
+            (0..cfg.num_ancs)
+                .map(|_| {
+                    let mut buf = Vec::new();
+                    buf.extend_from_slice(parts[0]);
+                    buf.push(b'\t');
+                    buf.extend_from_slice(parts[1]);
+                    buf.push(b'\t');
+                    buf.extend_from_slice(&id);
+                    buf.push(b'\t');
+                    buf.extend_from_slice(parts[3]);
+                    buf.push(b'\t');
+                    buf.extend_from_slice(alt);
+                    buf
+                })
+                .collect()
+        })
+        .collect();
+
+    for j in 0..cfg.num_ancs {
+        write_locus_prefix(&mut dosage_row[j], parts);
+        write_locus_prefix(&mut hap_row[j], parts);
+        write_locus_prefix(&mut collapse_row[j], parts);
+        if cfg.output_vcf {
+            vcf_row[j].clear();
+            for i in 0..8 {
+                if i > 0 {
+                    vcf_row[j].push(b'\t');
+                }
+                vcf_row[j].extend_from_slice(parts[i]);
+            }
+            vcf_row[j].extend_from_slice(b"\tGT");
+        }
+    }
+
+    for &si in out_indices {
+        let field = genos[si];
+        let toks = first_four_tokens(field).ok_or_else(|| ExtractError::TruncatedGenotype {
+            path: cfg.vcf.clone(),
+            line: line_no,
+            sample: vcf_sample_ids
+                .get(si)
+                .cloned()
+                .unwrap_or_else(|| format!("index {si}")),
+            column: si + 10,
+            field: String::from_utf8_lossy(field).into_owned(),
+        })?;
+        let (geno_a, geno_b, call_a, call_b) = (toks[0], toks[1], toks[2], toks[3]);
+        ru_dos.fill(0.0);
+        counts_hap.fill(0);
+        coll_dos.fill(0);
+        for row in split_counts.iter_mut() {
+            row.fill(0);
+        }
+        apply_ru_haplotype(
+            geno_a,
+            call_a,
+            cfg.num_ancs,
+            site,
+            n_alts,
+            ru_dos,
+            counts_hap,
+            coll_dos,
+            &mut split_counts,
+        );
+        apply_ru_haplotype(
+            geno_b,
+            call_b,
+            cfg.num_ancs,
+            site,
+            n_alts,
+            ru_dos,
+            counts_hap,
+            coll_dos,
+            &mut split_counts,
+        );
+        for j in 0..cfg.num_ancs {
+            dosage_row[j].push(b'\t');
+            push_number(&mut dosage_row[j], ru_dos[j]);
+            hap_row[j].push(b'\t');
+            hap_row[j].push(b'0' + counts_hap[j]);
+            collapse_row[j].push(b'\t');
+            collapse_row[j].push(b'0' + coll_dos[j]);
+            if cfg.output_vcf {
+                vcf_row[j].push(b'\t');
+                write_ancestry_gt(&mut vcf_row[j], geno_a, geno_b, call_a, call_b, j);
+            }
+            for ai in 0..n_alts {
+                split_rows[ai][j].push(b'\t');
+                split_rows[ai][j].push(b'0' + split_counts[ai][j]);
+            }
+        }
+    }
+
+    for j in 0..cfg.num_ancs {
+        dosage_row[j].push(b'\n');
+        hap_row[j].push(b'\n');
+        collapse_row[j].push(b'\n');
+        dosage_writers[j].write_all(&dosage_row[j])?;
+        hap_writers[j].write_all(&hap_row[j])?;
+        collapse_writers[j].write_all(&collapse_row[j])?;
+        for ai in 0..n_alts {
+            split_rows[ai][j].push(b'\n');
+            split_writers[j].write_all(&split_rows[ai][j])?;
+        }
         if cfg.output_vcf {
             vcf_row[j].push(b'\n');
             vcf_writers[j].write_all(&vcf_row[j])?;

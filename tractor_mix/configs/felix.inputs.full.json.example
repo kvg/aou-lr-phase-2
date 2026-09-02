@@ -1,0 +1,28 @@
+{
+  "_comment": "FELIX FULL covariates: recommended full = limited + standardized coverage + GC dummies. Same shared cohort as limited / Tractor-Mix / SAIGE. Joint GT:AN1:AN2 VCF fills both felixla flags.",
+  "FelixPilot.joint_vcf": "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz",
+  "FelixPilot.chrom": "chr22",
+  "FelixPilot.num_ancs": 5,
+
+  "FelixPilot.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
+  "FelixPilot.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
+  "FelixPilot.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
+  "FelixPilot.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_full.txt",
+
+  "FelixPilot.grm_vcfs": [
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/c70fc078-7d46-4da1-8f59-30a7ebd4b738/flare/81ea1db7-94da-4a6b-b869-35b292d2f9a1/call-flare_task/aou_lr_phase2_v1.chr1.anc.vcf.gz",
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz"
+  ],
+
+  "FelixPilot.build_saige_grm_script": "gs://BUCKET/scripts/build_saige_plink_and_grm.sh",
+  "FelixPilot.make_plink_keep_script": "gs://BUCKET/scripts/make_plink_keep.py",
+  "FelixPilot.fit_felix_null_script": "gs://BUCKET/scripts/fit_felix_null.R",
+  "FelixPilot.run_felix_step2_script": "gs://BUCKET/scripts/run_felix_step2.R",
+  "FelixPilot.summarize_script": "gs://BUCKET/scripts/summarize_felix_results.py",
+
+  "FelixPilot.relatedness_cutoff": 0.05,
+  "FelixPilot.num_random_markers": 2000,
+  "FelixPilot.min_mac": 50,
+  "FelixPilot.pvalcutoff_of_haplotype": 0.05,
+  "FelixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+}

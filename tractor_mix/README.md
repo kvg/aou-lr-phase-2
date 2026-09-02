@@ -11,14 +11,17 @@ notebooks/rw/                    # Verily Workbench notebooks
 scripts/                         # all CLIs used by notebooks + WDLs
 tractor_mix/
   docker/Dockerfile
+  docker/Dockerfile.felix        # FROM lhu1/felix:latest + PLINK2/bcftools
   extract_tracts_flare/
   tractor_mix_score/
   wdl/TractorMixPilot.wdl        # chr22 calibration pilot
   wdl/TractorMixGenome.wdl       # multi-chr: shared null, scatter extract/score
   wdl/SaigePilot.wdl
+  wdl/FelixPilot.wdl             # chr22 FELIX: mtx GRM + felixla + admixed step2
   configs/pilot.inputs.{limited,full}.json.example
   configs/genome.inputs.limited.json.example
   configs/saige.inputs.{limited,full}.json.example
+  configs/felix.inputs.{limited,full}.json.example
   resources/                     # local source exports (gitignored)
   summaries/                     # figures + TSV tables from tractor_03_ (gitignored)
 sv_annotation/
@@ -133,6 +136,28 @@ Or sync the full scripts tree: `gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/s
    `run_saige_step2.R`. Default `min_mac=50` matches Tractor `ac_threshold`.
    Image `0.4.2` already includes SAIGE 1.3.3, PLINK2, and bcftools — no
    rebuild needed for SAIGE-only iteration.
+
+6. After the Tractor-Mix / SAIGE 2×2, submit **FELIX** on the same cohort
+   (`FelixPilot.wdl` + `configs/felix.inputs.{limited,full}.json.example`).
+   Point `gs://BUCKET/...` at the workspace bucket. Shared `docker` is
+   `felix-pilot:0.1.0` (`FROM lhu1/felix:latest`; do not compile FELIX).
+
+   Build / push the image:
+
+   ```bash
+   cd tractor_mix
+   ./build_felix_docker.sh                 # Cloud Build → Artifact Registry
+   ./build_felix_docker.sh --local --push  # or local docker
+   ```
+
+   Workflow: **Check** → **MakeGRM** (SAIGE mtx via `build_saige_plink_and_grm.sh`)
+   → **FitNull** (`fit_saige_null.R` + FELIX `step1_fitNULLGLMM.R`,
+   `--useSparseGRMtoFitNULL=TRUE`) → **Pack** (`felixla --phase-vcf --flare-vcf
+   --keep --make-felixla`; joint `GT:AN1:AN2` VCF fills both flags) → **Step2**
+   (`step2_SPAtests.R --FELIXlaPrefix --is_admixed=TRUE --number_of_ancestry=5`;
+   `--chrom` must match the VCF contig) → concat → summarize
+   (`P_cct_admixed_c`). Stage `run_felix_step2.R` with
+   `./scripts/stage_tractor_scripts.sh`.
 
 ## Cohort covariates (rebuild + atlas)
 
