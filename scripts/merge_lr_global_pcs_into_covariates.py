@@ -4,8 +4,10 @@
 Adds:
   - lr_PC1–lr_PC32 for every sample in global_pcs.tsv (AoU + controls)
   - has_lr_pcs / is_reference_control flags
-  - 292 new HG/NA reference-control rows (ancestry, sex, Phase-1 SV counts
-    where available; AoU phenotype / CDR fields left missing or False)
+  - HG/NA reference-control rows from control_sample_metadata.tsv (ancestry,
+    sex, Phase-1 SV counts where available; AoU phenotype / CDR fields left
+    missing or False). Controls in metadata but not in global_pcs.tsv are
+    still appended, with lr_PC* missing and has_lr_pcs=False.
 
 Does not overwrite existing short-read PC1–PC32.
 """
@@ -84,17 +86,16 @@ def build_control_rows(
     meta = meta.copy()
     meta["research_id"] = meta["research_id"].astype(str)
     pcs_controls = pcs.loc[_is_hg_na(pcs["research_id"])].copy()
-    if len(pcs_controls) != len(meta):
-        pcs_ids = set(pcs_controls["research_id"])
-        meta_ids = set(meta["research_id"])
+    pcs_ids = set(pcs_controls["research_id"])
+    meta_ids = set(meta["research_id"])
+    only_pcs = sorted(pcs_ids - meta_ids)
+    if only_pcs:
         raise ValueError(
-            "control count mismatch between global_pcs and metadata: "
-            f"pcs={len(pcs_ids)} meta={len(meta_ids)} "
-            f"only_pcs={sorted(pcs_ids - meta_ids)[:5]} "
-            f"only_meta={sorted(meta_ids - pcs_ids)[:5]}"
+            "global_pcs HG/NA IDs missing from control metadata: "
+            f"{only_pcs[:10]}"
         )
 
-    rows = pcs_controls.merge(meta, on="research_id", how="left", validate="one_to_one")
+    rows = meta.merge(pcs_controls, on="research_id", how="left", validate="one_to_one")
     assert rows["ancestry_pred"].notna().all()
 
     out = pd.DataFrame({c: pd.NA for c in template_columns}, index=range(len(rows)))
@@ -104,7 +105,7 @@ def build_control_rows(
         out[col] = rows[col].to_numpy()
 
     out["is_reference_control"] = True
-    out["has_lr_pcs"] = True
+    out["has_lr_pcs"] = rows[LR_PC_COLS[0]].notna().to_numpy()
     out["ancestry_pred"] = rows["ancestry_pred"].to_numpy()
     out["ancestry_pred_other"] = rows["ancestry_pred_other"].to_numpy()
     out["has_ancestry_annotation"] = True
@@ -268,7 +269,7 @@ def main() -> None:
     out = pd.concat([merged, controls], ignore_index=True)
     out = out[order_columns(list(out.columns))]
     assert out["research_id"].is_unique
-    assert _is_hg_na(out["research_id"]).sum() == 292
+    assert _is_hg_na(out["research_id"]).sum() == len(meta)
 
     dd_out = update_data_dictionary(dd, list(out.columns))
     assert list(dd_out["column"]) == list(out.columns)
@@ -280,11 +281,12 @@ def main() -> None:
     n_lr = int(out["has_lr_pcs"].sum())
     n_ctrl = int(out["is_reference_control"].sum())
     n_ctrl_anc = int(out.loc[out["is_reference_control"], "has_ancestry_annotation"].sum())
+    n_ctrl_pcs = int(out.loc[out["is_reference_control"], "has_lr_pcs"].sum())
     print(f"Wrote {out_cov}")
     print(f"Wrote {out_dd}")
     print(f"rows: {n_before:,} -> {len(out):,} (+{len(out) - n_before})")
     print(f"has_lr_pcs: {n_lr:,}")
-    print(f"reference controls: {n_ctrl} (ancestry filled: {n_ctrl_anc})")
+    print(f"reference controls: {n_ctrl} (with lr_PCs: {n_ctrl_pcs}; ancestry filled: {n_ctrl_anc})")
     print(f"control ancestry: {out.loc[out['is_reference_control'], 'ancestry_pred'].value_counts().to_dict()}")
 
 

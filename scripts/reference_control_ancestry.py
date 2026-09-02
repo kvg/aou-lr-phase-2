@@ -71,7 +71,7 @@ _NA_ALIASES: dict[str, str] = {
 
 REFERENCE_CONTROL_PREFIXES = ("HG", "NA")
 
-# Expanded Phase-2 control table (292 HG/NA IDs) written beside covariates.
+# Expanded Phase-2 control table (HG/NA IDs) written beside covariates.
 _METADATA_CANDIDATES = (
     Path(__file__).resolve().parent.parent / "tractor_mix/reference_controls/control_sample_metadata.tsv",
     Path("tractor_mix/reference_controls/control_sample_metadata.tsv"),

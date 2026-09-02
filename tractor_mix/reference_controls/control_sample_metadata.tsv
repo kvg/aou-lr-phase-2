@@ -93,6 +93,7 @@ HG01981	True	False	amr	amr	Female	XX	PEL	1kg_ped	False
 HG01993	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
 HG02004	True	False	amr	amr	Female	XX	PEL	1kg_ped	False		
 HG02011	True	False	afr	afr	Male	XY	ACB	1kg_ped	False		
+HG02015	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
 HG02018	True	False	eas	eas	Female	XX	KHV	1kg_ped	False		
 HG02027	True	False	eas	eas	Male	XY	KHV	1kg_ped	False		
 HG02040	True	False	eas	eas	Male	XY	KHV	1kg_phase3_panel	False		
