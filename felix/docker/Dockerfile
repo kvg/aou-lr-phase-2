@@ -46,7 +46,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev \
         liblzma-dev \
         python3 \
-        python3-pip \
         unzip \
         wget \
         zlib1g-dev \
@@ -70,7 +69,11 @@ RUN cd /tmp \
     && cd / \
     && rm -rf "/tmp/bcftools-${BCFTOOLS_VERSION}" "/tmp/bcftools-${BCFTOOLS_VERSION}.tar.bz2"
 
-RUN python3 -m pip install --no-cache-dir pandas numpy matplotlib seaborn
+# lhu1/felix:latest puts pixi Python first on PATH (/app/.pixi/envs/default/bin/python3).
+# apt python3-pip targets system 3.8; workflow tasks invoke `python3`, so install into pixi.
+RUN /app/.pixi/envs/default/bin/python3 -m ensurepip \
+    && /app/.pixi/envs/default/bin/python3 -m pip install --no-cache-dir \
+        pandas numpy matplotlib seaborn
 
 # Staged by felix/build_docker.sh into felix/.docker_scripts/
 COPY felix/.docker_scripts/ /opt/felix_scripts/
