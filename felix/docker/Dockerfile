@@ -1,21 +1,22 @@
-# FELIX Terra pilot image.
+# FELIX Terra image.
 # Consume the published FELIX image (do not compile or fork FELIX). Add PLINK2,
 # bcftools, extract-tracts-flare, tractor-mix-score, and repo helper scripts.
 #
-# Build linux/amd64 (Cloud Build, or docker build --platform linux/amd64):
-# the PLINK2 binary is x86_64. Bump WDL runtime.docker tags when rebuilding.
+# Build from repo root (linux/amd64):
+#   docker build --platform linux/amd64 -f felix/docker/Dockerfile -t felix-pilot:latest .
+# Bump WDL runtime.docker tags when rebuilding.
 
 FROM rust:1.85-alpine AS rust-builder
 WORKDIR /src
 RUN apk add --no-cache musl-dev
 
-COPY extract_tracts_flare/Cargo.toml extract_tracts_flare/Cargo.lock /src/extract/
-COPY extract_tracts_flare/src /src/extract/src
+COPY tractor_mix/extract_tracts_flare/Cargo.toml tractor_mix/extract_tracts_flare/Cargo.lock /src/extract/
+COPY tractor_mix/extract_tracts_flare/src /src/extract/src
 RUN cd extract && cargo build --release --locked --bin extract-tracts-flare \
     && test -x target/release/extract-tracts-flare
 
-COPY tractor_mix_score/Cargo.toml tractor_mix_score/Cargo.lock /src/score/
-COPY tractor_mix_score/src /src/score/src
+COPY tractor_mix/tractor_mix_score/Cargo.toml tractor_mix/tractor_mix_score/Cargo.lock /src/score/
+COPY tractor_mix/tractor_mix_score/src /src/score/src
 RUN cd score && cargo build --release --locked --bin tractor-mix-score \
     && test -x target/release/tractor-mix-score
 
@@ -25,12 +26,8 @@ ARG PLINK2_URL=https://s3.amazonaws.com/plink2-assets/alpha7/plink2_linux_x86_64
 ARG BCFTOOLS_VERSION=1.21
 
 ENV DEBIAN_FRONTEND=noninteractive
-# Prepend tools; keep FELIX /scripts/bin + pixi R on PATH (felixla, step*.R).
-ENV PATH="/opt/plink2:/opt/bcftools/bin:/opt/tractor_mix_scripts:${PATH}"
+ENV PATH="/opt/plink2:/opt/bcftools/bin:/opt/felix_scripts:${PATH}"
 
-# Existing helpers (fit_saige_null.R, build_saige_plink_and_grm.sh) expect
-# SAIGE-style paths. The published FELIX image installs the same wrappers at
-# /usr/local/bin (step1_fitNULLGLMM.R, step2_SPAtests.R, createSparseGRM.R).
 RUN mkdir -p /opt/SAIGE/extdata \
     && ln -sf /usr/local/bin/step1_fitNULLGLMM.R /opt/SAIGE/extdata/step1_fitNULLGLMM.R \
     && ln -sf /usr/local/bin/step2_SPAtests.R /opt/SAIGE/extdata/step2_SPAtests.R \
@@ -55,7 +52,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# PLINK 2
 RUN mkdir -p /opt/plink2 \
     && cd /tmp \
     && wget -O plink2.zip "${PLINK2_URL}" \
@@ -64,7 +60,6 @@ RUN mkdir -p /opt/plink2 \
     && /opt/plink2/plink2 --version \
     && rm -f plink2.zip
 
-# bcftools (Ubuntu 20.04 ships 1.10; FELIXla / FLARE headers need a current build)
 RUN cd /tmp \
     && wget -q "https://github.com/samtools/bcftools/releases/download/${BCFTOOLS_VERSION}/bcftools-${BCFTOOLS_VERSION}.tar.bz2" \
     && tar -xjf "bcftools-${BCFTOOLS_VERSION}.tar.bz2" \
@@ -75,20 +70,16 @@ RUN cd /tmp \
     && cd / \
     && rm -rf "/tmp/bcftools-${BCFTOOLS_VERSION}" "/tmp/bcftools-${BCFTOOLS_VERSION}.tar.bz2"
 
-# Summarize / QC uses whatever `python3` is on PATH (pixi, then system).
-# Leave unpinned: FELIX's pixi Python version is not a fixed 3.8 like SAIGE 1.3.3.
 RUN python3 -m pip install --no-cache-dir pandas numpy matplotlib seaborn
 
-# Build from tractor_mix/ after build_felix_docker.sh stages repo-root scripts/
-# into .docker_scripts/:
-#   docker build -f docker/Dockerfile.felix -t felix-pilot:latest .
-COPY .docker_scripts/ /opt/tractor_mix_scripts/
+# Staged by felix/build_docker.sh into felix/.docker_scripts/
+COPY felix/.docker_scripts/ /opt/felix_scripts/
 COPY --from=rust-builder /src/extract/target/release/extract-tracts-flare /usr/local/bin/extract-tracts-flare
 COPY --from=rust-builder /src/score/target/release/tractor-mix-score /usr/local/bin/tractor-mix-score
 RUN chmod 0755 /usr/local/bin/extract-tracts-flare /usr/local/bin/tractor-mix-score \
     && /usr/local/bin/extract-tracts-flare --help >/dev/null \
     && /usr/local/bin/tractor-mix-score --help >/dev/null
-ENV PATH="/opt/tractor_mix_scripts:${PATH}"
+ENV PATH="/opt/felix_scripts:${PATH}"
 
 RUN felixla --help >/dev/null \
     && step1_fitNULLGLMM.R --help >/dev/null \

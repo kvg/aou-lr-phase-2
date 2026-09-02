@@ -16,9 +16,9 @@
 
   "FelixPilot.build_saige_grm_script": "gs://BUCKET/scripts/build_saige_plink_and_grm.sh",
   "FelixPilot.make_plink_keep_script": "gs://BUCKET/scripts/make_plink_keep.py",
-  "FelixPilot.fit_felix_null_script": "gs://BUCKET/scripts/fit_felix_null.R",
-  "FelixPilot.run_felix_step2_script": "gs://BUCKET/scripts/run_felix_step2.R",
-  "FelixPilot.summarize_script": "gs://BUCKET/scripts/summarize_felix_results.py",
+  "FelixPilot.fit_felix_null_script": "gs://BUCKET/felix/scripts/fit_felix_null.R",
+  "FelixPilot.run_felix_step2_script": "gs://BUCKET/felix/scripts/run_felix_step2.R",
+  "FelixPilot.summarize_script": "gs://BUCKET/felix/scripts/summarize_felix_results.py",
 
   "FelixPilot.relatedness_cutoff": 0.05,
   "FelixPilot.num_random_markers": 2000,

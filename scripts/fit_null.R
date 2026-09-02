@@ -209,7 +209,10 @@ if (!is.na(opt$step1_rda) && nzchar(opt$step1_rda)) {
   }
   export_r <- file.path(script_dir, "export_felix_null.R")
   if (!file.exists(export_r)) {
-    export_r <- file.path("/opt/tractor_mix_scripts/export_felix_null.R")
+    export_r <- file.path(dirname(script_dir), "felix", "scripts", "export_felix_null.R")
+  }
+  if (!file.exists(export_r)) {
+    export_r <- file.path("/opt/felix_scripts/export_felix_null.R")
   }
   if (!file.exists(export_r)) {
     stop("export_felix_null.R not found next to fit_null.R")

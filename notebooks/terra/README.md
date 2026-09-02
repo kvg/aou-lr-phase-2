@@ -49,12 +49,11 @@ FLARE annotation QC:
 |---|---|
 | `flare_01_switch_gq_dp.ipynb` | Ancestry-switch sites vs `GQ`/`DP` (after `PropagateAnnotations.wdl`) |
 
-WDLs stay in `tractor_mix/wdl/`, `sv_annotation/wdl/`, and `propagate_annotations/wdl/`.
+WDLs stay in `tractor_mix/wdl/`, `felix/wdl/`, `sv_annotation/wdl/`, and `propagate_annotations/wdl/`.
 
-`FelixPilot.wdl` uses the `felix-pilot:0.1.0` image and staged
-`fit_saige_null.R`, `run_felix_step2.R`, and `summarize_tractor_genome_results.py`
-(FELIX summarize flags: `--p-column P_cct_admixed_c`). Same
-`stage_tractor_scripts.sh` upload as Tractor-Mix / SAIGE.
+FELIX workflows (`felix/wdl/FelixPilot.wdl`, `FelixGenome.wdl`) use the
+`felix-pilot:0.1.0` image. Stage FELIX scripts with `./scripts/stage_felix_scripts.sh`
+and shared helpers with `./scripts/stage_tractor_scripts.sh`. See `felix/README.md`.
 
 ## Tractor-Mix WDL (Rust scorer)
 

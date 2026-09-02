@@ -153,7 +153,7 @@ if (is.na(export_r) || !nzchar(export_r)) {
   ))
   export_r <- file.path(script_dir, "export_felix_null.R")
   if (!file.exists(export_r)) {
-    export_r <- file.path("/opt/tractor_mix_scripts/export_felix_null.R")
+    export_r <- file.path("/opt/felix_scripts/export_felix_null.R")
   }
 }
 null_export_dir <- paste0(opt$out_prefix, ".null_export")

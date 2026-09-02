@@ -2,27 +2,20 @@
 # Build (and optionally push) the FELIX pilot Docker image.
 #
 # Base: published lhu1/felix:latest (do not compile FELIX). Adds PLINK2,
-# bcftools, and repo helper scripts.
+# bcftools, Rust binaries from tractor_mix/, and felix/scripts + shared helpers.
 #
-# Defaults (from gcloud config / Artifact Registry):
-#   project  broad-dsp-lrma
-#   repo     us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr
-#   image    .../aou-lr/felix-pilot:0.1.0
-#
-# Usage:
-#   ./build_felix_docker.sh                     # Cloud Build → push default IMAGE:TAG
-#   ./build_felix_docker.sh --local             # local docker build (no push)
-#   ./build_felix_docker.sh --local --push      # local build + docker push
-#   ./build_felix_docker.sh --tag 0.1.1         # bump tag only
-#
-# Env overrides: IMAGE, TAG, PROJECT, REGION, MACHINE_TYPE, DISK_SIZE_GB, TIMEOUT
+# Usage (from anywhere):
+#   felix/build_docker.sh                     # Cloud Build → push default IMAGE:TAG
+#   felix/build_docker.sh --local             # local docker build (no push)
+#   felix/build_docker.sh --local --push      # local build + docker push
+#   felix/build_docker.sh --tag 0.1.1         # bump tag only
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCKER_DIR="${SCRIPT_DIR}/docker"
-DOCKERFILE="${DOCKER_DIR}/Dockerfile.felix"
-CONTEXT_DIR="${SCRIPT_DIR}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DOCKERFILE="${SCRIPT_DIR}/docker/Dockerfile"
+CONTEXT_DIR="${REPO_ROOT}"
 
 DEFAULT_PROJECT="broad-dsp-lrma"
 DEFAULT_REGION="us-central1"
@@ -37,7 +30,7 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-highcpu-32}"
 DISK_SIZE_GB="${DISK_SIZE_GB:-200}"
 TIMEOUT="${TIMEOUT:-7200s}"
 
-MODE="cloudbuild"   # cloudbuild | local
+MODE="cloudbuild"
 DO_PUSH=0
 DRY_RUN=0
 
@@ -54,21 +47,15 @@ Options:
   --local              Build with local docker (default: Google Cloud Build)
   --push               After --local build, docker push IMAGE:TAG
   --cloudbuild         Force Cloud Build (default)
-  --image NAME         Image repository path without tag (default: ${IMAGE})
-  --tag TAG            Image tag (default: ${TAG})
-  --project PROJECT    GCP project for Cloud Build (default: ${PROJECT})
-  --region REGION      Artifact Registry region (default: ${REGION})
-  --machine-type TYPE  Cloud Build machine type (default: ${MACHINE_TYPE})
-  --disk-size GB       Cloud Build disk size GB (default: ${DISK_SIZE_GB})
-  --timeout DURATION   Cloud Build timeout (default: ${TIMEOUT})
+  --image NAME         Image repository path without tag
+  --tag TAG            Image tag
+  --project PROJECT    GCP project for Cloud Build
+  --region REGION      Artifact Registry region
+  --machine-type TYPE  Cloud Build machine type
+  --disk-size GB       Cloud Build disk size GB
+  --timeout DURATION   Cloud Build timeout
   --dry-run            Print commands only
   -h, --help           Show this help
-
-Examples:
-  ./build_felix_docker.sh                      # Cloud Build → default Artifact Registry image
-  ./build_felix_docker.sh --tag 0.1.1          # same repo, new tag
-  ./build_felix_docker.sh --local              # local docker build only
-  ./build_felix_docker.sh --local --push       # local build + push to default image
 EOF
 }
 
@@ -107,17 +94,16 @@ if [[ ! -f "${DOCKERFILE}" ]]; then
   exit 1
 fi
 
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SHARED_SCRIPTS="${REPO_ROOT}/scripts"
 STAGE="${SCRIPT_DIR}/.docker_scripts"
-if [[ ! -d "${SHARED_SCRIPTS}" ]]; then
-  echo "Shared scripts not found at ${SHARED_SCRIPTS}" >&2
-  exit 1
-fi
+SHARED_SCRIPTS="${REPO_ROOT}/scripts"
+FELIX_SCRIPTS="${SCRIPT_DIR}/scripts"
 rm -rf "${STAGE}"
 mkdir -p "${STAGE}"
-cp -a "${SHARED_SCRIPTS}/." "${STAGE}/"
-echo "Staged scripts: ${SHARED_SCRIPTS} -> ${STAGE}"
+cp -a "${FELIX_SCRIPTS}/." "${STAGE}/"
+for name in build_saige_plink_and_grm.sh make_plink_keep.py annotate_repeat_units.py sv_site_utils.py; do
+  cp "${SHARED_SCRIPTS}/${name}" "${STAGE}/"
+done
+echo "Staged docker scripts: ${FELIX_SCRIPTS} + shared helpers -> ${STAGE}"
 
 echo "Mode:        ${MODE}"
 echo "Project:     ${PROJECT}"
@@ -140,7 +126,6 @@ case "${MODE}" in
       run docker push "${FULL_IMAGE}"
     else
       echo "Built locally. Push with: docker push ${FULL_IMAGE}"
-      echo "Or re-run: $0 --local --push --image ${IMAGE} --tag ${TAG}"
     fi
     ;;
 
@@ -149,22 +134,19 @@ case "${MODE}" in
       echo "gcloud not found; install Google Cloud SDK or use --local" >&2
       exit 1
     fi
-
-    CB_ARGS=(
+  CB_ARGS=(
       builds submit
       "${CONTEXT_DIR}"
-      --config="${DOCKER_DIR}/cloudbuild.felix.yaml"
+      --config="${SCRIPT_DIR}/docker/cloudbuild.yaml"
       --substitutions="_IMAGE=${IMAGE},_TAG=${TAG}"
       --timeout="${TIMEOUT}"
       --machine-type="${MACHINE_TYPE}"
       --disk-size="${DISK_SIZE_GB}"
       --project="${PROJECT}"
     )
-
     echo "Submitting Cloud Build (FELIX base + PLINK2/bcftools; expect 20–60+ minutes)..."
     run gcloud "${CB_ARGS[@]}"
     echo "Cloud Build finished. Image: ${FULL_IMAGE}"
-    echo "WDL runtime.docker default already matches this image path."
     ;;
 
   *)

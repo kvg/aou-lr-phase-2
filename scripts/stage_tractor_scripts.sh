@@ -23,21 +23,14 @@ DEST="${BUCKET}/scripts"
 REQUIRED=(
   fit_null.R
   fit_saige_null.R
-  fit_felix_null.R
-  export_felix_null.R
   reorder_dosages.py
   sparsify_grm.R
   make_plink_keep.py
   run_saige_step2.R
-  run_felix_step2.R
   build_saige_plink_and_grm.sh
   summarize_tractor_genome_results.py
-  summarize_felix_results.py
   annotate_repeat_units.py
   compare_calibration.py
-  compare_felix_tractor_calibration.py
-  compare_repeat_encodings.py
-  simulate_repeat_dosage.py
   compare_tractor_runs.py
   plot_tractor_results.py
   resolve_flare_uris.py
@@ -78,19 +71,6 @@ echo "  same scripts as TractorMixPilot; supply chroms + flare_vcfs arrays"
 echo "  resolve URIs: python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes"
 echo "  summarize_script          -> ${DEST}/summarize_tractor_genome_results.py"
 echo ""
-echo "FELIX WDL (FelixPilot.wdl):"
-echo "  image                    -> us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
-echo "  build_saige_grm_script   -> ${DEST}/build_saige_plink_and_grm.sh"
-echo "  make_plink_keep_script   -> ${DEST}/make_plink_keep.py"
-echo "  fit_felix_null_script    -> ${DEST}/fit_felix_null.R"
-echo "  export_felix_null_script -> ${DEST}/export_felix_null.R"
-echo "  run_felix_step2_script   -> ${DEST}/run_felix_step2.R"
-echo "  summarize_script         -> ${DEST}/summarize_felix_results.py"
-echo ""
-echo "Genome-wide FELIX (FelixGenome.wdl):"
-echo "  same scripts as FelixPilot; supply chroms + phase_vcfs + flare_vcfs (or joint_vcfs)"
-echo "  optional RU_TEST: simple_repeat_bed + annotate_repeat_units_script"
-echo "  resolve URIs: python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes"
-echo "  eval gates: tractor_mix/eval/README.md"
+echo "FELIX scripts: ./scripts/stage_felix_scripts.sh (see felix/README.md)"
 echo ""
 echo "Legacy fit_null_and_score.R is not staged; do not use it for new runs."

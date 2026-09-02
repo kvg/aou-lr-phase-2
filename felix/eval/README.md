@@ -13,6 +13,7 @@ pip install pandas numpy matplotlib
 Stage workflow scripts to your workspace bucket first:
 
 ```bash
+WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_felix_scripts.sh
 WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_tractor_scripts.sh
 ```
 
@@ -28,7 +29,7 @@ Compare limited/full covariate runs on the **same cohort** and phenotypes:
 | `tractor_full`   | full       | `.tractor_mix.tsv`  |
 
 ```bash
-python3 scripts/compare_felix_tractor_calibration.py \
+python3 felix/scripts/compare_felix_tractor_calibration.py \
   --felix-limited-dir /path/to/felix_chr22_limited/results_by_phenotype \
   --felix-full-dir    /path/to/felix_chr22_full/results_by_phenotype \
   --tractor-limited-dir /path/to/tractor_chr22_limited/results_by_phenotype \
@@ -50,7 +51,7 @@ Outputs:
 After `FelixGenome.wdl` RU_TEST branch (or local `tractor-mix-score --mode felix` runs):
 
 ```bash
-python3 scripts/compare_repeat_encodings.py \
+python3 felix/scripts/compare_repeat_encodings.py \
   --results-dir /path/to/ru_scores/chr22 \
   --phenotype my_trait \
   --out-dir eval/chr22_encoding_compare
@@ -66,7 +67,7 @@ Outputs: `calibration_summary.tsv`, `encoding_comparison.tsv`, per-encoding QQ p
 Quick type I error / power check for encoding architectures (no VCF required):
 
 ```bash
-python3 scripts/simulate_repeat_dosage.py \
+python3 felix/scripts/simulate_repeat_dosage.py \
   --n-samples 2000 \
   --n-reps 500 \
   --effect 0.15 \
@@ -85,22 +86,22 @@ Outputs:
 
 | WDL | Scope |
 |-----|-------|
-| `FelixPilot.wdl` | chr22 pilot (felixla + step2) |
-| `FelixGenome.wdl` | Autosomes: shared null, per-chr pack/step2, optional RU_TEST scorer |
+| `felix/wdl/FelixPilot.wdl` | chr22 pilot (felixla + step2) |
+| `felix/wdl/FelixGenome.wdl` | Autosomes: shared null, per-chr pack/step2, optional RU_TEST scorer |
 
-Example inputs: `tractor_mix/configs/felix.genome.inputs.{limited,full}.json.example`
+Example inputs: `felix/configs/felix.genome.inputs.{limited,full}.json.example`
 
 Docker default: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0`
 
 Build / push image:
 
 ```bash
-cd tractor_mix && ./build_felix_docker.sh
+felix/build_docker.sh
 ```
 
 ## Notes
 
 - FELIX joint p-value for calibration: `P_cct_admixed_c`
 - Tractor-Mix joint p-value: `P`
-- Genome-wide hit tables come from `summarize_felix_results.py` inside the WDL summarize task
+- Genome-wide hit tables come from `felix/scripts/summarize_felix_results.py` inside the WDL summarize task
 - Do not headline encoding “more hits” without matched λGC

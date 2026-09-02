@@ -43,7 +43,7 @@ ancestries with no dosage variance and applies one scalar variance ratio
 (from `meta.json` / `variance_ratio.txt`, overridable with `--variance-ratio`).
 
 Export a FELIX/SAIGE Step 1 `.rda` with
-[`scripts/export_felix_null.R`](../../scripts/export_felix_null.R) or
+[`felix/scripts/export_felix_null.R`](../../felix/scripts/export_felix_null.R) or
 `fit_null.R --step1-rda ...`. GMMAT exports still come from
 [`scripts/fit_null.R`](../../scripts/fit_null.R) after `glmmkin`.
 

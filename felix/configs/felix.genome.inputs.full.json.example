@@ -1,5 +1,5 @@
 {
-  "_comment": "FelixGenome LIMITED covariates. chroms, phase_vcfs, and flare_vcfs must be parallel (same order). GRM stays small (chr1+chr22). For autosomes: python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes. Optional RU_TEST: set simple_repeat_bed + annotate_repeat_units_script.",
+  "_comment": "FelixGenome FULL covariates (limited + coverage + GC). Same chrom / GRM notes as felix.genome.inputs.limited.json.example.",
   "FelixGenome.chroms": ["chr21", "chr22"],
   "FelixGenome.phase_vcfs": [
     "gs://BUCKET/phased/aou_lr_phase2_v1.chr21.phased.vcf.gz",
@@ -14,7 +14,7 @@
   "FelixGenome.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
   "FelixGenome.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
   "FelixGenome.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
-  "FelixGenome.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_limited.txt",
+  "FelixGenome.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_full.txt",
   "FelixGenome.trait_type": "binary",
 
   "FelixGenome.grm_vcfs": [
@@ -24,9 +24,9 @@
 
   "FelixGenome.build_saige_grm_script": "gs://BUCKET/scripts/build_saige_plink_and_grm.sh",
   "FelixGenome.make_plink_keep_script": "gs://BUCKET/scripts/make_plink_keep.py",
-  "FelixGenome.fit_felix_null_script": "gs://BUCKET/scripts/fit_felix_null.R",
-  "FelixGenome.run_felix_step2_script": "gs://BUCKET/scripts/run_felix_step2.R",
-  "FelixGenome.summarize_script": "gs://BUCKET/scripts/summarize_felix_results.py",
+  "FelixGenome.fit_felix_null_script": "gs://BUCKET/felix/scripts/fit_felix_null.R",
+  "FelixGenome.run_felix_step2_script": "gs://BUCKET/felix/scripts/run_felix_step2.R",
+  "FelixGenome.summarize_script": "gs://BUCKET/felix/scripts/summarize_felix_results.py",
 
   "FelixGenome.simple_repeat_bed": "",
   "FelixGenome.annotate_repeat_units_script": "gs://BUCKET/scripts/annotate_repeat_units.py",
