@@ -216,6 +216,22 @@ def git_describe(repo: Path) -> tuple[str, str]:
     return sha, ref
 
 
+def _copy_file(src: Path, dst: Path) -> None:
+    """Copy file contents without requiring utime/xattr (Terra disks often forbid them)."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copyfile(src, dst)
+    except PermissionError:
+        # Overwriting an open / root-owned notebook can fail; write via temp + replace.
+        tmp = dst.with_suffix(dst.suffix + f".tmp.{os.getpid()}")
+        try:
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, dst)
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+
+
 def stage_scripts(
     repo: Path,
     *,
@@ -256,8 +272,16 @@ def stage_notebooks(
     else:
         local_dest.mkdir(parents=True, exist_ok=True)
         for nb in sorted(src_dir.glob("*.ipynb")):
-            shutil.copy2(nb, local_dest / nb.name)
-            copied.append(nb.name)
+            dest = local_dest / nb.name
+            try:
+                _copy_file(nb, dest)
+                copied.append(nb.name)
+            except PermissionError as exc:
+                print(
+                    f"warning: could not copy {nb.name} → {dest} ({exc}); "
+                    "continuing with GCS stage",
+                    file=sys.stderr,
+                )
     bucket = (bucket or workspace_bucket()).rstrip("/")
     notebooks_gcs = ""
     if mirror_to_bucket and bucket:
