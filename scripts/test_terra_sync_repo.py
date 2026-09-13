@@ -13,6 +13,8 @@ from terra_sync_repo import (  # noqa: E402
     DEFAULT_WDLS,
     SyncReport,
     _auth_repo_url,
+    incomplete_flare_lai_exp_ids,
+    script_inputs_for_bucket,
 )
 
 
@@ -41,8 +43,28 @@ def test_report_jsonable():
     assert d["warnings"] == ["w"]
 
 
+def test_incomplete_filter_and_script_inputs():
+    ents = [
+        {
+            "name": "done",
+            "attributes": {
+                "anc_vcf": "gs://x/a.vcf.gz",
+                "models_tsv": "gs://x/m.tsv",
+            },
+        },
+        {"name": "todo", "attributes": {"anc_vcf": "", "models_tsv": ""}},
+        {"name": "partial", "attributes": {"anc_vcf": "gs://x/a.vcf.gz"}},
+    ]
+    assert incomplete_flare_lai_exp_ids(ents) == ["todo", "partial"]
+    inputs = script_inputs_for_bucket("gs://bucket")
+    assert inputs["FlareByPopulation.split_script"].endswith(
+        "/scripts/flare_split_samples.py"
+    )
+
+
 if __name__ == "__main__":
     test_auth_repo_url()
     test_defaults_point_at_real_paths()
     test_report_jsonable()
+    test_incomplete_filter_and_script_inputs()
     print("ok")

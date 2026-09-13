@@ -69,10 +69,13 @@ class SyncReport:
     git_sha: str = ""
     git_ref: str = ""
     scripts_dest: str = ""
+    notebooks_dest: str = ""
     notebooks_copied: list[str] = field(default_factory=list)
     wdls_staged: list[str] = field(default_factory=list)
     methods_updated: list[str] = field(default_factory=list)
+    configs_bumped: list[str] = field(default_factory=list)
     tables_upserted: list[str] = field(default_factory=list)
+    submissions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     dry_run: bool = False
 
@@ -241,8 +244,8 @@ def stage_notebooks(
     bucket: Optional[str] = None,
     mirror_to_bucket: bool = True,
     dry_run: bool = False,
-) -> list[str]:
-    """Copy notebooks/terra/*.ipynb onto the notebook disk (+ optional GCS mirror)."""
+) -> tuple[list[str], str]:
+    """Copy notebooks/terra/*.ipynb to disk and ``$WORKSPACE_BUCKET/notebooks/``."""
     src_dir = repo / "notebooks" / "terra"
     if not src_dir.is_dir():
         raise SystemExit(f"missing {src_dir}")
@@ -256,13 +259,15 @@ def stage_notebooks(
             shutil.copy2(nb, local_dest / nb.name)
             copied.append(nb.name)
     bucket = (bucket or workspace_bucket()).rstrip("/")
+    notebooks_gcs = ""
     if mirror_to_bucket and bucket:
-        dest = f"{bucket}/notebooks/terra"
+        # User-facing layout: $WORKSPACE_BUCKET/notebooks/*.ipynb
+        notebooks_gcs = f"{bucket}/notebooks"
         if dry_run:
-            print(f"[dry-run] gsutil -m rsync -r {src_dir}/ {dest}/")
+            print(f"[dry-run] gsutil -m rsync -r {src_dir}/ {notebooks_gcs}/")
         else:
-            run(["gsutil", "-m", "rsync", "-r", str(src_dir) + "/", dest + "/"])
-    return copied
+            run(["gsutil", "-m", "rsync", "-r", str(src_dir) + "/", notebooks_gcs + "/"])
+    return copied, notebooks_gcs
 
 
 def stage_wdls(
@@ -337,7 +342,6 @@ def update_repository_method(
     dry_run: bool = False,
 ) -> Optional[int]:
     """Push a new snapshot to the Firecloud Methods repo. Returns snapshot id if known."""
-    wdl_text = wdl_path.read_text()
     if dry_run:
         print(
             f"[dry-run] update_repository_method {method_namespace}/{method_name} "
@@ -345,32 +349,24 @@ def update_repository_method(
         )
         return None
     fapi = _firecloud_api()
-    # Historical FISS signatures vary; try common ones.
+    wdl_text = wdl_path.read_text()
     errors: list[str] = []
-    for kwargs in (
-        {"namespace": method_namespace, "method": method_name, "synopsis": synopsis, "wdl": wdl_text},
-        {"namespace": method_namespace, "name": method_name, "synopsis": synopsis, "payload": wdl_text},
+    resp = None
+    # Prefer path form (FISS docs say wdl is a file); fall back to string body.
+    for call in (
+        lambda: fapi.update_repository_method(
+            method_namespace, method_name, synopsis, str(wdl_path)
+        ),
+        lambda: fapi.update_repository_method(
+            method_namespace, method_name, synopsis, wdl_text
+        ),
     ):
         try:
-            # positional form used by many firecloud builds:
-            # update_repository_method(namespace, method, synopsis, wdl)
-            resp = fapi.update_repository_method(
-                method_namespace, method_name, synopsis, wdl_text
-            )
+            resp = call()
             break
-        except TypeError as exc:
-            errors.append(str(exc))
-            try:
-                resp = fapi.update_repository_method(**kwargs)
-                break
-            except Exception as exc2:  # noqa: BLE001
-                errors.append(str(exc2))
-                resp = None
         except Exception as exc:  # noqa: BLE001
             errors.append(str(exc))
             resp = None
-    else:
-        resp = None
     if resp is None:
         raise RuntimeError(
             "update_repository_method failed; stage WDL to bucket and import in UI. "
@@ -418,6 +414,212 @@ def upsert_configured_tables(
     return done
 
 
+def get_workspace_config(
+    *,
+    namespace: str,
+    workspace: str,
+    config_namespace: str,
+    config_name: str,
+) -> dict[str, Any]:
+    fapi = _firecloud_api()
+    resp = fapi.get_workspace_config(namespace, workspace, config_namespace, config_name)
+    if getattr(resp, "status_code", 200) != 200:
+        raise RuntimeError(
+            f"get_workspace_config failed ({resp.status_code}): "
+            f"{getattr(resp, 'text', '')[:800]}"
+        )
+    return resp.json()
+
+
+def bump_workspace_config_snapshot(
+    *,
+    namespace: str,
+    workspace: str,
+    config_namespace: str,
+    config_name: str,
+    method_namespace: str,
+    method_name: str,
+    snapshot_id: int,
+    inputs_overlay: Optional[dict[str, Any]] = None,
+    dry_run: bool = False,
+) -> str:
+    """Point an existing workspace method config at a new method snapshot."""
+    label = f"{config_namespace}/{config_name}@{snapshot_id}"
+    if dry_run:
+        print(f"[dry-run] bump workspace config {label}")
+        return label
+    cfg = get_workspace_config(
+        namespace=namespace,
+        workspace=workspace,
+        config_namespace=config_namespace,
+        config_name=config_name,
+    )
+    mrm = dict(cfg.get("methodRepoMethod") or {})
+    mrm["methodNamespace"] = method_namespace
+    mrm["methodName"] = method_name
+    mrm["methodVersion"] = int(snapshot_id)
+    # Keep URI in sync when present (Agora-style).
+    mrm["methodUri"] = (
+        f"agora://{method_namespace}/{method_name}/{int(snapshot_id)}"
+    )
+    cfg["methodRepoMethod"] = mrm
+    if inputs_overlay:
+        inputs = dict(cfg.get("inputs") or {})
+        for k, v in inputs_overlay.items():
+            inputs[k] = v if isinstance(v, str) else json.dumps(v)
+        cfg["inputs"] = inputs
+    fapi = _firecloud_api()
+    resp = fapi.overwrite_workspace_config(
+        namespace, workspace, config_namespace, config_name, cfg
+    )
+    if getattr(resp, "status_code", 200) not in (200, 201):
+        raise RuntimeError(
+            f"overwrite_workspace_config failed ({resp.status_code}): "
+            f"{getattr(resp, 'text', '')[:800]}"
+        )
+    print(f"bumped workspace config → {label}")
+    return label
+
+
+def script_inputs_for_bucket(bucket: str) -> dict[str, str]:
+    """FlareByPopulation script File inputs → current workspace bucket."""
+    b = bucket.rstrip("/")
+    return {
+        "FlareByPopulation.split_script": f"{b}/scripts/flare_split_samples.py",
+        "FlareByPopulation.summarize_script": f"{b}/scripts/flare_summarize_models.py",
+        "FlareByPopulation.flare_model_script": f"{b}/scripts/flare_model.py",
+        "FlareByPopulation.flare_site_stats_script": f"{b}/scripts/flare_site_stats.py",
+        "FlareByPopulation.indel_flank_script": f"{b}/scripts/flare_build_indel_flanks.py",
+    }
+
+
+def list_entity_names(
+    *,
+    namespace: str,
+    workspace: str,
+    entity_type: str,
+) -> list[dict[str, Any]]:
+    fapi = _firecloud_api()
+    resp = fapi.get_entities(namespace, workspace, entity_type)
+    if getattr(resp, "status_code", 200) != 200:
+        raise RuntimeError(
+            f"get_entities failed ({resp.status_code}): {getattr(resp, 'text', '')[:800]}"
+        )
+    ents = resp.json()
+    if not isinstance(ents, list):
+        raise RuntimeError(f"unexpected entities payload: {type(ents)}")
+    return ents
+
+
+def incomplete_flare_lai_exp_ids(
+    entities: Sequence[dict[str, Any]],
+) -> list[str]:
+    """Rows missing MergePopulationFlare outputs (anc_vcf + models_tsv)."""
+    out: list[str] = []
+    for ent in entities:
+        name = str(ent.get("name") or "")
+        attrs = ent.get("attributes") or {}
+        anc = attrs.get("anc_vcf")
+        models = attrs.get("models_tsv")
+        anc_s = "" if anc is None else str(anc)
+        models_s = "" if models is None else str(models)
+        if not (anc_s.startswith("gs://") and models_s.startswith("gs://")):
+            out.append(name)
+    return out
+
+
+def create_submission(
+    *,
+    namespace: str,
+    workspace: str,
+    config_namespace: str,
+    config_name: str,
+    entity_type: str,
+    entity_name: str,
+    use_callcache: bool = True,
+    dry_run: bool = False,
+) -> str:
+    if dry_run:
+        msg = (
+            f"[dry-run] create_submission {config_namespace}/{config_name} "
+            f"on {entity_type}/{entity_name}"
+        )
+        print(msg)
+        return msg
+    fapi = _firecloud_api()
+    resp = fapi.create_submission(
+        namespace,
+        workspace,
+        config_namespace,
+        config_name,
+        entity=entity_name,
+        etype=entity_type,
+        use_callcache=use_callcache,
+    )
+    code = getattr(resp, "status_code", 200)
+    if code not in (200, 201):
+        raise RuntimeError(
+            f"create_submission failed ({code}) for {entity_name}: "
+            f"{getattr(resp, 'text', '')[:800]}"
+        )
+    sid = None
+    try:
+        sid = resp.json().get("submissionId")
+    except Exception:  # noqa: BLE001
+        pass
+    label = f"{entity_name}:{sid or 'ok'}"
+    print("submitted", label)
+    return label
+
+
+def submit_flare_lai_exp(
+    *,
+    namespace: Optional[str] = None,
+    workspace: Optional[str] = None,
+    config_namespace: Optional[str] = None,
+    config_name: str = "FlareByPopulation",
+    entity_ids: Optional[Sequence[str]] = None,
+    only_incomplete: bool = True,
+    use_callcache: bool = True,
+    dry_run: bool = False,
+) -> list[str]:
+    """Submit FlareByPopulation for selected / incomplete flare_lai_exp rows."""
+    ns, ws = terra_namespace_workspace()
+    namespace = namespace or ns
+    workspace = workspace or ws
+    config_namespace = config_namespace or namespace
+    ents = list_entity_names(
+        namespace=namespace, workspace=workspace, entity_type="flare_lai_exp"
+    )
+    if entity_ids is not None:
+        wanted = set(entity_ids)
+        names = [e["name"] for e in ents if e.get("name") in wanted]
+        missing = wanted - set(names)
+        if missing:
+            raise SystemExit(f"unknown flare_lai_exp ids: {sorted(missing)}")
+    elif only_incomplete:
+        names = incomplete_flare_lai_exp_ids(ents)
+    else:
+        names = [str(e.get("name")) for e in ents if e.get("name")]
+    if not names:
+        print("no flare_lai_exp rows to submit")
+        return []
+    print(f"submitting {len(names)} flare_lai_exp row(s): {names}")
+    return [
+        create_submission(
+            namespace=namespace,
+            workspace=workspace,
+            config_namespace=config_namespace,
+            config_name=config_name,
+            entity_type="flare_lai_exp",
+            entity_name=name,
+            use_callcache=use_callcache,
+            dry_run=dry_run,
+        )
+        for name in names
+    ]
+
+
 def sync_all(
     *,
     repo_url: str = DEFAULT_REPO_URL,
@@ -431,6 +633,12 @@ def sync_all(
     upsert_tables: Optional[Sequence[str]] = ("flare_lai_exp",),
     update_methods: Optional[Sequence[dict[str, str]]] = None,
     method_namespace: Optional[str] = None,
+    bump_configs: Optional[Sequence[dict[str, Any]]] = None,
+    submit_flare: bool = False,
+    submit_entity_ids: Optional[Sequence[str]] = None,
+    submit_only_incomplete: bool = True,
+    submit_config_name: str = "FlareByPopulation",
+    submit_config_namespace: Optional[str] = None,
     mirror_notebooks_to_bucket: bool = True,
     dry_run: bool = False,
 ) -> SyncReport:
@@ -456,6 +664,9 @@ def sync_all(
     else:
         report.git_ref = ref
 
+    ns, ws = terra_namespace_workspace()
+    bucket = workspace_bucket()
+
     if stage_scripts_flag:
         report.scripts_dest = stage_scripts(repo, dry_run=dry_run)
 
@@ -465,12 +676,14 @@ def sync_all(
             or os.environ.get("AOU_LR_NOTEBOOK_DEST")
             or Path.cwd()
         )
-        report.notebooks_copied = stage_notebooks(
+        copied, gcs = stage_notebooks(
             repo,
             local_dest=nb_dest,
             mirror_to_bucket=mirror_notebooks_to_bucket,
             dry_run=dry_run,
         )
+        report.notebooks_copied = copied
+        report.notebooks_dest = gcs
 
     if stage_wdls_flag:
         report.wdls_staged = stage_wdls(repo, dry_run=dry_run)
@@ -483,14 +696,15 @@ def sync_all(
         except Exception as exc:  # noqa: BLE001
             report.warnings.append(f"table upsert failed: {exc}")
 
+    snap_by_method: dict[str, int] = {}
     if update_methods:
-        mns = method_namespace or os.environ.get("TERRA_METHOD_NAMESPACE") or ""
+        mns = method_namespace or os.environ.get("TERRA_METHOD_NAMESPACE") or ns
         for spec in update_methods:
             rel = spec["wdl"]
             name = spec.get("name") or Path(rel).stem
-            synopsis = spec.get("synopsis") or f"AoU LR sync {report.git_sha[:12]}"
-            ns = spec.get("namespace") or mns
-            if not ns:
+            synopsis = spec.get("synopsis") or f"AoU LR sync {report.git_sha[:12] or ref}"
+            method_ns = spec.get("namespace") or mns
+            if not method_ns:
                 report.warnings.append(
                     f"skip method update for {rel}: set TERRA_METHOD_NAMESPACE "
                     "or pass method_namespace="
@@ -499,14 +713,46 @@ def sync_all(
             try:
                 snap = update_repository_method(
                     repo / rel,
-                    method_namespace=ns,
+                    method_namespace=method_ns,
                     method_name=name,
                     synopsis=synopsis,
                     dry_run=dry_run,
                 )
-                report.methods_updated.append(f"{ns}/{name}:{snap}")
+                report.methods_updated.append(f"{method_ns}/{name}:{snap}")
+                if snap is not None:
+                    snap_by_method[f"{method_ns}/{name}"] = int(snap)
             except Exception as exc:  # noqa: BLE001
-                report.warnings.append(f"method update {ns}/{name}: {exc}")
+                report.warnings.append(f"method update {method_ns}/{name}: {exc}")
+
+    if bump_configs:
+        for spec in bump_configs:
+            method_ns = spec.get("method_namespace") or method_namespace or ns
+            method_name = spec.get("method_name") or spec.get("name") or "FlareByPopulation"
+            key = f"{method_ns}/{method_name}"
+            snap = spec.get("snapshot_id") or snap_by_method.get(key)
+            if snap is None:
+                report.warnings.append(
+                    f"skip config bump {spec}: no snapshot_id (method update may have failed)"
+                )
+                continue
+            overlay = spec.get("inputs_overlay")
+            if overlay is None and bucket and method_name == "FlareByPopulation":
+                overlay = script_inputs_for_bucket(bucket)
+            try:
+                label = bump_workspace_config_snapshot(
+                    namespace=ns,
+                    workspace=ws,
+                    config_namespace=spec.get("config_namespace") or ns,
+                    config_name=spec.get("config_name") or method_name,
+                    method_namespace=method_ns,
+                    method_name=method_name,
+                    snapshot_id=int(snap),
+                    inputs_overlay=overlay,
+                    dry_run=dry_run,
+                )
+                report.configs_bumped.append(label)
+            except Exception as exc:  # noqa: BLE001
+                report.warnings.append(f"config bump failed: {exc}")
 
     if report.wdls_staged and not report.methods_updated:
         report.warnings.append(
@@ -514,6 +760,21 @@ def sync_all(
             "Workflows UI (or pass update_methods=... / TERRA_METHOD_NAMESPACE) "
             "to push Firecloud method snapshots automatically."
         )
+
+    if submit_flare:
+        try:
+            report.submissions = submit_flare_lai_exp(
+                namespace=ns,
+                workspace=ws,
+                config_namespace=submit_config_namespace or ns,
+                config_name=submit_config_name,
+                entity_ids=submit_entity_ids,
+                only_incomplete=submit_only_incomplete,
+                dry_run=dry_run,
+            )
+        except Exception as exc:  # noqa: BLE001
+            report.warnings.append(f"workflow submit failed: {exc}")
+
     return report
 
 
@@ -540,11 +801,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="WDL repo path to push as a Firecloud method snapshot (repeatable)",
     )
     p.add_argument("--method-namespace", default=None)
+    p.add_argument(
+        "--bump-config",
+        action="append",
+        default=[],
+        help="Workspace config name to point at the new method snapshot (repeatable)",
+    )
+    p.add_argument(
+        "--submit-flare",
+        action="store_true",
+        help="Submit FlareByPopulation on incomplete (or listed) flare_lai_exp rows",
+    )
+    p.add_argument(
+        "--submit-entity",
+        action="append",
+        default=[],
+        help="flare_lai_exp id to submit (repeatable; default=all incomplete)",
+    )
+    p.add_argument("--submit-all", action="store_true", help="Submit all rows, not only incomplete")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--report-json", type=Path, default=None)
     args = p.parse_args(argv)
 
     methods = [{"wdl": w} for w in args.update_method]
+    bumps = [{"config_name": c, "method_name": c} for c in args.bump_config]
     report = sync_all(
         repo_url=args.repo_url,
         ref=args.ref,
@@ -557,12 +837,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         upsert_tables=args.upsert_tables,
         update_methods=methods or None,
         method_namespace=args.method_namespace,
+        bump_configs=bumps or None,
+        submit_flare=args.submit_flare,
+        submit_entity_ids=args.submit_entity or None,
+        submit_only_incomplete=not args.submit_all,
         dry_run=args.dry_run,
     )
     print(json.dumps(report.to_dict(), indent=2))
     if args.report_json:
         args.report_json.write_text(json.dumps(report.to_dict(), indent=2) + "\n")
-    return 0 if not report.warnings else 0  # warnings are non-fatal
+    return 0
 
 
 if __name__ == "__main__":

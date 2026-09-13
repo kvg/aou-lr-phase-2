@@ -15,9 +15,11 @@ everything from a Terra Workbench notebook (pmi-ops browser login).
 2. Run all cells (repo is public HTTPS — no token). That will:
    - `git clone` / `git pull` the repo on the VM
    - `gsutil rsync` `scripts/` → `$WORKSPACE_BUCKET/scripts/`
-   - copy `notebooks/terra/*.ipynb` onto the persistent disk (+ bucket mirror)
+   - `gsutil rsync` terra notebooks → `$WORKSPACE_BUCKET/notebooks/`
    - stage WDLs under `$WORKSPACE_BUCKET/wdl/`
-   - upsert `flare_lai_exp` (and other configured tables) via FISS
+   - push a new `FlareByPopulation` method snapshot + bump the workspace config
+   - upsert `flare_lai_exp` via FISS
+   - optionally submit incomplete `flare_lai_exp` rows (`SUBMIT_FLARE=True`)
 3. Re-run `00_sync_repo` whenever you need the latest `main` on Terra.
 
 Helper CLI (same VM): [`../../scripts/terra_sync_repo.py`](../../scripts/terra_sync_repo.py).
