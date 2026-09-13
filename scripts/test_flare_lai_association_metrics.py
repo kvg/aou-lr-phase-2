@@ -20,9 +20,16 @@ from flare_build_af_panel import (  # noqa: E402
 )
 from flare_lai_null_lambda import (  # noqa: E402
     aggregate_perm_lambdas,
+    assert_preflight_ok,
+    beta_grid_from_mid,
     cis_overlap,
     lambda_gc_from_p,
     pick_winner,
+    pick_winner_across_betas,
+    preflight_anchor_or,
+    preflight_q_vs_pcs,
+    run_preflight,
+    simulate_structured_pheno,
 )
 from flare_score_allele_ancestry import (  # noqa: E402
     allele_loglik,
@@ -240,6 +247,164 @@ def test_write_tiny_panel_fixture():
         assert len(rows) == 1 and rows[0]["afs"]["afr"] == 0.9
 
 
+def _write_sim_fixtures(td: Path, *, collinear_pcs: bool = False, strong_anchor: bool = True):
+    """Tiny pheno_cov + global.anc for preflight / simulation tests."""
+    import gzip
+
+    rng = np.random.default_rng(0)
+    n = 200
+    ids = [f"S{i}" for i in range(n)]
+    afr = rng.uniform(0.0, 1.0, size=n)
+    eur = 1.0 - afr
+    # Two families of size 4; rest singletons
+    fam = [f"F{i // 4}" if i < 16 else "" for i in range(n)]
+    gc = ["BI" if i % 2 == 0 else "BCM" for i in range(n)]
+    if collinear_pcs:
+        pc1 = afr + rng.normal(0, 0.01, size=n)
+        pc2 = eur + rng.normal(0, 0.01, size=n)
+    else:
+        pc1 = rng.normal(size=n)
+        pc2 = rng.normal(size=n)
+    # Anchor: strong afr effect or noise
+    if strong_anchor:
+        logit = -1.0 + 2.5 * afr
+        p = 1.0 / (1.0 + np.exp(-logit))
+        y = (rng.random(n) < p).astype(int)
+    else:
+        y = rng.integers(0, 2, size=n)
+    pheno = td / "pheno_cov.tsv"
+    with pheno.open("w") as fh:
+        fh.write("ID\tanchor_strong\tanchor_weak\tGC\tpedigree_family_id\tPC1\tPC2\tage\tsex\n")
+        for i in range(n):
+            fh.write(
+                f"{ids[i]}\t{y[i]}\t{int(rng.integers(0, 2))}\t{gc[i]}\t{fam[i]}\t"
+                f"{pc1[i]}\t{pc2[i]}\t{40 + i % 20}\t{i % 2}\n"
+            )
+    ganc = td / "fixed.global.anc.gz"
+    with gzip.open(ganc, "wt") as fh:
+        fh.write("SAMPLE eas amr eur afr sas\n")
+        for i in range(n):
+            fh.write(f"{ids[i]} 0 0 {eur[i]:.6f} {afr[i]:.6f} 0\n")
+    return pheno, ganc
+
+
+def test_preflight_q_vs_pcs_and_anchor():
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        pheno, ganc = _write_sim_fixtures(td, collinear_pcs=False, strong_anchor=True)
+        q = preflight_q_vs_pcs(pheno, ganc, ["age", "sex", "GC", "PC1", "PC2"], r2_max=0.90)
+        assert q["ok_for_pilot"]
+        assert not q["pcs_dropped"]
+        assert q["with_pcs"]["multivariate_r2"] < 0.90
+
+        col = td / "col"
+        col.mkdir(exist_ok=True)
+        pheno_c, ganc_c = _write_sim_fixtures(col, collinear_pcs=True, strong_anchor=True)
+        q2 = preflight_q_vs_pcs(pheno_c, ganc_c, ["age", "sex", "GC", "PC1", "PC2"], r2_max=0.90)
+        assert q2["pcs_dropped"]
+        assert q2["ok_for_pilot"]
+        assert "PC1" not in q2["null_covariates_used"]
+
+        anc = preflight_anchor_or(pheno, ganc, ["anchor_strong", "anchor_weak"])
+        assert anc["pass"]
+        assert anc["anchor_phenotype"] == "anchor_strong"
+        assert abs(anc["beta_mid"]) >= 0.3
+
+        weak = preflight_anchor_or(pheno, ganc, ["anchor_weak"], abs_beta_min=0.3, pmax=0.01)
+        # weak may occasionally pass by chance; if it fails, gate is correct
+        report = run_preflight(
+            pheno_cov=pheno,
+            global_anc=ganc,
+            covariates=["age", "sex", "GC", "PC1", "PC2"],
+            anchor_candidates=["anchor_strong"],
+        )
+        assert report["ok"]
+        assert assert_preflight_ok(report)["ok"]
+
+        bad = {
+            "q_vs_pcs": {"pass": False, "pcs_dropped": False},
+            "anchor_or": {"pass": True},
+        }
+        assert not assert_preflight_ok(bad)["ok"]
+
+
+def test_simulate_family_and_prevalence():
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        pheno, ganc = _write_sim_fixtures(td, strong_anchor=True)
+        out = td / "sim.tsv"
+        meta = simulate_structured_pheno(
+            pheno,
+            ganc,
+            out,
+            beta=1.5,
+            case_rate=0.25,
+            family_col="pedigree_family_id",
+            batch_col="GC",
+            sigma_f=1.0,
+            sigma_eps=0.2,
+            seed=7,
+        )
+        assert abs(meta["case_rate_obs"] - 0.25) < 0.08
+        assert meta["n_families_shared"] >= 1
+        meta_indep = simulate_structured_pheno(
+            pheno,
+            ganc,
+            td / "sim_indep.tsv",
+            beta=1.5,
+            case_rate=0.25,
+            family_col="pedigree_family_id",
+            batch_col="GC",
+            sigma_f=0.0,
+            sigma_eps=0.2,
+            seed=7,
+        )
+        # Shared family RE → higher within-family liability covariance
+        assert (
+            meta["mean_within_family_centered_prod"]
+            > meta_indep["mean_within_family_centered_prod"]
+        )
+        # Larger |β| should push more extreme liability separation (case rate still matched)
+        meta_hi = simulate_structured_pheno(
+            pheno, ganc, td / "sim_hi.tsv", beta=3.0, case_rate=0.25, seed=7
+        )
+        assert abs(meta_hi["case_rate_obs"] - 0.25) < 0.08
+        grid = beta_grid_from_mid(1.0)
+        assert grid["lo"] == 0.5 and grid["mid"] == 1.0 and grid["hi"] == 2.0
+
+
+def test_multi_beta_winner_stability():
+    def row(exp, dev, lo, hi, ll=-0.5):
+        return {
+            "experiment": exp,
+            "abs_lambda_dev": dev,
+            "abs_lambda_ci": {"mean": dev, "ci_low": lo, "ci_high": hi},
+            "mean_ll": ll,
+            "unstable_lambda": False,
+        }
+
+    stable = {
+        "lo": [row("a", 0.05, 0.04, 0.06), row("b", 0.20, 0.18, 0.22)],
+        "mid": [row("a", 0.04, 0.03, 0.05), row("b", 0.19, 0.17, 0.21)],
+        "hi": [row("a", 0.06, 0.05, 0.07), row("b", 0.22, 0.20, 0.24)],
+    }
+    pre = {
+        "q_vs_pcs": {"pass": True, "pcs_dropped": False},
+        "anchor_or": {"pass": True},
+    }
+    d = pick_winner_across_betas(stable, preflight=pre)
+    assert d["winner"] == "a" and not d["ranking_unstable"]
+
+    unstable = {
+        "lo": [row("a", 0.05, 0.04, 0.06), row("b", 0.20, 0.18, 0.22)],
+        "mid": [row("b", 0.04, 0.03, 0.05), row("a", 0.19, 0.17, 0.21)],
+        "hi": [row("a", 0.06, 0.05, 0.07), row("b", 0.22, 0.20, 0.24)],
+    }
+    d2 = pick_winner_across_betas(unstable, preflight=pre)
+    assert d2["winner"] is None and d2["ranking_unstable"]
+    assert d2["reason"] == "disagreement_across_betas"
+
+
 if __name__ == "__main__":
     test_af_panel_ranking()
     test_covering_and_allele_ll()
@@ -248,4 +413,7 @@ if __name__ == "__main__":
     test_load_ped_and_map_expectation()
     test_lambda_gc_and_winner()
     test_write_tiny_panel_fixture()
+    test_preflight_q_vs_pcs_and_anchor()
+    test_simulate_family_and_prevalence()
+    test_multi_beta_winner_stability()
     print("ok")

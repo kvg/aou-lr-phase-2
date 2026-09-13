@@ -274,6 +274,14 @@ gates; among survivors, Tractor null-λ (closest to 1) decides the winner
 `scripts/flare_score_mendelian_lai.py`,
 `scripts/flare_lai_null_lambda.py`; notebook `flare_02` Part 8).
 
+Null-λ phenotypes are **directly simulated**
+(`L = β·q + γ_GC + u_family + ε`, thresholded to an anchor case rate) — not
+shuffled. Run `flare_lai_null_lambda.py preflight` first: (1) check that fixed
+global ancestry `q` is not absorbed by the null PC set (drop PCs for this
+pilot if multivariate R² is too high); (2) require a non-trivial anchor
+phenotype log-OR before locking β_mid. Score at lo/mid/hi β; trust a winner
+only if ranking is stable across magnitudes.
+
 Stage filtered-site helpers (`flare_site_stats.py`,
 `flare_build_indel_flanks.py`, `flare_build_call_qc_sites.py`) and panel
 builder (`flare_build_af_panel.py`) with the other scripts.
