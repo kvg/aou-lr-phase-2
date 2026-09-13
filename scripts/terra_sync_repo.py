@@ -785,7 +785,17 @@ def sync_all(
                 if snap is not None:
                     snap_by_method[f"{method_ns}/{name}"] = int(snap)
             except Exception as exc:  # noqa: BLE001
-                report.warnings.append(f"method update {method_ns}/{name}: {exc}")
+                msg = str(exc)
+                if "403" in msg or "Authorization exception" in msg:
+                    report.warnings.append(
+                        f"method update {method_ns}/{name}: 403 — no Create on Methods "
+                        f"namespace {method_ns!r}. WDLs are still at "
+                        f"$WORKSPACE_BUCKET/wdl/{rel}. In Terra: Workflows → "
+                        f"{name} → ⋯ → Version / Import → use that GCS path "
+                        f"(or set METHOD_NAMESPACE to an Agora namespace you own)."
+                    )
+                else:
+                    report.warnings.append(f"method update {method_ns}/{name}: {exc}")
 
     if bump_configs:
         for spec in bump_configs:
@@ -818,10 +828,15 @@ def sync_all(
                 report.warnings.append(f"config bump failed: {exc}")
 
     if report.wdls_staged and not report.methods_updated:
+        bucket = workspace_bucket()
+        flare_wdl = (
+            f"{bucket}/wdl/flare/wdl/FlareByPopulation.wdl" if bucket else "$WORKSPACE_BUCKET/wdl/flare/wdl/FlareByPopulation.wdl"
+        )
         report.warnings.append(
-            "WDLs staged under $WORKSPACE_BUCKET/wdl/ — re-import in Terra "
-            "Workflows UI (or pass update_methods=... / TERRA_METHOD_NAMESPACE) "
-            "to push Firecloud method snapshots automatically."
+            "No Methods-repo snapshot was created (often expected on AoU: billing "
+            "project namespace is not writable). WDLs are staged under "
+            f"$WORKSPACE_BUCKET/wdl/. To refresh FlareByPopulation: Terra → "
+            f"Workflows → import/replace from {flare_wdl}"
         )
 
     if submit_flare:
