@@ -266,16 +266,20 @@ def stage_notebooks(
     bucket: Optional[str] = None,
     mirror_to_bucket: bool = True,
     dry_run: bool = False,
+    skip_names: Sequence[str] = ("00_sync_repo.ipynb",),
 ) -> tuple[list[str], str]:
     """Copy notebooks/terra/*.ipynb to disk and ``$WORKSPACE_BUCKET/notebooks/``.
 
     Never writes into ``repo/notebooks/`` (that would dirty the disposable clone).
+    Skips ``00_sync_repo.ipynb`` by default so a running sync notebook is not
+    overwritten mid-execution.
     """
     src_dir = repo / "notebooks" / "terra"
     if not src_dir.is_dir():
         raise SystemExit(f"missing {src_dir}")
     local_dest = local_dest.expanduser().resolve()
     repo_resolved = repo.expanduser().resolve()
+    skip = {Path(n).name for n in skip_names}
     copied: list[str] = []
 
     # If NOTEBOOK_DEST is inside the clone, stage beside the clone instead.
@@ -292,10 +296,13 @@ def stage_notebooks(
         pass
 
     if dry_run:
-        print(f"[dry-run] copy {src_dir}/*.ipynb → {local_dest}/")
+        print(f"[dry-run] copy {src_dir}/*.ipynb → {local_dest}/ (skip={sorted(skip)})")
     else:
         local_dest.mkdir(parents=True, exist_ok=True)
         for nb in sorted(src_dir.glob("*.ipynb")):
+            if nb.name in skip:
+                print(f"skip staging self/bootstrap notebook: {nb.name}", file=sys.stderr)
+                continue
             dest = local_dest / nb.name
             try:
                 _copy_file(nb, dest)
@@ -312,9 +319,17 @@ def stage_notebooks(
         # User-facing layout: $WORKSPACE_BUCKET/notebooks/*.ipynb
         notebooks_gcs = f"{bucket}/notebooks"
         if dry_run:
-            print(f"[dry-run] gsutil -m rsync -r {src_dir}/ {notebooks_gcs}/")
+            excl = "|".join(re.escape(n) + "$" for n in sorted(skip)) or "a^"
+            print(f"[dry-run] gsutil -m rsync -r -x '{excl}' {src_dir}/ {notebooks_gcs}/")
         else:
-            run(["gsutil", "-m", "rsync", "-r", str(src_dir) + "/", notebooks_gcs + "/"])
+            # Exclude bootstrap notebook so a running sync does not overwrite itself
+            # on the bucket either (leave any existing copy untouched).
+            excl = "|".join(re.escape(n) + "$" for n in sorted(skip))
+            cmd = ["gsutil", "-m", "rsync", "-r"]
+            if excl:
+                cmd.extend(["-x", excl])
+            cmd.extend([str(src_dir) + "/", notebooks_gcs + "/"])
+            run(cmd)
     return copied, notebooks_gcs
 
 
