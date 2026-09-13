@@ -151,24 +151,45 @@ def stream_ref_sites(
     sample_panels: list[str],
     sample_file: Path,
 ) -> list[dict]:
+    """Stream biallelic SNPs via ``bcftools view | query`` (Terra-safe).
+
+    Older bcftools (common on Terra) reject ``query -m2/-M2/-v``; those filters
+    belong on ``view``.
+    """
     sample_file.write_text("\n".join(samples) + "\n")
-    cmd = [
+    view_cmd = [
         "bcftools",
-        "query",
-        "-S",
-        str(sample_file),
+        "view",
         "-m2",
         "-M2",
         "-v",
         "snps",
+        "-S",
+        str(sample_file),
+        "--force-samples",
+        "-Ou",
+    ]
+    if region.strip():
+        view_cmd.extend(["-r", region.strip()])
+    view_cmd.append(ref_vcf)
+    query_cmd = [
+        "bcftools",
+        "query",
         "-f",
         "%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n",
     ]
-    if region.strip():
-        cmd.extend(["-r", region.strip()])
-    cmd.append(ref_vcf)
-    print("+", " ".join(cmd), file=sys.stderr)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
+    print("+", " ".join(view_cmd), "|", " ".join(query_cmd), file=sys.stderr)
+    view = subprocess.Popen(view_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(
+        query_cmd,
+        stdin=view.stdout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    if view.stdout is not None:
+        view.stdout.close()  # allow view to receive SIGPIPE if query exits
     assert proc.stdout is not None
     rows: list[dict] = []
     n = 0
@@ -211,9 +232,14 @@ def stream_ref_sites(
         n += 1
         if n % 100000 == 0:
             print(f"... scanned {n} sites", file=sys.stderr)
-    rc = proc.wait()
-    if rc != 0:
-        raise SystemExit(f"bcftools query failed ({rc})")
+    rc_q = proc.wait()
+    view_err = view.stderr.read().decode() if view.stderr is not None else ""
+    rc_v = view.wait()
+    if rc_v != 0:
+        raise SystemExit(f"bcftools view failed ({rc_v}): {view_err.strip()}")
+    if rc_q != 0:
+        q_err = proc.stderr.read() if proc.stderr is not None else ""
+        raise SystemExit(f"bcftools query failed ({rc_q}): {q_err.strip()}")
     return rows
 
 
