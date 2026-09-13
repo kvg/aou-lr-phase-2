@@ -16,20 +16,68 @@ set -euo pipefail
 : "${WORKSPACE_BUCKET:?set WORKSPACE_BUCKET}"
 : "${REF_PANEL:?set REF_PANEL to aou_1000genomes.refmap}"
 
-SCRIPTS_DIR="${SCRIPTS_DIR:-$(cd "$(dirname "$0")/../../scripts" && pwd)}"
+# Resolve against this file's location (not the caller's cwd). Override with SCRIPTS_DIR
+# if running from a tree that only has flare/ (e.g. point at the synced repo clone).
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${SCRIPTS_DIR:-}" ]]; then
+  if [[ -f "${_HERE}/../../scripts/flare_build_af_panel.py" ]]; then
+    SCRIPTS_DIR="$(cd "${_HERE}/../../scripts" && pwd)"
+  else
+    echo "Cannot find repo scripts/ next to flare/scripts (${_HERE}/../../scripts)." >&2
+    echo "Run from the synced git clone root, or set SCRIPTS_DIR, e.g.:" >&2
+    echo "  export SCRIPTS_DIR=\$HOME/AoU_DRC_LongReads_PhaseTwo_Storage/edit/aou-lr-phase-2/scripts" >&2
+    exit 1
+  fi
+fi
+if [[ ! -f "${SCRIPTS_DIR}/flare_build_af_panel.py" ]]; then
+  echo "SCRIPTS_DIR=${SCRIPTS_DIR} missing flare_build_af_panel.py" >&2
+  exit 1
+fi
 OUT_LOCAL="${OUT_LOCAL:-/tmp/flare_eval_panels}"
+CACHE_LOCAL="${CACHE_LOCAL:-/tmp/flare_eval_refs}"
 DEST="${WORKSPACE_BUCKET%/}/refs/flare/eval_panels"
-mkdir -p "$OUT_LOCAL"
+mkdir -p "$OUT_LOCAL" "$CACHE_LOCAL"
+
+# pathlib collapses gs:// → gs:/; localize GCS inputs before calling Python/bcftools.
+localize() {
+  local uri="$1"
+  local dest="$2"
+  if [[ "$uri" == gs://* ]]; then
+    if [[ ! -s "$dest" ]]; then
+      echo "localize $uri -> $dest" >&2
+      gsutil -q cp "$uri" "$dest"
+    fi
+    # sibling index when present (VCF)
+    if [[ "$uri" == *.vcf.gz || "$uri" == *.vcf.bgz ]]; then
+      local idx_dest="${dest}.tbi"
+      if [[ ! -s "$idx_dest" ]]; then
+        gsutil -q cp "${uri}.tbi" "$idx_dest" 2>/dev/null || true
+      fi
+    elif [[ "$uri" == *.bcf ]]; then
+      local idx_dest="${dest}.csi"
+      if [[ ! -s "$idx_dest" ]]; then
+        gsutil -q cp "${uri}.csi" "$idx_dest" 2>/dev/null || true
+      fi
+    fi
+    printf '%s' "$dest"
+  else
+    printf '%s' "$uri"
+  fi
+}
+
+REF_PANEL_LOCAL="$(localize "$REF_PANEL" "$CACHE_LOCAL/$(basename "$REF_PANEL")")"
 
 build_one() {
   local label="$1"
   local region="$2"
   local ref_vcf="$3"
   local prefix="$OUT_LOCAL/${label}"
+  local vcf_local
+  vcf_local="$(localize "$ref_vcf" "$CACHE_LOCAL/$(basename "$ref_vcf")")"
   echo "=== building ${label} (${region}) ==="
   python3 "$SCRIPTS_DIR/flare_build_af_panel.py" \
-    --ref-vcf "$ref_vcf" \
-    --ref-panel "$REF_PANEL" \
+    --ref-vcf "$vcf_local" \
+    --ref-panel "$REF_PANEL_LOCAL" \
     --region "$region" \
     --top-n "${TOP_N:-5000}" \
     --min-mac "${MIN_MAC:-50}" \

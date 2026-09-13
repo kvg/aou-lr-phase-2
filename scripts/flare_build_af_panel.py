@@ -37,6 +37,24 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=True, text=True, **kwargs)
 
 
+def materialize(path_str: str, dest_dir: Path) -> Path:
+    """Return a local Path; gsutil-copy gs:// inputs (Path collapses gs:// → gs:/)."""
+    raw = str(path_str)
+    if raw.startswith("gs:/") and not raw.startswith("gs://"):
+        # pathlib / shell mangling
+        raw = "gs://" + raw[len("gs:/") :]
+    if raw.startswith("gs://"):
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / Path(raw).name
+        if not dest.is_file() or dest.stat().st_size == 0:
+            run(["gsutil", "-q", "cp", raw, str(dest)])
+        return dest
+    p = Path(raw)
+    if not p.is_file():
+        raise FileNotFoundError(raw)
+    return p
+
+
 def load_refmap(path: Path) -> dict[str, str]:
     """sample -> panel (lowercase)."""
     out: dict[str, str] = {}
@@ -225,8 +243,8 @@ def write_outputs(rows: list[dict], out_prefix: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--ref-vcf", required=True, help="FLARE reference VCF (gnomAD LAI)")
-    p.add_argument("--ref-panel", required=True, type=Path, help="sample\\tpanel refmap")
+    p.add_argument("--ref-vcf", required=True, help="FLARE reference VCF (gnomAD LAI); local or gs://")
+    p.add_argument("--ref-panel", required=True, help="sample\\tpanel refmap; local or gs://")
     p.add_argument("--region", default="", help="chr or chr:start-end")
     p.add_argument("--top-n", type=int, default=5000)
     p.add_argument("--min-mac", type=int, default=50, help="minor allele count across ref")
@@ -242,8 +260,22 @@ def main(argv: list[str] | None = None) -> int:
     if not shutil.which("bcftools"):
         raise SystemExit("bcftools is required")
 
-    refmap = load_refmap(args.ref_panel)
-    vcf_samples = run(["bcftools", "query", "-l", args.ref_vcf], capture_output=True).stdout.splitlines()
+    cache = Path(str(args.out_prefix)).parent / ".cache"
+    ref_panel = materialize(str(args.ref_panel), cache)
+    ref_vcf = materialize(str(args.ref_vcf), cache)
+    # pull VCF index when remote
+    raw_vcf = str(args.ref_vcf)
+    if raw_vcf.startswith("gs:/") and not raw_vcf.startswith("gs://"):
+        raw_vcf = "gs://" + raw_vcf[len("gs:/") :]
+    if raw_vcf.startswith("gs://"):
+        idx_uri = raw_vcf + (".tbi" if raw_vcf.endswith((".vcf.gz", ".vcf.bgz")) else ".csi")
+        try:
+            materialize(idx_uri, cache)
+        except Exception:
+            print(f"warning: no index at {idx_uri}", file=sys.stderr)
+
+    refmap = load_refmap(ref_panel)
+    vcf_samples = run(["bcftools", "query", "-l", str(ref_vcf)], capture_output=True).stdout.splitlines()
     samples = [s for s in vcf_samples if s in refmap and refmap[s] in PANELS]
     if not samples:
         raise SystemExit("no overlapping samples between VCF and refmap panels")
@@ -257,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     sample_file = Path(str(args.out_prefix) + ".samples.txt")
     Path(args.out_prefix).parent.mkdir(parents=True, exist_ok=True)
     all_rows = stream_ref_sites(
-        args.ref_vcf,
+        str(ref_vcf),
         region=args.region,
         samples=samples,
         sample_panels=sample_panels,
