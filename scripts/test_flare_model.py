@@ -87,6 +87,14 @@ def test_set_props_and_rewrite_t():
 def test_pop_of_and_match():
     assert pop_of_model_path(EM_MODEL) == "AFR"
     assert pop_of_model_path("x.AMR.model") == "AMR"
+    assert pop_of_model_path("lai_exp.em_all_pops.AFR.out.model") == "AFR"
+    assert pop_of_model_path("lai_exp.em_all_pops.AFR.in.model") == "AFR"
+    got_out = match_pop_model(
+        "AFR",
+        ["lai_exp.em_all_pops.AFR.out.model"],
+        require=True,
+    )
+    assert got_out == Path("lai_exp.em_all_pops.AFR.out.model")
     try:
         match_pop_model("AFR", [EM_MODEL, PIN_MODEL], require=True)
     except ValueError as exc:

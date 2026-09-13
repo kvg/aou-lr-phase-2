@@ -162,10 +162,23 @@ def write_model(model: Model, path: Path | str, *, preserve_raw: bool = True) ->
 
 
 def pop_of_model_path(path: Path | str) -> str:
-    """Extract population from ``*.<POP>.model`` basename."""
+    """Extract population from a FLARE model basename.
+
+    Accepts pinned inputs ``prefix.<POP>.model`` and task outputs
+    ``prefix.<POP>.out.model`` / ``prefix.<POP>.in.model``.
+    """
     name = Path(path).name
-    if name.endswith(".model"):
+    if name.endswith(".out.model"):
+        name = name[: -len(".out.model")]
+    elif name.endswith(".in.model"):
+        name = name[: -len(".in.model")]
+    elif name.endswith(".model"):
         name = name[: -len(".model")]
+    else:
+        raise ValueError(
+            f"model basename {Path(path).name!r} must end in "
+            ".model, .out.model, or .in.model"
+        )
     if "." not in name:
         raise ValueError(
             f"model basename {Path(path).name!r} must look like prefix.<POP>.model"

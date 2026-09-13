@@ -96,7 +96,7 @@ gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/scripts/"
 | `template_model` | Required when resetting/overriding blocks without a matched `pop_models` entry |
 | `allow_unrepresented_pops` | Default **true** (temporary). Warn — do not fail — when a shard pop has no same-named panel ancestry (MID today). Revisit with a MID panel / remap later. |
 | `probs` | Default **false** (no `ANP`). Set **true** only when posterior dosages are needed |
-| `pop_models` | Empty for explore / pin-T. Apply: basenames must end in `.AFR.model` / `.AMR.model`. Rewritten under `in_model/` so outputs never collide |
+| `pop_models` | Empty for explore / pin-T. Apply: basenames must encode pop as `*.<POP>.model` or Cromwell `*.<POP>.out.model` / `.in.model`. Rewritten under `in_model/` so outputs never collide |
 | `seed` | Fixed `12345` ⇒ identical outputs show **determinism**, not independent corroboration |
 
 `population` is uppercase AFR/AMR/EAS/EUR/SAS/OTH/MID (legacy / soft labels).
