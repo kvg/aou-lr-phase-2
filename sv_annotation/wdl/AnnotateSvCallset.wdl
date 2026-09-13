@@ -13,9 +13,15 @@ workflow AnnotateSvCallset {
     File rmsk_bed
     File simple_repeat_bed
     File segdup_bed
+    File cmrg_bed
 
     File sample_ancestry_tsv
     File caddsv_annotations_tar
+    # Localized scripts so unique/repetitive GIAB strata (US/RM/SD/SR/CMRG) and
+    # hit_cmrg do not require a Docker rebuild. PYTHONPATH prefers these copies.
+    File sv_site_utils_py
+    File annotate_repeat_context_py
+    File manuscript_site_counts_py
 
     String prefix
     String docker
@@ -30,6 +36,9 @@ workflow AnnotateSvCallset {
       rmsk_bed = rmsk_bed,
       simple_repeat_bed = simple_repeat_bed,
       segdup_bed = segdup_bed,
+      cmrg_bed = cmrg_bed,
+      sv_site_utils_py = sv_site_utils_py,
+      annotate_repeat_context_py = annotate_repeat_context_py,
       docker = docker,
       cpu = 4,
       memory_gb = 64,
@@ -56,6 +65,9 @@ workflow AnnotateSvCallset {
         rmsk_bed = rmsk_bed,
         simple_repeat_bed = simple_repeat_bed,
         segdup_bed = segdup_bed,
+        cmrg_bed = cmrg_bed,
+        sv_site_utils_py = sv_site_utils_py,
+        annotate_repeat_context_py = annotate_repeat_context_py,
         docker = docker,
         cpu = 4,
         memory_gb = 16,
@@ -74,6 +86,9 @@ workflow AnnotateSvCallset {
         rmsk_bed = rmsk_bed,
         simple_repeat_bed = simple_repeat_bed,
         segdup_bed = segdup_bed,
+        cmrg_bed = cmrg_bed,
+        sv_site_utils_py = sv_site_utils_py,
+        annotate_repeat_context_py = annotate_repeat_context_py,
         docker = docker,
         cpu = 4,
         memory_gb = 32,
@@ -86,13 +101,20 @@ workflow AnnotateSvCallset {
     # Discovery CADD strata use main only; large sites stay cadd_sv_bin=unscored.
   }
 
+  # Conditional call outputs are File?. Coerce to Array[File] (empty when the
+  # partition was omitted) so IntegrateAndSummarize never interpolates a null File.
+  Array[File] bnd_sites_present = select_all([BndPart.sites])
+  Array[File] large_sites_present = select_all([LargePart.sites])
+
   call IntegrateAndSummarize {
     input:
       main_sites = MainCadd.scored_sites,
       main_carriers = MainPart.carriers,
-      bnd_sites = BndPart.sites,
-      large_sites = LargePart.sites,
+      bnd_sites = bnd_sites_present,
+      large_sites = large_sites_present,
       sample_ancestry_tsv = sample_ancestry_tsv,
+      sv_site_utils_py = sv_site_utils_py,
+      manuscript_site_counts_py = manuscript_site_counts_py,
       phase = phase,
       prefix = prefix,
       docker = docker,
@@ -122,6 +144,9 @@ task ProcessPartition {
     File rmsk_bed
     File simple_repeat_bed
     File segdup_bed
+    File cmrg_bed
+    File sv_site_utils_py
+    File annotate_repeat_context_py
     String docker
     Int cpu = 4
     Int memory_gb = 32
@@ -147,11 +172,17 @@ task ProcessPartition {
       --out-carriers ~{prefix}.carriers.tsv
     echo "[$(date -Is)] fill_af done" >&2
 
-    python3 /opt/aou_sv/scripts/annotate_repeat_context.py \
+    mkdir -p local_scripts
+    cp "~{sv_site_utils_py}" local_scripts/sv_site_utils.py
+    cp "~{annotate_repeat_context_py}" local_scripts/annotate_repeat_context.py
+    export PYTHONPATH="$PWD/local_scripts:/opt/aou_sv/scripts"
+
+    python3 local_scripts/annotate_repeat_context.py \
       --sites ~{prefix}.af.sites.tsv \
       --rmsk-bed "~{rmsk_bed}" \
       --simple-repeat-bed "~{simple_repeat_bed}" \
       --segdup-bed "~{segdup_bed}" \
+      --cmrg-bed "~{cmrg_bed}" \
       --out ~{prefix}.region.sites.tsv
     echo "[$(date -Is)] annotate_repeat done" >&2
 
@@ -232,9 +263,11 @@ task IntegrateAndSummarize {
   input {
     File main_sites
     File main_carriers
-    File? bnd_sites
-    File? large_sites
+    Array[File] bnd_sites = []
+    Array[File] large_sites = []
     File sample_ancestry_tsv
+    File sv_site_utils_py
+    File manuscript_site_counts_py
     String phase
     String prefix
     String docker
@@ -248,8 +281,8 @@ task IntegrateAndSummarize {
     set -euo pipefail
     BND_ARG=()
     LARGE_ARG=()
-    if [[ -n "~{bnd_sites}" ]]; then BND_ARG=(--bnd "~{bnd_sites}"); fi
-    if [[ -n "~{large_sites}" ]]; then LARGE_ARG=(--large "~{large_sites}"); fi
+    ~{if length(bnd_sites) > 0 then "BND_ARG=(--bnd '" + bnd_sites[0] + "')" else ""}
+    ~{if length(large_sites) > 0 then "LARGE_ARG=(--large '" + large_sites[0] + "')" else ""}
 
     python3 /opt/aou_sv/scripts/integrate_partitions.py \
       --main "~{main_sites}" \
@@ -258,13 +291,19 @@ task IntegrateAndSummarize {
       --out ~{prefix}.unified.sites.tsv \
       --manifest ~{prefix}.integrate.manifest.json
 
+    mkdir -p local_scripts
+    cp "~{sv_site_utils_py}" local_scripts/sv_site_utils.py
+    cp "~{manuscript_site_counts_py}" local_scripts/manuscript_site_counts.py
+    export PYTHONPATH="$PWD/local_scripts:/opt/aou_sv/scripts"
+    COUNTS_PY=local_scripts/manuscript_site_counts.py
+
     if [[ "~{phase}" == "phase2" ]]; then
-      python3 /opt/aou_sv/scripts/manuscript_site_counts.py \
+      python3 "${COUNTS_PY}" \
         --phase2-sites ~{prefix}.unified.sites.tsv \
         --out-tsv ~{prefix}.manuscript_counts.tsv \
         --out-json ~{prefix}.manuscript_counts.json
     else
-      python3 /opt/aou_sv/scripts/manuscript_site_counts.py \
+      python3 "${COUNTS_PY}" \
         --phase1-sites ~{prefix}.unified.sites.tsv \
         --out-tsv ~{prefix}.manuscript_counts.tsv \
         --out-json ~{prefix}.manuscript_counts.json

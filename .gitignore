@@ -6,10 +6,16 @@ venv/
 .DS_Store
 **/.ipynb_checkpoints/
 
+# Large real FLARE .model downloads (keep synthetic fixtures + README)
+scripts/testdata/flare_models/*.model
+!scripts/testdata/flare_models/em_all_pops.AFR.model
+!scripts/testdata/flare_models/pin_all_pops_gen_by_pop.AFR.model
+
 # Local scratch / legacy one-offs at repo root
 scratch/
 thing.tsv
 covariates.v2.csv.gz
+covariates.v6.csv.gz
 
 # Local CDRv9 / covariate source exports (large / private; do not commit)
 tractor_mix/resources/
@@ -20,9 +26,16 @@ tractor_mix/summaries/
 # SV annotation local outputs
 sv_annotation/outputs/
 sv_outputs/
+# Methylation pileup summaries
+methylation_stats/outputs/
+methylation_outputs/
 # Staged into the Docker build context from ../scripts
 tractor_mix/.docker_scripts/
 sv_annotation/.docker_scripts/
+felix/.docker_scripts/
+
+# Ad-hoc eval / smoke logs
+felix/eval/*.log
 
 # Rust extract-tracts-flare build artifacts
 tractor_mix/extract_tracts_flare/target/

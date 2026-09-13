@@ -57,8 +57,9 @@ cd sv_annotation
    `SV_PHASE2_MAIN_VCF` so IDs match the callsets.
 5. Import `wdl/AnnotateSvCallset.wdl` into a Terra Method.
 6. Fill `configs/phase2.inputs.json.example` (and phase1) with real GCS paths:
-   main / bnd / large VCF (or BCF) callsets, repeat BEDs, CADD-SV tar,
-   ancestry TSV, and the docker image.
+   main / bnd / large VCF (or BCF) callsets, repeat BEDs, CMRG BED, CADD-SV tar,
+   ancestry TSV, `scripts/{sv_site_utils,annotate_repeat_context,manuscript_site_counts}.py`,
+   and the docker image.
    The container runs `bcftools view`, so **BCF is fine**.
 7. Run Phase 2 with `main_vcf`, `bnd_vcf`, `large_vcf`; Phase 1 with `main_vcf` only.
    CADD-SV runs and attaches scores during this single workflow submission.

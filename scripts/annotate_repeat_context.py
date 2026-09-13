@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Annotate sites with repetitive-region union overlaps.
+Annotate sites with GIAB-style sequence-context overlaps.
 
 Inputs are BED files (possibly gzipped) with at least chrom, start, end
 (0-based, half-open). Track names map to hit_* columns.
+
+RM/SR/SD form the repetitive union (`region_class`). CMRG is annotated
+separately and is not part of that union.
 
 For VCF INFO RU_TEST / PERIOD / MOTIF / CN_REF / RU (dosage path), use
 annotate_repeat_units.py on the joint phased VCF.
@@ -67,13 +70,16 @@ def main() -> None:
     p.add_argument("--rmsk-bed", required=True)
     p.add_argument("--simple-repeat-bed", required=True)
     p.add_argument("--segdup-bed", required=True)
+    p.add_argument("--cmrg-bed", required=True)
     args = p.parse_args()
 
     tracks = {
         "hit_rmsk": load_intervals(args.rmsk_bed),
         "hit_simpleRepeat": load_intervals(args.simple_repeat_bed),
         "hit_genomicSuperDups": load_intervals(args.segdup_bed),
+        "hit_cmrg": load_intervals(args.cmrg_bed),
     }
+    union_cols = ("hit_rmsk", "hit_simpleRepeat", "hit_genomicSuperDups")
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     n = 0
@@ -88,12 +94,11 @@ def main() -> None:
             if end0 <= start0:
                 end0 = start0 + 1
             chrom = s["chrom"]
-            any_hit = False
             for col, ivals in tracks.items():
-                hit = overlaps(ivals.get(chrom, []), start0, end0)
-                s[col] = hit
-                any_hit = any_hit or hit
-            s["region_class"] = "repetitive" if any_hit else "non_repetitive"
+                s[col] = overlaps(ivals.get(chrom, []), start0, end0)
+            s["region_class"] = (
+                "repetitive" if any(s[c] for c in union_cols) else "non_repetitive"
+            )
             out.write(site_row(s))
     print(f"[annotate_repeat] wrote {n:,} sites", file=sys.stderr, flush=True)
 

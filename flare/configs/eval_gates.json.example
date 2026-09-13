@@ -1,0 +1,6 @@
+{
+  "_comment": "Empirical gates for Parts 2–3. Fill after the first flare_02 association-score pass; absent keys mean no filter.",
+  "min_mean_ll": null,
+  "max_violations_per_informative_locus": null,
+  "max_excess_recomb_over_expected": null
+}

@@ -92,6 +92,8 @@ def test_pipeline_integrate_and_counts(work: Path):
             str(FIX / "simpleRepeat.bed"),
             "--segdup-bed",
             str(FIX / "segdup.bed"),
+            "--cmrg-bed",
+            str(FIX / "cmrg.bed"),
             "--out",
             str(work / f"{src}.region.tsv"),
         )
@@ -153,7 +155,19 @@ def test_pipeline_integrate_and_counts(work: Path):
     assert lines["breakends"][2] == "1"
     assert lines["large_events_gt10kb"][2] == "2"
     assert lines["deletions"][2].startswith("1;")  # only del1 (overlap suppressed)
+    assert lines["deletions_us"][2] == "0; 0"
+    assert lines["deletions_rm"][2].startswith("1;")
+    assert lines["deletions_sd"][2] == "0; 0"
+    assert lines["deletions_sr"][2] == "0; 0"
+    assert lines["deletions_cmrg"][2].startswith("1;")
     assert lines["insertions"][2].startswith("1;")
+    assert lines["insertions_us"][2] == "0; 0"
+    assert lines["insertions_rm"][2] == "0; 0"
+    assert lines["insertions_sd"][2] == "0; 0"
+    assert lines["insertions_sr"][2].startswith("1;")
+    assert lines["insertions_cmrg"][2] == "0; 0"
+    assert lines["deletions_context_pct"][2] == "0.0 / 100.0 / 0.0 / 0.0 / 100.0"
+    assert lines["insertions_context_pct"][2] == "0.0 / 0.0 / 0.0 / 100.0 / 0.0"
     assert lines["duplications"][2].startswith("1;")
     assert lines["inversions"][2].startswith("1;")
 
@@ -254,6 +268,52 @@ def test_caddsv_input_is_v2_coordinate_bed(work: Path):
     assert all(len(row) == 4 for row in rows)
     assert {row[3] for row in rows} == {"DEL", "DUP", "INS", "INV"}
     assert "ins1" not in bed.read_text()
+
+
+def test_integrate_main_only_without_bnd_or_large(work: Path):
+    """Phase 1 has no bnd/large partitions; integrate must not require them."""
+    raw = work / "main.raw.tsv"
+    main_sites = work / "main.sites.tsv"
+    carr = work / "main.carriers.tsv"
+    run(
+        str(SCRIPTS / "extract_sites_from_vcf.py"),
+        "--vcf",
+        str(FIX / "main.vcf"),
+        "--source-vcf",
+        "main",
+        "--phase",
+        "phase1",
+        "--out",
+        str(raw),
+    )
+    run(
+        str(SCRIPTS / "fill_af_and_carriers.py"),
+        "--vcf",
+        str(FIX / "main.vcf"),
+        "--sites",
+        str(raw),
+        "--out-sites",
+        str(main_sites),
+        "--out-carriers",
+        str(carr),
+    )
+    unified = work / "unified.tsv"
+    manifest = work / "manifest.json"
+    run(
+        str(SCRIPTS / "integrate_partitions.py"),
+        "--main",
+        str(main_sites),
+        "--out",
+        str(unified),
+        "--manifest",
+        str(manifest),
+    )
+    man = json.loads(manifest.read_text())
+    assert man["n_bnd_input"] == 0
+    assert man["n_large_input"] == 0
+    assert man["n_main_suppressed_as_large_duplicate"] == 0
+    assert man["n_output_sites"] == man["n_main_input"]
+    assert man["n_output_sites"] > 0
 
 
 def test_phase1_counts_mark_bnd_unavailable(work: Path):

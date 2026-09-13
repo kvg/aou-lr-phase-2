@@ -1,0 +1,11 @@
+{
+  "PbCpgSampleStats.sample_id": "this.aou2_v1_phased_bams_id",
+  "PbCpgSampleStats.combined_bed": "this.combined_bed",
+  "PbCpgSampleStats.hap1_bed": "this.hap1_bed",
+  "PbCpgSampleStats.hap2_bed": "this.hap2_bed",
+  "PbCpgSampleStats.pbcpg_stats_py": "gs://WORKSPACE_BUCKET/scripts/pbcpg_stats.py",
+  "PbCpgSampleStats.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6",
+  "PbCpgSampleStats.cpu": 1,
+  "PbCpgSampleStats.memory_gb": 4,
+  "PbCpgSampleStats.preemptible": 1
+}

@@ -9,7 +9,7 @@ KHV) but failed PCA sample QC (`sample_qc.call_rate < 0.98`), so it has no
 
 | Field | Notes |
 | --- | --- |
-| `ancestry_pred` / `ancestry_pred_other` | AoU-style labels (`afr`/`amr`/`eas`/`eur`/`sas`/`oth`) |
+| `ancestry_pred` / `ancestry_pred_other` | AoU-style labels; hard `ancestry_pred` is `afr`/`amr`/`eas`/`eur`/`sas`/`mid` (no `oth`); `ancestry_pred_other` may be `oth` |
 | `sex_at_birth` / `inferred_sex` | From 1KG / HPRC / Coriell public metadata |
 | `population_code` | Optional fine-grained 1KG/HPRC subpopulation (e.g. `GBR`, `YRI`); **not** written to covariates `population` |
 | `is_phase1_control` | True for the 47 Phase-1 controls (also have SV sens07 counts) |
@@ -26,12 +26,13 @@ Used by `scripts/merge_lr_global_pcs_into_covariates.py` to append control rows 
 
 See **[COVARIATE_FILLS.md](COVARIATE_FILLS.md)** for the complete record of long-read
 covariate fills: control rows, global / within-pop `lr_PC*`, ancestry Rule A
-(population copy) and Rule B (centroid + kNN on `lr_PC1`–`lr_PC10`), and soft
+(population copy), Rule B (centroid + kNN on `lr_PC1`–`lr_PC10`), Rule C
+(hard `ancestry_pred` remediation of soft `oth`), and soft
 `population` / `sex_at_birth` backfills.
 
 | Audit | Contents |
 | --- | --- |
-| `lr_ancestry_knn_fills.tsv` | 80 ancestry fills (`from_population` / `lr_pc_knn`) |
+| `lr_ancestry_knn_fills.tsv` | 91 ancestry fills (`from_population` / `lr_pc_knn` / `lr_pc_knn_hard_pred`) |
 | `lr_soft_field_fills.tsv` | 4 soft field fills (`population` / `sex_at_birth`) |
 
 Replay soft fills: `scripts/apply_lr_soft_field_fills.py` (add `--discover` to

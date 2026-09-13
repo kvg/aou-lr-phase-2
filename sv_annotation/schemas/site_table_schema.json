@@ -22,6 +22,7 @@
     {"name": "hit_rmsk", "type": "bool"},
     {"name": "hit_simpleRepeat", "type": "bool"},
     {"name": "hit_genomicSuperDups", "type": "bool"},
+    {"name": "hit_cmrg", "type": "bool"},
     {"name": "cadd_sv_phred", "type": "float", "nullable": true},
     {"name": "cadd_sv_bin", "type": "string", "enum": ["low", "mid", "high", "unscored"]},
     {"name": "size_bin_ge20", "type": "bool"},

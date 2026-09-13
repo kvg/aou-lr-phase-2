@@ -1,0 +1,22 @@
+# list of ancestries
+eas	amr	eur	afr	sas
+# list of reference panels
+eas	amr	eur	afr	sas
+# T
+93.7237
+# admixture proportions
+0.008832	0.003602	0.175474	0.741161	0.070931
+# panel weights
+1	0	0	0	0
+0	1	0	0	0
+0	0	1	0	0
+0	0	0	1	0
+0	0	0	0	1
+# miscopy rates
+0.001	0.01	0.01	0.01	0.01
+0.01	0.001	0.01	0.01	0.01
+0.01	0.01	0.001	0.01	0.01
+0.01	0.01	0.01	0.001	0.01
+0.01	0.01	0.01	0.01	0.001
+# ibd rates
+0.5	0.5	0.5	0.5	0.5

@@ -1,0 +1,11 @@
+{
+  "PbCpgChromSites.sample_id": "this.pbcpg_concordance_id",
+  "PbCpgChromSites.combined_bed": "this.combined_bed",
+  "PbCpgChromSites.pbcpg_stats_py": "gs://WORKSPACE_BUCKET/scripts/pbcpg_stats.py",
+  "PbCpgChromSites.chrom": "chr22",
+  "PbCpgChromSites.min_cov": 10,
+  "PbCpgChromSites.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6",
+  "PbCpgChromSites.cpu": 1,
+  "PbCpgChromSites.memory_gb": 4,
+  "PbCpgChromSites.preemptible": 1
+}

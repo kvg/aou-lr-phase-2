@@ -1,0 +1,20 @@
+{
+  "AnnotateFlareGqDp.flare_vcf": "gs://BUCKET/flare/aou_lr_phase2_v1.chr22.anc.vcf.gz",
+  "AnnotateFlareGqDp.flare_vcf_index": "gs://BUCKET/flare/aou_lr_phase2_v1.chr22.anc.vcf.gz.tbi",
+  "AnnotateFlareGqDp.deepvariant_vcf": "gs://BUCKET/callsets/chr22.vcf.gz",
+  "AnnotateFlareGqDp.deepvariant_vcf_index": "gs://BUCKET/callsets/chr22.vcf.gz.tbi",
+  "AnnotateFlareGqDp.region": "chr22:16000000-17000000",
+  "AnnotateFlareGqDp.prefix": "aou_lr_phase2_v1.chr22_16_17Mb",
+  "AnnotateFlareGqDp.annotate_script": "gs://WORKSPACE_BUCKET/scripts/annotate_flare_gq_dp.py",
+  "AnnotateFlareGqDp.gcs_project": "YOUR_TERRA_GOOGLE_PROJECT",
+  "AnnotateFlareGqDp.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6",
+  "AnnotateFlareGqDp.min_match_rate": 0.95,
+  "AnnotateFlareGqDp.fail_on_low_match": false,
+  "AnnotateFlareGqDp.min_sample_overlap": 0.95,
+  "AnnotateFlareGqDp.format_tags": "GQ,DP,RNC",
+  "AnnotateFlareGqDp.cpu": 4,
+  "AnnotateFlareGqDp.memory_gb": 8,
+  "AnnotateFlareGqDp.preemptible": 1,
+  "AnnotateFlareGqDp.disk_gb_floor": 80,
+  "AnnotateFlareGqDp.disk_gb_multiplier": 1.0
+}

@@ -153,6 +153,30 @@ def resolve_gl_interval_manifest(
     )
 
 
+DEFAULT_WDL_DOCKER = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
+NUCLEAR_INTERVALS = {f"chr{i}" for i in range(1, 23)} | {"chrX", "chrY"}
+
+
+def natural_chrom_key(interval_id: str) -> tuple[int, str]:
+    token = str(interval_id)
+    if token.startswith("chr") and token[3:].isdigit():
+        return int(token[3:]), token
+    return {"chrX": 23, "chrY": 24}.get(token, 999), token
+
+
+def wdl_inputs_json(
+    *,
+    workflow: str = "BcftoolsGlnexusStats",
+    docker: str = DEFAULT_WDL_DOCKER,
+) -> dict[str, Any]:
+    return {
+        f"{workflow}.chrom": "this.GL_INTERVAL_set_id",
+        f"{workflow}.vcf": "this.VCF",
+        f"{workflow}.docker": docker,
+        f"{workflow}.apply_filters": "PASS,.",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     src = parser.add_mutually_exclusive_group(required=True)
@@ -167,6 +191,18 @@ def main() -> None:
     parser.add_argument("--workspace", default=DEFAULT_WORKSPACE)
     parser.add_argument("--entity-type", default=DEFAULT_ENTITY_TYPE)
     parser.add_argument("--out-tsv", type=Path)
+    parser.add_argument(
+        "--nuclear",
+        action="store_true",
+        help="Keep chr1–22, X, Y (drop chrM). Default is autosomes only.",
+    )
+    parser.add_argument(
+        "--out-wdl-json",
+        type=Path,
+        help="Write BcftoolsGlnexusStats Terra input JSON (this.GL_INTERVAL_set_id / this.VCF)",
+    )
+    parser.add_argument("--wdl-workflow", default="BcftoolsGlnexusStats")
+    parser.add_argument("--docker", default=DEFAULT_WDL_DOCKER)
     args = parser.parse_args()
 
     manifest = resolve_gl_interval_manifest(
@@ -176,12 +212,28 @@ def main() -> None:
         manifest_tsv=args.manifest_tsv,
         entities_json=args.entities_json,
         from_firecloud=args.from_firecloud,
+        autosomes_only=not args.nuclear,
     )
+    if args.nuclear:
+        manifest = manifest.loc[manifest["interval_id"].isin(NUCLEAR_INTERVALS)].copy()
+        manifest = manifest.sort_values(
+            "interval_id", key=lambda s: s.map(natural_chrom_key)
+        ).reset_index(drop=True)
+        if manifest.empty:
+            raise ValueError("No nuclear (chr1–22, X, Y) VCF rows")
     print(manifest.to_csv(sep="\t", index=False))
     if args.out_tsv:
         args.out_tsv.parent.mkdir(parents=True, exist_ok=True)
         manifest.to_csv(args.out_tsv, sep="\t", index=False)
         print(f"wrote {args.out_tsv}", flush=True)
+    if args.out_wdl_json:
+        payload = wdl_inputs_json(
+            workflow=args.wdl_workflow,
+            docker=args.docker,
+        )
+        args.out_wdl_json.parent.mkdir(parents=True, exist_ok=True)
+        args.out_wdl_json.write_text(json.dumps(payload, indent=2) + "\n")
+        print(f"wrote {args.out_wdl_json}", flush=True)
 
 
 if __name__ == "__main__":

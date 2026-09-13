@@ -1,5 +1,8 @@
 # Notebooks
 
+Reviewer-facing map of entrypoints and run order:
+[`../README.md`](../README.md).
+
 Analysis notebooks are split by runtime:
 
 | Directory | Platform |

@@ -7,7 +7,11 @@
   "AnnotateSvCallset.rmsk_bed": "gs://BUCKET/refs/grch38/rmsk.bed.gz",
   "AnnotateSvCallset.simple_repeat_bed": "gs://BUCKET/refs/grch38/simpleRepeat.bed.gz",
   "AnnotateSvCallset.segdup_bed": "gs://BUCKET/refs/grch38/genomicSuperDups.bed.gz",
+  "AnnotateSvCallset.cmrg_bed": "gs://BUCKET/refs/grch38/CMRG.bed.gz",
   "AnnotateSvCallset.sample_ancestry_tsv": "gs://BUCKET/metadata/phase2.sample_ancestry.tsv",
   "AnnotateSvCallset.caddsv_annotations_tar": "gs://BUCKET/refs/caddsv/caddsv-v2.0-annotations.tar.gz",
+  "AnnotateSvCallset.sv_site_utils_py": "gs://BUCKET/scripts/sv_site_utils.py",
+  "AnnotateSvCallset.annotate_repeat_context_py": "gs://BUCKET/scripts/annotate_repeat_context.py",
+  "AnnotateSvCallset.manuscript_site_counts_py": "gs://BUCKET/scripts/manuscript_site_counts.py",
   "AnnotateSvCallset.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
 }

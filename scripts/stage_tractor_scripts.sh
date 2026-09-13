@@ -35,6 +35,7 @@ REQUIRED=(
   plot_tractor_results.py
   resolve_flare_uris.py
   select_phenotypes.py
+  snv_bcftools_sample_qc.py
   terra_notebook.py
   workspace_paths.py
 )
@@ -72,5 +73,10 @@ echo "  resolve URIs: python3 scripts/resolve_flare_uris.py --from-firecloud --a
 echo "  summarize_script          -> ${DEST}/summarize_tractor_genome_results.py"
 echo ""
 echo "FELIX scripts: ./scripts/stage_felix_scripts.sh (see felix/README.md)"
+echo ""
+echo "SNV/indel bcftools stats (BcftoolsGlnexusStats.wdl):"
+echo "  Launch on GL_INTERVAL_set: chrom=this.GL_INTERVAL_set_id vcf=this.VCF"
+echo "  After all rows finish: python3 scripts/snv_bcftools_sample_qc.py --from-firecloud --pull-stats"
+echo "  merge CLI                 -> ${DEST}/snv_bcftools_sample_qc.py"
 echo ""
 echo "Legacy fit_null_and_score.R is not staged; do not use it for new runs."

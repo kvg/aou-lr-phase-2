@@ -52,6 +52,10 @@ CONTROL_FALSE_FLAGS = [
     "has_lr_tech",
     "has_ONT",
     "has_PacBio",
+    "has_asm_metrics",
+    "has_phase1_aux_metrics",
+    "has_phase1_asm_metrics",
+    "has_phase2_asm_metrics",
 ]
 
 

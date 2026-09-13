@@ -39,6 +39,25 @@ partitions are not CADD-scored.
 - `ge20`: \|SVLEN\| ≥ 20 bp (broader LR sensitivity)
 - Indels <20 bp belong in the SNV/indel table block, not here
 
+## Sequence-context strata (site counts)
+
+Deletions and insertions in Table 2 also report the **percent of $\geq$50 bp
+sites** in each GIAB-style stratum (US / RM / SD / SR / CMRG). US and the
+RM ∪ SD ∪ SR union partition the class. The five percentages do **not** sum
+to 100 because RM, SD, and SR may overlap and CMRG is independent.
+
+| Label | Definition |
+|-------|------------|
+| `US` | Unique sequence: complement of RM ∪ SD ∪ SR (`region_class=non_repetitive`) |
+| `RM` | Overlaps UCSC RepeatMasker |
+| `SD` | Overlaps UCSC `genomicSuperDups` |
+| `SR` | Overlaps UCSC `simpleRepeat` |
+| `CMRG` | Overlaps GIAB challenging medically relevant gene coordinates |
+
+RM, SD, and SR may overlap, so those three do not partition ALL. CMRG is
+independent of the repeat tracks (a site can be US and CMRG, or RM and CMRG).
+Discovery figures still use the binary `region_class` union.
+
 ## Repetitive region (union)
 
 A site is **repetitive** if it overlaps the union of these GRCh38 tracks

@@ -14,31 +14,46 @@ import os
 import subprocess
 import sys
 
-# Bootstrap scripts/ from $WORKSPACE_BUCKET/scripts/ when not on the VM.
+# On Terra, localize $WORKSPACE_BUCKET/scripts/ before importing anything.
+# Persistent edit/scripts/ copies are often stale and must not win.
+_bucket = os.environ.get("WORKSPACE_BUCKET", "").rstrip("/")
+_sync = os.environ.get("TERRA_SYNC_SCRIPTS", "true" if _bucket else "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+_scripts = None
 for _d in (Path.cwd() / "scripts", Path.cwd().parent / "scripts", Path.cwd().parent.parent / "scripts"):
-    if (_d / "terra_notebook.py").is_file():
-        sys.path.insert(0, str(_d.resolve()))
+    if (_d / "terra_notebook.py").is_file() or (_d / "workspace_paths.py").is_file():
+        _scripts = _d.resolve()
         break
-else:
-    _bucket = os.environ.get("WORKSPACE_BUCKET", "").rstrip("/")
-    if not _bucket:
-        raise FileNotFoundError(
-            "scripts/ not found locally and WORKSPACE_BUCKET is unset. "
-            "Upload scripts/ to gs://WORKSPACE/scripts/."
-        )
-    _dest = (Path.cwd() / "scripts").resolve()
-    _dest.mkdir(parents=True, exist_ok=True)
-    subprocess.check_call(
-        ["gsutil", "-m", "rsync", "-r", f"{_bucket}/scripts/", str(_dest) + "/"]
+if _bucket and _sync:
+    if _scripts is None:
+        _scripts = (Path.cwd() / "scripts").resolve()
+    _scripts.mkdir(parents=True, exist_ok=True)
+    print(f"gsutil -m rsync -r {_bucket}/scripts/ {_scripts}/")
+    subprocess.check_call(["gsutil", "-m", "rsync", "-r", f"{_bucket}/scripts/", str(_scripts) + "/"])
+    os.environ["TERRA_SCRIPTS_LOCALIZED"] = "true"
+    import importlib
+    importlib.invalidate_caches()
+    _prefix = str(_scripts)
+    for _name, _mod in list(sys.modules.items()):
+        _file = getattr(_mod, "__file__", None)
+        if _file and str(_file).startswith(_prefix):
+            sys.modules.pop(_name, None)
+elif _scripts is None:
+    raise FileNotFoundError(
+        "scripts/ not found locally and WORKSPACE_BUCKET is unset. "
+        "Upload scripts/ to gs://WORKSPACE/scripts/."
     )
-    sys.path.insert(0, str(_dest))
+sys.path.insert(0, str(_scripts))
 
 '''
 
 
 def set_code_cell(nb_path: Path, cell_idx: int, source: str) -> None:
     nb = json.loads(nb_path.read_text())
-    nb["cells"][cell_idx]["source"] = source
+    if not source.endswith("\n"):
+        source += "\n"
+    nb["cells"][cell_idx]["source"] = source.splitlines(keepends=True)
     nb["cells"][cell_idx]["outputs"] = []
     nb["cells"][cell_idx]["execution_count"] = None
     nb_path.write_text(json.dumps(nb, indent=1) + "\n")
@@ -93,6 +108,9 @@ LR_1027_SEX_CSV = LEGACY_RESOURCES / "lr_1027_sex_at_birth.csv"
 HA_PARTIAL_SAMPLE_CSV = ROOT / "ha_partial_sample.csv"
 HA_PASSING_SAMPLE_CSV = LEGACY_RESOURCES / "ha_passing_sample.csv"
 ONT_PHASE1_TSV = LEGACY_RESOURCES / "ont-sample-hg38.tsv"
+PHASE1_AUX_TSV = LEGACY_RESOURCES / "auxiliary_metrics.GRCh38.tsv"
+PHASE1_QUAST_TSV = LEGACY_RESOURCES / "hifiasm_quast.tsv"
+PHASE2_QUAST_TSV = LEGACY_RESOURCES / "phase2_quast.tsv"
 MERGED_ALL_CSV = LEGACY_RESOURCES / "merged_all_df.csv.gz"
 
 OUT_CSV = ROOT / "covariates.source_rebuilt.csv.gz"
@@ -106,12 +124,17 @@ TECH_COLS = [
     "biobank_id",
     "sex",
     "coverage",
+    "RL median",
     "platform",
     "PacBioMethylationCaller",
     "GC",
     "technology",
     "is_AIAN",
     "withdrew",
+    "Hap1 auN",
+    "Hap2 auN",
+    "Hap1 asm. len.",
+    "Hap2 asm. len.",
 ]
 MULTI_COLS = [
     "research_id",
@@ -154,6 +177,9 @@ for p in [
     HA_PARTIAL_SAMPLE_CSV,
     HA_PASSING_SAMPLE_CSV,
     ONT_PHASE1_TSV,
+    PHASE1_AUX_TSV,
+    PHASE1_QUAST_TSV,
+    PHASE2_QUAST_TSV,
     MERGED_ALL_CSV,
 ]:
     assert p.exists(), p
@@ -260,25 +286,38 @@ print("OUT_DIR:", OUT_DIR)
     "tractor_04_table1_cohort_summary.ipynb": (
         1,
         BOOTSTRAP
-        + '''from __future__ import annotations
-
-from terra_notebook import init_notebook
+        + '''from terra_notebook import init_notebook
 
 SCRIPTS = init_notebook("workspace_paths.py")
-from workspace_paths import data_root
+from workspace_paths import WORKSPACE, data_root
 
 import numpy as np
 import pandas as pd
 
 ROOT = data_root()
-RESOURCES = ROOT / "resources"
-LEGACY = RESOURCES / "legacy_covariates"
 
-COV_CSV = ROOT / "covariates.source_rebuilt.csv.gz"
-INTEGRATEDCALL_TSV = LEGACY / "Integratedcall-GRCh38.tsv"
-MERGED_ALL_CSV = LEGACY / "merged_all_df.csv.gz"
-ONT_PHASE1_TSV = LEGACY / "ont-sample-hg38.tsv"
-PEDIGREE_CSV = LEGACY / "aou_phase2.ped"
+
+def resolve_covariates() -> Path:
+    env = os.environ.get("AOU_COVARIATES")
+    if env:
+        path = Path(env).expanduser().resolve()
+        if path.is_file():
+            return path
+        raise FileNotFoundError(f"AOU_COVARIATES is not a file: {path}")
+    for path in (
+        WORKSPACE / "covariates.v6.csv.gz",
+        ROOT / "covariates.v6.csv.gz",
+        ROOT / "covariates.source_rebuilt.csv.gz",
+    ):
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        "No covariates table found. Set AOU_COVARIATES or place "
+        "covariates.v6.csv.gz / covariates.source_rebuilt.csv.gz on the data root."
+    )
+
+
+COV_CSV = resolve_covariates()
 
 OUT_DIR = ROOT / "summaries" / "manuscript"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -287,10 +326,10 @@ OUT_MD = OUT_DIR / "table1_cohort_summary.md"
 
 HIGH_PASS_N = 1133
 
-for path in [COV_CSV, INTEGRATEDCALL_TSV, MERGED_ALL_CSV, ONT_PHASE1_TSV, PEDIGREE_CSV]:
-    assert path.exists(), path
+assert COV_CSV.exists(), COV_CSV
 
 print("ROOT:", ROOT)
+print("COV_CSV:", COV_CSV)
 print("OUT_DIR:", OUT_DIR)
 ''',
     ),
@@ -474,6 +513,92 @@ print("PHASE2_MAIN_VCF:", PHASE2_MAIN_VCF or "(lr_phase filter)")
 print("GCS_PREFIX:", GCS_PREFIX or "(set WORKSPACE_BUCKET or SAMPLE_ANCESTRY_GCS_PREFIX)")
 ''',
     ),
+    "snv_00_merge_glnexus_stats.ipynb": (
+        1,
+        BOOTSTRAP
+        + '''from terra_notebook import init_notebook
+
+SCRIPTS = init_notebook(
+    "workspace_paths.py",
+    "resolve_gl_interval_manifest.py",
+    "snv_bcftools_sample_qc.py",
+)
+from workspace_paths import data_root
+try:
+    from workspace_paths import snv_output_dir
+except ImportError as exc:
+    raise ImportError(
+        f"{getattr(sys.modules.get('workspace_paths'), '__file__', 'workspace_paths')} is stale "
+        "(no snv_output_dir). From a current git checkout run "
+        'gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/scripts/" '
+        "and re-run this cell."
+    ) from exc
+from resolve_gl_interval_manifest import (
+    DEFAULT_ENTITY_TYPE as GL_INTERVAL_ENTITY_TYPE,
+    DEFAULT_NAMESPACE as TERRA_NAMESPACE_DEFAULT,
+    DEFAULT_WORKSPACE as TERRA_WORKSPACE_DEFAULT,
+    fetch_gl_interval_manifest_firecloud,
+    load_gl_interval_manifest_tsv,
+    natural_chrom_key,
+    normalize_gl_interval_manifest,
+)
+from snv_bcftools_sample_qc import (
+    env_flag,
+    hg_na_mask,
+    manuscript_per_participant_sentence,
+    merge_shards,
+    pull_stats_from_table,
+    select_merge_intervals,
+    stats_uri_column,
+    write_outputs,
+)
+
+import pandas as pd
+
+try:
+    display
+except NameError:
+    def display(value):
+        print(value)
+
+ROOT = data_root()
+WORKSPACE_BUCKET = os.environ.get("WORKSPACE_BUCKET", "").rstrip("/")
+SUMMARY_DIR = Path(os.environ.get("SNV_SUMMARY_DIR", ROOT / "summaries" / "manuscript"))
+SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+STATS_DIR = Path(os.environ.get("SNV_SHARD_DIR", snv_output_dir() / "shards"))
+STATS_DIR.mkdir(parents=True, exist_ok=True)
+TABLE_TSV = os.environ.get("SNV_TABLE_TSV", "")
+COV_CSV = Path(
+    os.environ.get(
+        "AOU_COVARIATES",
+        ROOT / "covariates.source_rebuilt.csv.gz",
+    )
+)
+if not COV_CSV.is_file():
+    alt = Path.cwd() / "covariates.v6.csv.gz"
+    if alt.is_file():
+        COV_CSV = alt
+
+RUN_PIPELINE = env_flag("SNV_RUN_PIPELINE")
+FORCE = env_flag("SNV_FORCE")
+AUTOSOMES_ONLY = env_flag("SNV_AUTOSOMES_ONLY", default=False)
+TERRA_NAMESPACE = os.environ.get("SNV_TERRA_NAMESPACE", TERRA_NAMESPACE_DEFAULT)
+TERRA_WORKSPACE = os.environ.get("SNV_TERRA_WORKSPACE", TERRA_WORKSPACE_DEFAULT)
+ENTITY_TYPE = os.environ.get("SNV_TERRA_ENTITY_TYPE", GL_INTERVAL_ENTITY_TYPE)
+PULL_JOBS = int(os.environ.get("SNV_PULL_JOBS", "8"))
+
+print("ROOT:", ROOT)
+print("WORKSPACE_BUCKET:", WORKSPACE_BUCKET or "(local)")
+print("SUMMARY_DIR:", SUMMARY_DIR)
+print("STATS_DIR:", STATS_DIR)
+print("COV_CSV:", COV_CSV, "exists=" + str(COV_CSV.is_file()))
+print("RUN_PIPELINE:", RUN_PIPELINE)
+print("TERRA:", f"{TERRA_NAMESPACE}/{TERRA_WORKSPACE}/{ENTITY_TYPE}")
+print("PULL_JOBS:", PULL_JOBS)
+print("AUTOSOMES_ONLY:", AUTOSOMES_ONLY)
+print("FORCE:", FORCE)
+''',
+    ),
     "sv_03_manuscript_stats.ipynb": (
         1,
         BOOTSTRAP
@@ -500,6 +625,82 @@ OUTDIR.mkdir(parents=True, exist_ok=True)
 
 print("OUT:", OUT)
 print("OUTDIR:", OUTDIR)
+''',
+    ),
+    "meth_00_merge_pbcpg_stats.ipynb": (
+        1,
+        BOOTSTRAP
+        + '''from terra_notebook import init_notebook
+
+SCRIPTS = init_notebook("workspace_paths.py", "pbcpg_stats.py")
+from workspace_paths import data_root
+try:
+    from workspace_paths import methylation_output_dir
+except ImportError as exc:
+    raise ImportError(
+        f"{getattr(sys.modules.get('workspace_paths'), '__file__', 'workspace_paths')} is stale "
+        "(no methylation_output_dir). From a current git checkout run "
+        'gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/scripts/" '
+        "and re-run this cell."
+    ) from exc
+from pbcpg_stats import (
+    DEFAULT_ENTITY_TYPE,
+    DEFAULT_ID_COLUMN,
+    DEFAULT_NAMESPACE,
+    DEFAULT_WORKSPACE,
+    fetch_phased_bams_table,
+    inventory_from_frame,
+    pull_stats_from_table,
+)
+import json
+import pandas as pd
+
+try:
+    display
+except NameError:
+    def display(value):
+        print(value)
+
+ROOT = data_root()
+WORKSPACE_BUCKET = os.environ.get("WORKSPACE_BUCKET", "").rstrip("/")
+SUMMARY_DIR = Path(os.environ.get("METH_SUMMARY_DIR", ROOT / "summaries" / "manuscript"))
+SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+STATS_DIR = Path(os.environ.get("METH_STATS_DIR", methylation_output_dir() / "shards"))
+DUMPS_DIR = Path(os.environ.get("METH_DUMPS_DIR", methylation_output_dir() / "chr22_dumps"))
+TABLE_TSV = os.environ.get("METH_TABLE_TSV", "")
+COV_CSV = Path(
+    os.environ.get(
+        "AOU_COVARIATES",
+        ROOT / "covariates.source_rebuilt.csv.gz",
+    )
+)
+if not COV_CSV.is_file():
+    alt = Path.cwd() / "covariates.v6.csv.gz"
+    if alt.is_file():
+        COV_CSV = alt
+
+RUN_PIPELINE = os.environ.get("METH_RUN_PIPELINE", "").lower() in {"1", "true", "yes", "on"}
+RUN_INVENTORY = os.environ.get("METH_RUN_INVENTORY", "true").lower() in {"1", "true", "yes", "on"}
+RUN_MERGE = os.environ.get("METH_RUN_MERGE", "true").lower() in {"1", "true", "yes", "on"}
+RUN_CONCORDANCE = os.environ.get("METH_RUN_CONCORDANCE", "").lower() in {"1", "true", "yes", "on"}
+DISCOVERY_ONLY = os.environ.get("METH_DISCOVERY_ONLY", "true").lower() in {"1", "true", "yes", "on"}
+TERRA_NAMESPACE = os.environ.get("METH_TERRA_NAMESPACE", DEFAULT_NAMESPACE)
+TERRA_WORKSPACE = os.environ.get("METH_TERRA_WORKSPACE", DEFAULT_WORKSPACE)
+ENTITY_TYPE = os.environ.get("METH_ENTITY_TYPE", DEFAULT_ENTITY_TYPE)
+PULL_JOBS = int(os.environ.get("METH_PULL_JOBS", "8"))
+
+print("ROOT:", ROOT)
+print("WORKSPACE_BUCKET:", WORKSPACE_BUCKET or "(local)")
+print("SUMMARY_DIR:", SUMMARY_DIR)
+print("STATS_DIR:", STATS_DIR)
+print("DUMPS_DIR:", DUMPS_DIR)
+print("COV_CSV:", COV_CSV, "exists=" + str(COV_CSV.is_file()))
+print("RUN_PIPELINE:", RUN_PIPELINE)
+print("RUN_INVENTORY:", RUN_INVENTORY)
+print("RUN_MERGE:", RUN_MERGE)
+print("RUN_CONCORDANCE:", RUN_CONCORDANCE)
+print("TERRA:", f"{TERRA_NAMESPACE}/{TERRA_WORKSPACE}/{ENTITY_TYPE}")
+print("PULL_JOBS:", PULL_JOBS)
 ''',
     ),
 }

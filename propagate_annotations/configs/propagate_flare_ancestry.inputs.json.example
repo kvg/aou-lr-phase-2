@@ -1,0 +1,20 @@
+{
+  "PropagateFlareAncestry.flare_vcf": "gs://BUCKET/flare/aou_lr_phase2_v1.chr22.anc.vcf.gz",
+  "PropagateFlareAncestry.flare_vcf_index": "gs://BUCKET/flare/aou_lr_phase2_v1.chr22.anc.vcf.gz.tbi",
+  "PropagateFlareAncestry.target_vcf": "gs://BUCKET/phased/aou_lr_phase2_v1.chr22.vcf.gz",
+  "PropagateFlareAncestry.target_vcf_index": "gs://BUCKET/phased/aou_lr_phase2_v1.chr22.vcf.gz.tbi",
+  "PropagateFlareAncestry.region": "chr22:26897597-27897597",
+  "PropagateFlareAncestry.prefix": "aou_lr_phase2_v1.chr22_26_27Mb",
+  "PropagateFlareAncestry.propagate_script": "gs://WORKSPACE_BUCKET/scripts/propagate_flare_ancestry.py",
+  "PropagateFlareAncestry.gcs_project": "YOUR_TERRA_GOOGLE_PROJECT",
+  "PropagateFlareAncestry.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare-bcftools:1.24",
+  "PropagateFlareAncestry.min_coverage_rate": 0.95,
+  "PropagateFlareAncestry.fail_on_low_coverage": false,
+  "PropagateFlareAncestry.min_sample_overlap": 0.0,
+  "PropagateFlareAncestry.format_tags": "AN1,AN2",
+  "PropagateFlareAncestry.cpu": 4,
+  "PropagateFlareAncestry.memory_gb": 8,
+  "PropagateFlareAncestry.preemptible": 1,
+  "PropagateFlareAncestry.disk_gb_floor": 40,
+  "PropagateFlareAncestry.disk_gb_multiplier": 0.0
+}

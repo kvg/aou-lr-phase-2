@@ -1,0 +1,30 @@
+{
+  "FlareByPopulation.covariates": "gs://WORKSPACE_BUCKET/covariates/covariates.source_rebuilt.csv.gz",
+  "FlareByPopulation.gt_vcf": "this.phased_vcf",
+  "FlareByPopulation.gt_vcf_index": "this.phased_vcf_index",
+  "FlareByPopulation.ref_vcf": "this.gnomad_lai_vcf",
+  "FlareByPopulation.ref_vcf_index": "this.gnomad_lai_vcf_index",
+  "FlareByPopulation.ref_panel": "gs://BUCKET/Reference_plink/aou_1000genomes.refmap",
+  "FlareByPopulation.map_file": "this.genetic_map",
+  "FlareByPopulation.split_script": "gs://WORKSPACE_BUCKET/scripts/flare_split_samples.py",
+  "FlareByPopulation.summarize_script": "gs://WORKSPACE_BUCKET/scripts/flare_summarize_models.py",
+  "FlareByPopulation.flare_model_script": "gs://WORKSPACE_BUCKET/scripts/flare_model.py",
+  "FlareByPopulation.flare_site_stats_script": "gs://WORKSPACE_BUCKET/scripts/flare_site_stats.py",
+  "FlareByPopulation.indel_flank_script": "gs://WORKSPACE_BUCKET/scripts/flare_build_indel_flanks.py",
+  "FlareByPopulation.output_prefix": "this.aou_lr_chrom_id",
+  "FlareByPopulation.include_pops": "AFR,AMR",
+  "FlareByPopulation.drop_pops": "OTH,MID",
+  "FlareByPopulation.exclude_controls": true,
+  "FlareByPopulation.region": "",
+  "FlareByPopulation.em": "this.lai_em",
+  "FlareByPopulation.pop_models": [
+    "this.lai_model_AFR",
+    "this.lai_model_AMR"
+  ],
+  "FlareByPopulation.update_p": true,
+  "FlareByPopulation.min_maf": 0.005,
+  "FlareByPopulation.min_mac": 50,
+  "FlareByPopulation.seed": 12345,
+  "FlareByPopulation.flare_cpu_override": 8,
+  "FlareByPopulation.gcs_project": "YOUR_TERRA_GOOGLE_PROJECT"
+}

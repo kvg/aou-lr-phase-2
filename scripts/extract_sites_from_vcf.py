@@ -93,6 +93,7 @@ def main() -> None:
                 "hit_rmsk": False,
                 "hit_simpleRepeat": False,
                 "hit_genomicSuperDups": False,
+                "hit_cmrg": False,
                 "cadd_sv_phred": "",
                 "cadd_sv_bin": cadd_sv_bin(None),
                 "size_bin_ge20": ge20,

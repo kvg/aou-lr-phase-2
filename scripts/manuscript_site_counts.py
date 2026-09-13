@@ -20,24 +20,77 @@ METRICS = (
     ("insertions", "INS"),
     ("inversions", "INV"),
 )
+# GIAB-style sequence-context strata for DEL/INS (parent class row is ALL).
+# US is the complement of RM∪SD∪SR; RM/SD/SR may overlap; CMRG is independent.
+CONTEXT_CLASSES = ("DEL", "INS")
+STRATA = ("us", "rm", "sd", "sr", "cmrg")
 
 
-def count_resolved(sites, size_flag: str) -> Counter:
-    c: Counter = Counter()
-    for s in sites:
-        if s["source_vcf"] != "main":
-            continue
-        if s["svtype"] not in RESOLVED:
-            continue
-        if not s.get(size_flag):
-            continue
-        c[s["svtype"]] += 1
-    return c
+def site_strata(site: dict) -> tuple[str, ...]:
+    rm = bool(site.get("hit_rmsk"))
+    sd = bool(site.get("hit_genomicSuperDups"))
+    sr = bool(site.get("hit_simpleRepeat"))
+    labels = []
+    if not (rm or sd or sr):
+        labels.append("us")
+    if rm:
+        labels.append("rm")
+    if sd:
+        labels.append("sd")
+    if sr:
+        labels.append("sr")
+    if site.get("hit_cmrg"):
+        labels.append("cmrg")
+    return tuple(labels)
+
+
+def _empty_resolved() -> dict:
+    return {sv: None for _, sv in METRICS}
+
+
+def _empty_context() -> dict:
+    return {sv: {k: None for k in STRATA} for sv in CONTEXT_CLASSES}
+
+
+def empty_phase() -> dict:
+    return {
+        "available": False,
+        "resolved_ge50": _empty_resolved(),
+        "resolved_ge20": _empty_resolved(),
+        "context_ge50": _empty_context(),
+        "context_ge20": _empty_context(),
+        "breakends": None,
+        "large_events_gt10kb": None,
+    }
+
+
+def _pack(
+    c50: Counter,
+    c20: Counter,
+    c50_ctx: Counter,
+    c20_ctx: Counter,
+    n_bnd: int,
+    n_large: int,
+) -> dict:
+    def ctx(counter: Counter, sv: str) -> dict:
+        return {k: counter[(sv, k)] for k in STRATA}
+
+    return {
+        "available": True,
+        "resolved_ge50": {sv: c50[sv] for _, sv in METRICS},
+        "resolved_ge20": {sv: c20[sv] for _, sv in METRICS},
+        "context_ge50": {sv: ctx(c50_ctx, sv) for sv in CONTEXT_CLASSES},
+        "context_ge20": {sv: ctx(c20_ctx, sv) for sv in CONTEXT_CLASSES},
+        "breakends": n_bnd,
+        "large_events_gt10kb": n_large,
+    }
 
 
 def count_phase(path: str) -> dict:
     c50: Counter = Counter()
     c20: Counter = Counter()
+    c50_ctx: Counter = Counter()
+    c20_ctx: Counter = Counter()
     n_bnd = 0
     n_large = 0
     for s in iter_sites(path):
@@ -50,43 +103,69 @@ def count_phase(path: str) -> dict:
             continue
         if src != "main" or s["svtype"] not in RESOLVED:
             continue
+        labels = site_strata(s) if s["svtype"] in CONTEXT_CLASSES else ()
         if s.get("size_bin_ge50"):
             c50[s["svtype"]] += 1
+            for lab in labels:
+                c50_ctx[(s["svtype"], lab)] += 1
         if s.get("size_bin_ge20"):
             c20[s["svtype"]] += 1
-    return {
-        "available": True,
-        "resolved_ge50": {sv: c50[sv] for _, sv in METRICS},
-        "resolved_ge20": {sv: c20[sv] for _, sv in METRICS},
-        "breakends": n_bnd,
-        "large_events_gt10kb": n_large,
-    }
-
-
-def phase_block(sites: list[dict] | None, available: bool) -> dict:
-    if not available or sites is None:
-        return {
-            "available": False,
-            "resolved_ge50": {k: None for _, k in METRICS},
-            "resolved_ge20": {k: None for _, k in METRICS},
-            "breakends": None,
-            "large_events_gt10kb": None,
-        }
-    c50 = count_resolved(sites, "size_bin_ge50")
-    c20 = count_resolved(sites, "size_bin_ge20")
-    return {
-        "available": True,
-        "resolved_ge50": {sv: c50[sv] for _, sv in METRICS},
-        "resolved_ge20": {sv: c20[sv] for _, sv in METRICS},
-        "breakends": sum(1 for s in sites if s["source_vcf"] == "bnd"),
-        "large_events_gt10kb": sum(1 for s in sites if s["source_vcf"] == "large"),
-    }
+            for lab in labels:
+                c20_ctx[(s["svtype"], lab)] += 1
+    return _pack(c50, c20, c50_ctx, c20_ctx, n_bnd, n_large)
 
 
 def display_pair(ge50, ge20, available: bool) -> str:
     if not available or ge50 is None:
         return "—"
     return f"{ge50}; {ge20}"
+
+
+def pct_display(phase: dict, sv: str) -> str:
+    """Percent of ≥50 bp sites in each GIAB stratum (US/RM/SD/SR/CMRG)."""
+    if not phase["available"]:
+        return "—"
+    total = phase["resolved_ge50"][sv]
+    if not total:
+        return "—"
+    ctx = phase["context_ge50"][sv]
+    return " / ".join(f"{100.0 * ctx[k] / total:.1f}" for k in STRATA)
+
+
+def _resolved_row(metric: str, sv: str, p1: dict, p2: dict) -> dict:
+    return {
+        "metric": metric,
+        "phase1_display": display_pair(
+            p1["resolved_ge50"][sv], p1["resolved_ge20"][sv], p1["available"]
+        ),
+        "phase2_display": display_pair(
+            p2["resolved_ge50"][sv], p2["resolved_ge20"][sv], p2["available"]
+        ),
+        "phase1_ge50": p1["resolved_ge50"][sv],
+        "phase1_ge20": p1["resolved_ge20"][sv],
+        "phase2_ge50": p2["resolved_ge50"][sv],
+        "phase2_ge20": p2["resolved_ge20"][sv],
+    }
+
+
+def _context_row(metric: str, sv: str, stratum: str, p1: dict, p2: dict) -> dict:
+    return {
+        "metric": metric,
+        "phase1_display": display_pair(
+            p1["context_ge50"][sv][stratum],
+            p1["context_ge20"][sv][stratum],
+            p1["available"],
+        ),
+        "phase2_display": display_pair(
+            p2["context_ge50"][sv][stratum],
+            p2["context_ge20"][sv][stratum],
+            p2["available"],
+        ),
+        "phase1_ge50": p1["context_ge50"][sv][stratum],
+        "phase1_ge20": p1["context_ge20"][sv][stratum],
+        "phase2_ge50": p2["context_ge50"][sv][stratum],
+        "phase2_ge20": p2["context_ge20"][sv][stratum],
+    }
 
 
 def main() -> None:
@@ -100,33 +179,27 @@ def main() -> None:
     if not args.phase1_sites and not args.phase2_sites:
         raise SystemExit("Provide --phase1-sites and/or --phase2-sites")
 
-    empty = {
-        "available": False,
-        "resolved_ge50": {k: None for _, k in METRICS},
-        "resolved_ge20": {k: None for _, k in METRICS},
-        "breakends": None,
-        "large_events_gt10kb": None,
-    }
+    empty = empty_phase()
     p1 = count_phase(args.phase1_sites) if args.phase1_sites else empty
     p2 = count_phase(args.phase2_sites) if args.phase2_sites else empty
 
     rows = []
     for metric, sv in METRICS:
-        rows.append(
-            {
-                "metric": metric,
-                "phase1_display": display_pair(
-                    p1["resolved_ge50"][sv], p1["resolved_ge20"][sv], p1["available"]
-                ),
-                "phase2_display": display_pair(
-                    p2["resolved_ge50"][sv], p2["resolved_ge20"][sv], p2["available"]
-                ),
-                "phase1_ge50": p1["resolved_ge50"][sv],
-                "phase1_ge20": p1["resolved_ge20"][sv],
-                "phase2_ge50": p2["resolved_ge50"][sv],
-                "phase2_ge20": p2["resolved_ge20"][sv],
-            }
-        )
+        rows.append(_resolved_row(metric, sv, p1, p2))
+        if sv in CONTEXT_CLASSES:
+            for stratum in STRATA:
+                rows.append(_context_row(f"{metric}_{stratum}", sv, stratum, p1, p2))
+            rows.append(
+                {
+                    "metric": f"{metric}_context_pct",
+                    "phase1_display": pct_display(p1, sv),
+                    "phase2_display": pct_display(p2, sv),
+                    "phase1_ge50": None,
+                    "phase1_ge20": None,
+                    "phase2_ge50": None,
+                    "phase2_ge20": None,
+                }
+            )
 
     rows.append(
         {

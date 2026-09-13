@@ -1,0 +1,10 @@
+{
+  "BcftoolsGlnexusStats.chrom": "this.GL_INTERVAL_set_id",
+  "BcftoolsGlnexusStats.vcf": "this.VCF",
+  "BcftoolsGlnexusStats.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6",
+  "BcftoolsGlnexusStats.apply_filters": "PASS,.",
+  "BcftoolsGlnexusStats.cpu": 4,
+  "BcftoolsGlnexusStats.memory_gb": 8,
+  "BcftoolsGlnexusStats.preemptible": 1,
+  "BcftoolsGlnexusStats.bcftools_threads": 4
+}

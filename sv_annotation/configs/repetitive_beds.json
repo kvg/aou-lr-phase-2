@@ -21,5 +21,20 @@
       "required": true
     }
   ],
-  "notes": "Non-repetitive = complement of the union of these tracks. Stage with notebooks/terra/sv_01_stage_repeat_tracks.ipynb, then pin concrete URIs in phase input JSON."
+  "count_strata": {
+    "all": "parent class total",
+    "us": "complement of rmsk ∪ simpleRepeat ∪ genomicSuperDups",
+    "rm": "hit_rmsk",
+    "sd": "hit_genomicSuperDups",
+    "sr": "hit_simpleRepeat",
+    "cmrg": "GIAB CMRG v1.00 gene coordinates; not part of the repetitive union"
+  },
+  "cmrg": {
+    "name": "CMRG",
+    "description": "GIAB challenging medically relevant genes (v1.00 gene coordinates)",
+    "uri_example": "gs://BUCKET/refs/grch38/CMRG.bed.gz",
+    "source": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/CMRG_v1.00/GRCh38/SupplementaryFiles/GRCh38_CMRG_benchmark_gene_coordinates.bed",
+    "required": true
+  },
+  "notes": "Non-repetitive / US = complement of the union of the three UCSC tracks. Stage with notebooks/terra/sv_01_stage_repeat_tracks.ipynb, then pin concrete URIs in phase input JSON."
 }

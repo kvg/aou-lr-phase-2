@@ -5,6 +5,8 @@ All of Us / Terra. Consumes the published `lhu1/felix:latest` image (do not comp
 or fork FELIX). Shares cohort inputs with Tractor-Mix / SAIGE pilots under
 `tractor_mix_pilot/`.
 
+**Plans, status, and agent coordination:** see [`PLAN.md`](PLAN.md).
+
 ## Layout
 
 ```

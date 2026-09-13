@@ -20,8 +20,8 @@ has_trgt	trgt_table.txt	True if one or more TRGT VCFs are listed
 n_trgt_vcfs	trgt_table.txt	count of listed TRGT VCF paths
 population	pc.log.gz member name (+ control ancestry_pred_other; + lr_pop_population / kNN soft fills)	continental code for population-specific PCA (AFR/AMR/EAS/EUR/SAS/OTH/MID); HG/NA controls use ancestry_pred_other uppercased; ancestry kNN and rare joint-callset nits may fill from lr_PC inference or lr_pop_population (see reference_controls/COVARIATE_FILLS.md)
 lr_pop_population	population_pcs.tsv population	continental subset used for this sample's long-read within-pop PCA (lowercase afr/amr/eas/eur/sas/mid/oth); usually equals ancestry_pred_other
-ancestry_pred	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external six-class ancestry prediction; merged_all fills missing values only when person-level value is unique
-ancestry_pred_other	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external ancestry prediction that permits oth; merged_all fills missing values only when person-level value is unique
+ancestry_pred	anc_df.csv.gz (+ merged_all_df.csv.gz fill; + lr_PC hard kNN)	hard continental ancestry (afr/amr/eas/eur/sas/mid); never oth after fill_lr_ancestry Rule C; merged_all fills missing values only when person-level value is unique
+ancestry_pred_other	anc_df.csv.gz (+ merged_all_df.csv.gz fill; + lr_PC soft kNN)	external ancestry prediction that permits oth; merged_all fills missing values only when person-level value is unique
 has_ancestry_annotation	derived	True if either ancestry prediction is non-missing after source supplements
 is_reference_control	derived	True for HPRC/HGSVC3/GIAB reference controls with HG*/NA* sample IDs
 in_pedigree	aou_phase2.ped	True if person is represented in the user-maintained Phase 2 pedigree; Phase 1 has no pedigrees
@@ -29,6 +29,7 @@ pedigree_family_id	aou_phase2.ped ped	family identifier; no parental IDs are exp
 pedigree_is_founder	aou_phase2.ped father/mother	True when both parent IDs are 0
 pedigree_n_parents	aou_phase2.ped father/mother	number of nonzero parents recorded (0–2)
 pedigree_family_size	derived from aou_phase2.ped	number of people in the recorded pedigree family
+pedigree_n_generations	derived from aou_phase2.ped father/mother	number of generations in the recorded family (founders = generation 0); NA when not in the pedigree
 PC1	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC2	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC3	full.tsv.gz global full-training PCA	canonical PCs; match v3
@@ -174,15 +175,71 @@ pb_meth_caller	final_set PacBioMethylationCaller (+ Phase 1 fill)	phase_1-only f
 inferred_sex	final_set sex	
 coverage	final_set / Integratedcall-GRCh38.tsv (+ merged_all_df.csv.gz fill)	v9 technical coverage where available; Phase 1-only uses integratedcall aligned fold coverage; merged_all fills only missing values when person-level value is unique
 coverage_source	derived	v9_technical, integratedcall_phase1, or merged_all_df; NA when coverage is unavailable
-ont_coverage	ont-sample-hg38.tsv mosdepth_cov	separate ONT mosdepth coverage for curated Phase 1 ONT samples; never substitutes for coverage
+read_length_median	final_set RL median / Integratedcall-GRCh38.tsv aligned_read_length_median (+ merged_all_df.csv.gz fill)	v9 technical median read length where available (PacBio-prefer collapse, companion to coverage); Phase 1-only uses integratedcall aligned median read length; merged_all fills only missing values when person-level value is unique
+read_length_median_source	derived	v9_technical, integratedcall_phase1, or merged_all_df; NA when read_length_median is unavailable
+asm_len_hap1	final_set Hap1 asm. len.	PacBio haplotype-1 assembly length (bp) from the PacBio-prefer technical collapse; NA for ONT-only and Phase 1-only people
+asm_len_hap2	final_set Hap2 asm. len.	PacBio haplotype-2 assembly length (bp) from the PacBio-prefer technical collapse; NA for ONT-only and Phase 1-only people
+asm_len_diploid	derived Hap1+Hap2 asm. len.	diploid assembled bases (bp); Table 2 assembled bases (Gbp) is this / 1e9
+asm_aun_hap1	final_set Hap1 auN	PacBio haplotype-1 assembly auN (bp); area-under-NGx, not contig NG50 or phased-block NG50
+asm_aun_hap2	final_set Hap2 auN	PacBio haplotype-2 assembly auN (bp); area-under-NGx, not contig NG50 or phased-block NG50
+asm_aun_mean	derived mean of Hap1/Hap2 auN	mean haplotype assembly auN (bp)
+has_asm_metrics	derived	True when Hap1/Hap2 assembly length and auN are all present on the collapsed PacBio technical row
+phase1_asm_len_p_ctg	hifiasm_quast.tsv p_ctg Total_length	Phase 1 v7 hifiasm primary (p_ctg) assembly length (bp); does not replace asm_len_* for re-sequenced people
+phase1_asm_len_hap1	hifiasm_quast.tsv hap1 Total_length	Phase 1 v7 hifiasm haplotype-1 assembly length (bp)
+phase1_asm_len_hap2	hifiasm_quast.tsv hap2 Total_length	Phase 1 v7 hifiasm haplotype-2 assembly length (bp)
+phase1_asm_len_diploid	derived hap1+hap2 Total_length	Phase 1 diploid assembled bases (bp); Table 2 Phase 1 assembled bases (Gbp) is the median of this / 1e9
+phase1_asm_n_contigs_p_ctg	hifiasm_quast.tsv p_ctg #_contigs	Phase 1 v7 hifiasm primary contig count (QUAST default #_contigs)
+phase1_asm_n_contigs_hap1	hifiasm_quast.tsv hap1 #_contigs	Phase 1 v7 hifiasm haplotype-1 contig count
+phase1_asm_n_contigs_hap2	hifiasm_quast.tsv hap2 #_contigs	Phase 1 v7 hifiasm haplotype-2 contig count
+phase1_asm_n_contigs_diploid	derived hap1+hap2 #_contigs	Phase 1 diploid contig count (hap1 + hap2); Table 2 Phase 1 contig count is the median of this
+phase1_asm_n50_p_ctg	hifiasm_quast.tsv p_ctg N50	Phase 1 v7 hifiasm primary contig N50 (bp); QUAST N50, not NG50
+phase1_asm_n50_hap1	hifiasm_quast.tsv hap1 N50	Phase 1 v7 hifiasm haplotype-1 contig N50 (bp); QUAST N50, not NG50
+phase1_asm_n50_hap2	hifiasm_quast.tsv hap2 N50	Phase 1 v7 hifiasm haplotype-2 contig N50 (bp); QUAST N50, not NG50
+phase1_asm_n50_hap_mean	derived mean of hap1/hap2 N50	mean Phase 1 haplotype contig N50 (bp)
+phase1_asm_aun_p_ctg	hifiasm_quast.tsv p_ctg auN	Phase 1 v7 hifiasm primary auN (bp)
+phase1_asm_aun_hap1	hifiasm_quast.tsv hap1 auN	Phase 1 v7 hifiasm haplotype-1 auN (bp)
+phase1_asm_aun_hap2	hifiasm_quast.tsv hap2 auN	Phase 1 v7 hifiasm haplotype-2 auN (bp)
+phase1_asm_aun_mean	derived mean of hap1/hap2 auN	mean Phase 1 haplotype assembly auN (bp)
+has_phase1_asm_metrics	derived	True for the 1,027 Phase 1 people in hifiasm_quast.tsv (phase_1 and phase_1_phase_2)
+phase2_asm_len_p_ctg	phase2_quast.tsv p_ctg Total_length	Phase 2 hifiasm primary (p_ctg) assembly length (bp); report chosen by matching QUAST gc to covariates GC
+phase2_asm_len_hap1	phase2_quast.tsv hap1 Total_length	Phase 2 hifiasm haplotype-1 assembly length (bp)
+phase2_asm_len_hap2	phase2_quast.tsv hap2 Total_length	Phase 2 hifiasm haplotype-2 assembly length (bp)
+phase2_asm_len_diploid	derived hap1+hap2 Total_length	Phase 2 diploid assembled bases (bp); Table 2 assembled bases (Gbp) is the median of this / 1e9
+phase2_asm_n_contigs_p_ctg	phase2_quast.tsv p_ctg #_contigs	Phase 2 hifiasm primary contig count (QUAST default #_contigs)
+phase2_asm_n_contigs_hap1	phase2_quast.tsv hap1 #_contigs	Phase 2 hifiasm haplotype-1 contig count
+phase2_asm_n_contigs_hap2	phase2_quast.tsv hap2 #_contigs	Phase 2 hifiasm haplotype-2 contig count
+phase2_asm_n_contigs_diploid	derived hap1+hap2 #_contigs	Phase 2 diploid contig count (hap1 + hap2)
+phase2_asm_n50_p_ctg	phase2_quast.tsv p_ctg N50	Phase 2 hifiasm primary contig N50 (bp); QUAST N50, not NG50
+phase2_asm_n50_hap1	phase2_quast.tsv hap1 N50	Phase 2 hifiasm haplotype-1 contig N50 (bp)
+phase2_asm_n50_hap2	phase2_quast.tsv hap2 N50	Phase 2 hifiasm haplotype-2 contig N50 (bp)
+phase2_asm_n50_hap_mean	derived mean of hap1/hap2 N50	mean Phase 2 haplotype contig N50 (bp)
+phase2_asm_aun_p_ctg	phase2_quast.tsv p_ctg auN	Phase 2 hifiasm primary auN (bp)
+phase2_asm_aun_hap1	phase2_quast.tsv hap1 auN	Phase 2 hifiasm haplotype-1 auN (bp)
+phase2_asm_aun_hap2	phase2_quast.tsv hap2 auN	Phase 2 hifiasm haplotype-2 auN (bp)
+phase2_asm_aun_mean	derived mean of hap1/hap2 auN	mean Phase 2 haplotype assembly auN (bp); Table 2 mean haplotype auN (Mbp) is the median of this / 1e6
+has_phase2_asm_metrics	derived	True when a Phase 2 QUAST report matches covariates GC (PacBio discovery; 28 people with two reports keep the GC-matched one)
+ont_metrics_source	derived	ont_sample_hg38 or ont_v9_technical; NA when ont_coverage is unavailable
+ont_coverage	ont-sample-hg38.tsv mosdepth_cov / ONT_v9 coverage	separate ONT coverage; Phase 1 curated samples use mosdepth from ont-sample-hg38; remaining has_ONT people use CDRv9 ONT_v9 technical coverage; never substitutes for coverage
 ont_aligned_num_bases	ont-sample-hg38.tsv aligned_num_bases	curated Phase 1 ONT aligned bases
 ont_aligned_num_reads	ont-sample-hg38.tsv aligned_num_reads	curated Phase 1 ONT aligned reads
 ont_read_length_n50	ont-sample-hg38.tsv aligned_read_length_N50	curated Phase 1 ONT read-length N50
 ont_read_length_mean	ont-sample-hg38.tsv aligned_read_length_mean	curated Phase 1 ONT mean read length
-ont_read_length_median	ont-sample-hg38.tsv aligned_read_length_median	curated Phase 1 ONT median read length
+ont_read_length_median	ont-sample-hg38.tsv aligned_read_length_median / ONT_v9 RL median	ONT median read length from the Phase 1 ONT sheet or CDRv9 ONT_v9 technical sheet (see ont_metrics_source)
 ont_read_length_stdev	ont-sample-hg38.tsv aligned_read_length_stdev	curated Phase 1 ONT read-length standard deviation
 ont_average_identity	ont-sample-hg38.tsv average_identity	curated Phase 1 ONT average alignment identity (percent)
 ont_median_identity	ont-sample-hg38.tsv median_identity	curated Phase 1 ONT median alignment identity (percent)
+phase1_mosdepth_cov	auxiliary_metrics.GRCh38.tsv mosdepth_cov	Phase 1 PacBio GRCh38 mosdepth coverage; does not replace coverage (Phase 1-only coverage remains Integratedcall aligned_est_fold_cov)
+phase1_aligned_num_bases	auxiliary_metrics.GRCh38.tsv aligned_num_bases	Phase 1 PacBio GRCh38 aligned bases
+phase1_aligned_num_reads	auxiliary_metrics.GRCh38.tsv aligned_num_reads	Phase 1 PacBio GRCh38 aligned reads
+phase1_read_length_n50	auxiliary_metrics.GRCh38.tsv aligned_read_length_N50	Phase 1 PacBio GRCh38 aligned read-length N50
+phase1_read_length_mean	auxiliary_metrics.GRCh38.tsv aligned_read_length_mean	Phase 1 PacBio GRCh38 mean aligned read length
+phase1_read_length_stdev	auxiliary_metrics.GRCh38.tsv aligned_read_length_stdev	Phase 1 PacBio GRCh38 aligned read-length standard deviation
+phase1_average_identity	auxiliary_metrics.GRCh38.tsv average_identity	Phase 1 PacBio GRCh38 average alignment identity (percent)
+phase1_median_identity	auxiliary_metrics.GRCh38.tsv median_identity	Phase 1 PacBio GRCh38 median alignment identity (percent)
+phase1_n_snv_pass	auxiliary_metrics.GRCh38.tsv dvp_ft_pass_snp_cnt	Phase 1 DeepVariant FILTER=PASS SNV count from the integrated-call run
+phase1_n_sv_pbsv	auxiliary_metrics.GRCh38.tsv pbsv_nonBND_50bpSV_cnt	Phase 1 PBSV non-BND SV count ≥50 bp; not the same as n_sv_del/n_sv_ins
+phase1_n_sv_sniffles	auxiliary_metrics.GRCh38.tsv snf2_nonBND_50bpSV_cnt	Phase 1 Sniffles2 non-BND SV count ≥50 bp; not the same as n_sv_del/n_sv_ins
+has_phase1_aux_metrics	derived	True for the 1,027 Phase 1 people in auxiliary_metrics.GRCh38.tsv (phase_1 and phase_1_phase_2)
 has_sv_counts	counts.tar.gz	True if a Phase 2 caller-specific SV-count record is available after center-matched duplicate resolution
 n_sv_del	derived from counts.tar.gz / sv_sens_07_counts.json	Phase 2: max deletion count across PAV/PBSV/Sniffles ≥50 bp; Phase 1: sens07 DEL; Phase 2 value takes precedence for re-sequenced people
 n_sv_ins	derived from counts.tar.gz / sv_sens_07_counts.json	Phase 2: max insertion count across PAV/PBSV/Sniffles ≥50 bp; Phase 1: sens07 INS; Phase 2 value takes precedence for re-sequenced people

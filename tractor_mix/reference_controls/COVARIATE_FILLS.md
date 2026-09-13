@@ -17,7 +17,7 @@ Final table size after fills: **17,519** rows (17,226 AoU + **293** controls),
 
 | Column | Meaning |
 | --- | --- |
-| `ancestry_pred` / `ancestry_pred_other` | Predicted continental ancestry (lowercase). `ancestry_pred_other` allows `oth`. |
+| `ancestry_pred` / `ancestry_pred_other` | Predicted continental ancestry (lowercase). Hard `ancestry_pred` is `afr`/`amr`/`eas`/`eur`/`sas`/`mid` (never `oth` after Rule C). `ancestry_pred_other` allows `oth`. |
 | `population` | Continental membership for **short-read** within-pop PCA training (uppercase `AFR`/`AMR`/…). |
 | `lr_pop_population` | Subset used for **long-read** within-pop PCA (lowercase; equals `ancestry_pred_other` for the joint callset). |
 | `lr_PC*` / `has_lr_pcs` | Global long-read PCs from the DeepVariant joint callset. |
@@ -87,18 +87,28 @@ Fine-grained codes (when known) stay in metadata column `population_code` only.
 
 **Notebook:** `notebooks/terra/tractor_06_fill_lr_ancestry.ipynb`  
 **CLI:** `scripts/fill_lr_ancestry_from_pcs.py`  
-**Audit:** `lr_ancestry_knn_fills.tsv` (**80** applied fills)
+**Audit:** `lr_ancestry_knn_fills.tsv` (**91** applied fills: 80 historical + 11 hard-pred remediations)
 
 Only runs on long-read-flagged rows. Never overwrites existing non-missing
-`ancestry_pred` / `ancestry_pred_other` / `population`.
+hard `ancestry_pred`, non-missing `ancestry_pred_other`, or `population`, except
+Rule C which remediates soft `ancestry_pred=oth` → a hard continental label.
+
+**Hard vs soft:** `ancestry_pred` is the hard six-class call
+(`afr`/`amr`/`eas`/`eur`/`sas`/`mid`) and must **not** be `oth`.
+`ancestry_pred_other` (and continental `population`) may still be `oth`/`OTH`.
+FLARE population splits that want no OTH shard should use `ancestry_pred`
+(uppercased), not `population`.
 
 ### Rule A — copy from continental `population` (58 fills)
 
 If ancestry is missing but `population` is present:
 
-- `ancestry_pred` ← `population.lower()`
-- `ancestry_pred_other` ← same
+- `ancestry_pred_other` ← `population.lower()` (including `oth`)
+- `ancestry_pred` ← same **only** when the label is hard (not `oth`)
 - `has_ancestry_annotation` ← `True`
+
+`population=OTH` therefore fills soft other only; hard `ancestry_pred` comes
+from Rule B/C.
 
 Audit `method`: `from_population`.
 
@@ -106,30 +116,65 @@ Audit `method`: `from_population`.
 
 If **both** ancestry and `population` are missing **and** `has_lr_pcs`:
 
-1. **Reference set:** all `has_lr_pcs` samples with non-missing `ancestry_pred_other`.
-2. **Features:** `lr_PC1`–`lr_PC10`, z-scored using the reference mean/SD.
-3. **Centroid vote:** Euclidean distance to each ancestry-label centroid; nearest
-   label = `centroid`. Margin = distance to 2nd-nearest − nearest.
-4. **kNN vote:** k = **15** nearest reference neighbors; majority label =
-   `suggested`. Fraction = majority count / 15.
-5. **High confidence** if centroid and kNN labels **agree** and
-   (`knn15_frac` ≥ **0.8** **or** `centroid_margin` ≥ **0.5**).
-6. **Applied label:** kNN majority (`suggested`). Also writes
-   `population` ← `suggested.upper()` when population was missing.
-7. Default run fills low-confidence calls too (`fill_low_confidence=True`;
-   CLI omits `--high-confidence-only`). Of the 22 kNN fills, **17** were
-   high-confidence and **5** lower-confidence (still applied; see audit
-   `high_confidence` column).
+1. **Soft reference set:** `has_lr_pcs` samples with non-missing
+   `ancestry_pred_other` (may include `oth`) → vote for
+   `ancestry_pred_other` / `population`.
+2. **Hard reference set:** `has_lr_pcs` samples with a hard continental label
+   on `ancestry_pred` (else hard `ancestry_pred_other`) → vote for
+   `ancestry_pred` (never `oth`).
+3. **Features:** `lr_PC1`–`lr_PC10`, z-scored using each reference mean/SD.
+4. **Centroid + kNN (k=15)** as before; high confidence if centroid and kNN
+   **agree** and (`knn15_frac` ≥ **0.8** **or** `centroid_margin` ≥ **0.5**).
+   Gate on the **hard** vote.
+5. Writes `ancestry_pred` ← hard kNN majority; `ancestry_pred_other` ← soft
+   kNN majority; `population` ← soft label uppercased when population was
+   missing.
+6. Default run fills low-confidence calls too (`fill_low_confidence=True`).
 
 Audit `method`: `lr_pc_knn`.
+
+### Rule C — hard `ancestry_pred` remediation (11 fills)
+
+If AoU (non-control) `has_lr_pcs` and `ancestry_pred` is missing or `oth`:
+
+- Re-infer a **hard** label from hard-labeled neighbors (same kNN/centroid
+  rules as Rule B hard vote).
+- Overwrites `ancestry_pred` only; leaves `ancestry_pred_other` and
+  `population` unchanged (often still `oth`/`OTH`).
+- Skips curated reference controls (e.g. HG002 may remain `oth`).
+
+Applied 2026-09-08 to **11** AoU rows that earlier Rule A/B incorrectly wrote
+`oth` into both ancestry columns (9× `from_population` from `population=OTH`,
+2× `lr_pc_knn` with soft majority `oth`). Labels after remediation:
+
+| research_id | hard `ancestry_pred` | high_confidence |
+| --- | --- | --- |
+| 1179960 | eur | False |
+| 1286158 | afr | True |
+| 1308393 | afr | True |
+| 1340678 | amr | False |
+| 1360567 | eur | True |
+| 1490799 | eur | True |
+| 1865868 | eur | True |
+| 1958378 | eur | True |
+| 2691108 | amr | True |
+| 2911678 | afr | True |
+| 7959375 | sas | False |
+
+Audit `method`: `lr_pc_knn_hard_pred`. Re-runs merge into the existing audit
+TSV (replace prior Rule C rows for the same IDs) unless `--replace-audit`.
 
 ### Result
 
 - `has_lr_pcs` missing ancestry: **0**
+- `has_lr_pcs` AoU with `ancestry_pred` missing/`oth`: **0**
 - `final_releasable_v9` missing ancestry: **0**
 - ~130 leftover “LR” ancestry gaps remain only among samples flagged via
   `lr_meet_qc` / `lr_phase` but **without** genotypes or `lr_PC*` (mostly
   withdrawn). Not filled; not used in joint-callset PCA/association.
+- MID remains a valid hard `ancestry_pred` label. FLARE keeps MID shards with
+  `allow_unrepresented_pops=true` for now (no MID panel ancestry); a dedicated
+  panel or remap may replace that later.
 
 ---
 
@@ -196,7 +241,7 @@ After this step: joint callset missing `population` = **0**, missing
 | Path | Role |
 | --- | --- |
 | `control_sample_metadata.tsv` | Control ancestry/sex/SV provenance |
-| `lr_ancestry_knn_fills.tsv` | Ancestry Rule A/B audit (80 rows) |
+| `lr_ancestry_knn_fills.tsv` | Ancestry Rule A/B/C audit (91 rows) |
 | `lr_soft_field_fills.tsv` | Soft `population` / `sex_at_birth` audit (4 rows); replay via `scripts/apply_lr_soft_field_fills.py` |
 | `../pca/deepvariant_lr_v1/global_pcs.tsv` | Global LR PC source |
 | `../pca/deepvariant_lr_v1/population_pcs.tsv` | Within-pop LR PC source |

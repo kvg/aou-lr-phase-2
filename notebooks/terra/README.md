@@ -1,18 +1,41 @@
 # Terra notebooks
 
+Reviewer-facing map (manuscript tables, run order, env vars):
+[`../../README.md`](../../README.md).
+
 Terra analysis notebooks live here. Companion CLIs live in [`../../scripts/`](../../scripts/).
 
-Upload the contents of `notebooks/terra/` and `scripts/` into the Terra workspace as siblings. Jupyter’s working directory can be either the workspace root or the notebooks folder.
+## Start here on Terra: sync from GitHub
+
+AoU Research Program workspaces are not reachable with laptop `gsutil`. Run
+everything from a Terra Workbench notebook (pmi-ops browser login).
+
+1. **Once:** upload [`00_sync_repo.ipynb`](00_sync_repo.ipynb) into the workspace
+   (or paste its cells).
+2. Run all cells (repo is public HTTPS — no token). That will:
+   - `git clone` / `git pull` the repo on the VM
+   - `gsutil rsync` `scripts/` → `$WORKSPACE_BUCKET/scripts/`
+   - copy `notebooks/terra/*.ipynb` onto the persistent disk (+ bucket mirror)
+   - stage WDLs under `$WORKSPACE_BUCKET/wdl/`
+   - upsert `flare_lai_exp` (and other configured tables) via FISS
+3. Re-run `00_sync_repo` whenever you need the latest `main` on Terra.
+
+Helper CLI (same VM): [`../../scripts/terra_sync_repo.py`](../../scripts/terra_sync_repo.py).
 
 ## Script bootstrap on Terra
 
-On a Terra notebook VM, pipeline CLIs usually live only at `$WORKSPACE_BUCKET/scripts/`. Each notebook’s first code cell calls `terra_notebook.init_notebook(...)` to:
+On a Terra notebook VM, pipeline CLIs live at `$WORKSPACE_BUCKET/scripts/`. Persistent `edit/scripts/` copies are often stale and must not win. Each notebook’s first code cell:
 
-1. Use a local sibling `scripts/` directory when present (git checkout or prior sync).
-2. Otherwise `gsutil rsync` the full `$WORKSPACE_BUCKET/scripts/` prefix into `./scripts/`.
-3. Verify required files exist (fetching individual missing objects if needed).
+1. `gsutil -m rsync` `$WORKSPACE_BUCKET/scripts/` into `./scripts/` when `WORKSPACE_BUCKET` is set (`TERRA_SYNC_SCRIPTS=false` skips this).
+2. Drops cached `sys.modules` entries from that directory so a kernel re-run sees the new files.
+3. Calls `terra_notebook.init_notebook(...)` and verifies required CLIs.
 
-Upload `scripts/terra_notebook.py` and `scripts/workspace_paths.py` with the rest of `scripts/` before running notebooks on Terra.
+Prefer **`00_sync_repo`** over laptop staging. If you already have a clone on the
+VM, you can still run:
+
+```bash
+python3 aou-lr-phase-2/scripts/terra_sync_repo.py --ref main
+```
 
 Tractor-Mix (run in this order):
 
@@ -34,6 +57,18 @@ their outputs already exist under the same `PCA_RUN_LABEL`. Use `PCA_FORCE_REIMP
 `PCA_FORCE_GLOBAL_PCA`, or `PCA_FORCE_WITHIN_POPULATION` to rerun a stage. See each
 notebook’s intro for details.
 
+SNV / indel callset stats:
+
+| Notebook | Use |
+|---|---|
+| `snv_00_merge_glnexus_stats.ipynb` | Fetch `GL_INTERVAL_set.stats`, merge Table 2 SNV/indel counts |
+
+Methylation maps:
+
+| Notebook | Use |
+|---|---|
+| `meth_00_merge_pbcpg_stats.ipynb` | Firecloud-fetch `aou2_v1_phased_bams` from the storage workspace, pull `stats_tsv`, merge, optional concordance |
+
 SV annotation (run in this order):
 
 | Notebook | Use |
@@ -47,9 +82,18 @@ FLARE annotation QC:
 
 | Notebook | Use |
 |---|---|
-| `flare_01_switch_gq_dp.ipynb` | Ancestry-switch sites vs `GQ`/`DP` (after `PropagateAnnotations.wdl`) |
+| `00_sync_repo.ipynb` | **Start here:** clone/pull repo on the Terra VM; stage scripts, notebooks, WDLs; upsert tables via FISS |
+| `flare_01_switch_gq_dp.ipynb` | Ancestry-switch GQ/DP QC, plus old vs new FLARE switch rates / tract lengths |
+| `flare_02_lai_exp_compare.ipynb` | Firecloud-fetch `flare_lai_exp` method grid; switch-QC finished rows as they complete |
+| `flare_03_stage_site_filters.ipynb` | Stage Part 4 context mask + Part 7 call-QC `include_sites` (+ optional concordance) |
 
-WDLs stay in `tractor_mix/wdl/`, `felix/wdl/`, `sv_annotation/wdl/`, and `propagate_annotations/wdl/`.
+Per-population FLARE (own T per `population`): `flare/wdl/FlareByPopulation.wdl`. See `flare/README.md`.
+Copy covering FLARE `AN1`/`AN2` onto interstitial sites of a phased target VCF:
+`propagate_annotations/wdl/PropagateFlareAncestry.wdl`.
+
+WDLs stay in `tractor_mix/wdl/`, `felix/wdl/`, `sv_annotation/wdl/`,
+`propagate_annotations/wdl/`, `snv_stats/wdl/`, `methylation_stats/wdl/`,
+and `flare/wdl/`.
 
 FELIX workflows (`felix/wdl/FelixPilot.wdl`, `FelixGenome.wdl`) use the
 `felix-pilot:0.1.0` image. Stage FELIX scripts with `./scripts/stage_felix_scripts.sh`
