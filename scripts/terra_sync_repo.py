@@ -144,7 +144,11 @@ def ensure_repo(
     github_token: Optional[str] = None,
     dry_run: bool = False,
 ) -> Path:
-    """Clone or fetch+checkout ``ref`` into ``dest``. Returns repo root."""
+    """Clone or fetch+hard-reset ``ref`` into ``dest``. Returns repo root.
+
+    The clone is a disposable mirror of GitHub. Local edits (e.g. Jupyter
+    autosave inside ``CLONE_DIR``) are discarded on every sync.
+    """
     dest = dest.expanduser().resolve()
     token = github_token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     auth_url = _auth_repo_url(repo_url, token)
@@ -156,17 +160,18 @@ def ensure_repo(
     if (dest / ".git").is_dir():
         run(["git", "remote", "set-url", "origin", auth_url], cwd=dest, check=False)
         run(["git", "fetch", "--tags", "--force", "origin"], cwd=dest)
-        # Prefer origin/ref, then tag/sha
         rc = run(
             ["git", "rev-parse", "--verify", f"origin/{ref}"],
             cwd=dest,
             check=False,
         )
+        target = f"origin/{ref}" if rc.returncode == 0 else ref
+        # Discard dirty Jupyter autosaves / prior notebook copies in the mirror.
+        run(["git", "reset", "--hard", target], cwd=dest)
+        run(["git", "clean", "-fd"], cwd=dest)
+        # Ensure branch name tracks ref when target is origin/ref
         if rc.returncode == 0:
-            run(["git", "checkout", "-B", ref, f"origin/{ref}"], cwd=dest)
-        else:
-            run(["git", "checkout", "--detach", ref], cwd=dest)
-            run(["git", "reset", "--hard", ref], cwd=dest)
+            run(["git", "checkout", "-B", ref, target], cwd=dest, check=False)
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists() and any(dest.iterdir()):
@@ -190,6 +195,7 @@ def ensure_repo(
             # branch might be a SHA; clone default then checkout
             run(["git", "clone", auth_url, str(dest)])
             run(["git", "checkout", "--detach", ref], cwd=dest)
+            run(["git", "reset", "--hard", ref], cwd=dest)
 
     # Avoid leaking token into later `git remote -v` in shared logs when possible
     if token and repo_url.startswith("https://"):
@@ -261,12 +267,30 @@ def stage_notebooks(
     mirror_to_bucket: bool = True,
     dry_run: bool = False,
 ) -> tuple[list[str], str]:
-    """Copy notebooks/terra/*.ipynb to disk and ``$WORKSPACE_BUCKET/notebooks/``."""
+    """Copy notebooks/terra/*.ipynb to disk and ``$WORKSPACE_BUCKET/notebooks/``.
+
+    Never writes into ``repo/notebooks/`` (that would dirty the disposable clone).
+    """
     src_dir = repo / "notebooks" / "terra"
     if not src_dir.is_dir():
         raise SystemExit(f"missing {src_dir}")
     local_dest = local_dest.expanduser().resolve()
+    repo_resolved = repo.expanduser().resolve()
     copied: list[str] = []
+
+    # If NOTEBOOK_DEST is inside the clone, stage beside the clone instead.
+    try:
+        local_dest.relative_to(repo_resolved)
+        alt = repo_resolved.parent / "notebooks"
+        print(
+            f"NOTEBOOK_DEST {local_dest} is inside clone {repo_resolved}; "
+            f"using {alt} instead to keep the git mirror clean",
+            file=sys.stderr,
+        )
+        local_dest = alt
+    except ValueError:
+        pass
+
     if dry_run:
         print(f"[dry-run] copy {src_dir}/*.ipynb → {local_dest}/")
     else:
