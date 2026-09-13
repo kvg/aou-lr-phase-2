@@ -72,6 +72,10 @@ class SyncReport:
     notebooks_dest: str = ""
     notebooks_copied: list[str] = field(default_factory=list)
     wdls_staged: list[str] = field(default_factory=list)
+    wdls_changed: list[str] = field(default_factory=list)
+    wdls_unchanged: list[str] = field(default_factory=list)
+    wdls_new: list[str] = field(default_factory=list)
+    wdls_manual_import: list[str] = field(default_factory=list)
     methods_updated: list[str] = field(default_factory=list)
     configs_bumped: list[str] = field(default_factory=list)
     tables_upserted: list[str] = field(default_factory=list)
@@ -333,30 +337,135 @@ def stage_notebooks(
     return copied, notebooks_gcs
 
 
+def _md5_local(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.md5()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _md5_gcs(uri: str) -> Optional[str]:
+    """Return hex MD5 of a GCS object, or None if missing / unavailable."""
+    proc = subprocess.run(
+        ["gsutil", "hash", "-m", "-h", uri],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        return None
+    # gsutil hash -h prints "Hash (md5):\t<base64 or hex depending on version>"
+    # Prefer parsing md5 line; fall back to gsutil ls -L Hash (md5)
+    for line in (proc.stdout or "").splitlines():
+        if "md5" in line.lower():
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                val = parts[1].strip()
+                # Some gsutil builds print base64; decode to hex when needed
+                if re.fullmatch(r"[0-9a-fA-F]{32}", val):
+                    return val.lower()
+                try:
+                    import base64
+
+                    raw = base64.b64decode(val)
+                    if len(raw) == 16:
+                        return raw.hex()
+                except Exception:  # noqa: BLE001
+                    continue
+    proc2 = subprocess.run(
+        ["gsutil", "ls", "-L", uri],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if proc2.returncode != 0:
+        return None
+    for line in (proc2.stdout or "").splitlines():
+        if "Hash (md5)" in line or "md5=" in line.lower():
+            # e.g. "        Hash (md5):           abc=..."
+            m = re.search(r"md5\)?:\s*(\S+)", line, re.I)
+            if not m:
+                m = re.search(r"md5=([^\s,]+)", line, re.I)
+            if not m:
+                continue
+            val = m.group(1).strip().rstrip(",")
+            if re.fullmatch(r"[0-9a-fA-F]{32}", val):
+                return val.lower()
+            try:
+                import base64
+
+                raw = base64.b64decode(val)
+                if len(raw) == 16:
+                    return raw.hex()
+            except Exception:  # noqa: BLE001
+                continue
+    return None
+
+
 def stage_wdls(
     repo: Path,
     *,
     bucket: Optional[str] = None,
     wdl_paths: Sequence[str] = DEFAULT_WDLS,
     dry_run: bool = False,
-) -> list[str]:
-    """Upload selected WDLs to $WORKSPACE_BUCKET/wdl/<same relative path>."""
+) -> dict[str, list[str]]:
+    """Upload selected WDLs; return staged/changed/new/unchanged/manual_import lists.
+
+    ``wdls_manual_import`` is the GCS URIs (or repo-relative paths) that differ
+    from the previous bucket copy — these need a Terra Workflows UI refresh when
+    Methods-repo Create is unavailable.
+    """
     bucket = (bucket or workspace_bucket()).rstrip("/")
     if not bucket:
         raise SystemExit("WORKSPACE_BUCKET is unset; cannot stage WDLs")
     staged: list[str] = []
+    changed: list[str] = []
+    new: list[str] = []
+    unchanged: list[str] = []
+    manual: list[str] = []
     for rel in wdl_paths:
         src = repo / rel
         if not src.is_file():
             print(f"skip missing WDL: {rel}", file=sys.stderr)
             continue
         dest = f"{bucket}/wdl/{rel}"
-        if dry_run:
-            print(f"[dry-run] gsutil cp {src} {dest}")
+        local_md5 = _md5_local(src)
+        remote_md5 = None if dry_run else _md5_gcs(dest)
+        status: str
+        if remote_md5 is None:
+            status = "new"
+        elif remote_md5 == local_md5:
+            status = "unchanged"
         else:
-            run(["gsutil", "cp", str(src), dest])
+            status = "changed"
+
+        if dry_run:
+            print(f"[dry-run] gsutil cp {src} {dest}  ({status})")
+        else:
+            if status != "unchanged":
+                run(["gsutil", "cp", str(src), dest])
+            else:
+                print(f"unchanged (skip upload): {rel}", file=sys.stderr)
+
         staged.append(rel)
-    return staged
+        if status == "new":
+            new.append(rel)
+            manual.append(dest)
+        elif status == "changed":
+            changed.append(rel)
+            manual.append(dest)
+        else:
+            unchanged.append(rel)
+    return {
+        "staged": staged,
+        "changed": changed,
+        "new": new,
+        "unchanged": unchanged,
+        "manual_import": manual,
+    }
 
 
 def _firecloud_api() -> Any:
@@ -749,7 +858,12 @@ def sync_all(
         report.notebooks_dest = gcs
 
     if stage_wdls_flag:
-        report.wdls_staged = stage_wdls(repo, dry_run=dry_run)
+        wdl_info = stage_wdls(repo, dry_run=dry_run)
+        report.wdls_staged = wdl_info["staged"]
+        report.wdls_changed = wdl_info["changed"]
+        report.wdls_new = wdl_info["new"]
+        report.wdls_unchanged = wdl_info["unchanged"]
+        report.wdls_manual_import = wdl_info["manual_import"]
 
     if upsert_tables:
         try:
@@ -827,16 +941,15 @@ def sync_all(
             except Exception as exc:  # noqa: BLE001
                 report.warnings.append(f"config bump failed: {exc}")
 
-    if report.wdls_staged and not report.methods_updated:
-        bucket = workspace_bucket()
-        flare_wdl = (
-            f"{bucket}/wdl/flare/wdl/FlareByPopulation.wdl" if bucket else "$WORKSPACE_BUCKET/wdl/flare/wdl/FlareByPopulation.wdl"
-        )
+    if report.wdls_manual_import and not report.methods_updated:
+        lines = "\n".join(f"  - {u}" for u in report.wdls_manual_import)
         report.warnings.append(
-            "No Methods-repo snapshot was created (often expected on AoU: billing "
-            "project namespace is not writable). WDLs are staged under "
-            f"$WORKSPACE_BUCKET/wdl/. To refresh FlareByPopulation: Terra → "
-            f"Workflows → import/replace from {flare_wdl}"
+            "Manual Terra Workflows import needed for updated/new WDLs "
+            "(Methods-repo Create usually 403 on AoU):\n" + lines
+        )
+    elif report.wdls_staged and not report.methods_updated and not report.wdls_manual_import:
+        report.warnings.append(
+            "All staged WDLs match the bucket copies — no Workflows UI re-import needed."
         )
 
     if submit_flare:
