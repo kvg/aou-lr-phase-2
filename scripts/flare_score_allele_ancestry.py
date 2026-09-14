@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -145,10 +146,13 @@ def score_haplotype(
     return ll, br, True
 
 
-def bcftools_query(args: list[str]) -> Iterable[str]:
-    cmd = ["bcftools", "query", *args]
+def bcftools_query(args: list[str], *, threads: int = 0) -> Iterable[str]:
+    cmd = ["bcftools", "query"]
+    if threads > 0:
+        cmd.extend(["--threads", str(threads)])
+    cmd.extend(args)
     print("+", " ".join(cmd), file=sys.stderr)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
     assert proc.stdout is not None
     for line in proc.stdout:
         yield line
@@ -157,20 +161,32 @@ def bcftools_query(args: list[str]) -> Iterable[str]:
         raise SystemExit(f"bcftools query failed ({rc}): {' '.join(cmd)}")
 
 
+def _parse_an_row(vals: list[str], n_samp: int) -> Optional[list[tuple[Optional[int], Optional[int]]]]:
+    if n_samp and len(vals) != 2 * n_samp:
+        return None
+    row: list[tuple[Optional[int], Optional[int]]] = []
+    for i in range(0, len(vals), 2):
+        row.append((parse_an(vals[i]), parse_an(vals[i + 1])))
+    return row
+
+
 def load_anc_sites(
     anc_vcf: str,
     samples: list[str],
     *,
     region: str = "",
+    threads: int = 0,
 ) -> tuple[list[int], list[list[tuple[Optional[int], Optional[int]]]]]:
-    """Return (positions, per_site list of (AN1, AN2) per sample index)."""
-    sample_arg: list[str] = []
-    tmp: Optional[Path] = None
-    if samples:
-        tmp = Path(anc_vcf + ".score_samples.txt")
-        # Prefer stdin-less file next to out; use NamedTemp via /tmp
-        import tempfile
+    """Return (positions, per_site list of (AN1, AN2) per sample index).
 
+    Prefer :func:`load_anc_covering_for_panel` for scoring — this loads *all*
+    LAI sites and is much heavier on full chromosomes.
+    """
+    import tempfile
+
+    tmp: Optional[Path] = None
+    sample_arg: list[str] = []
+    if samples:
         tf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".samples.txt")
         tf.write("\n".join(samples) + "\n")
         tf.close()
@@ -183,22 +199,92 @@ def load_anc_sites(
     positions: list[int] = []
     ancs: list[list[tuple[Optional[int], Optional[int]]]] = []
     n_samp = len(samples)
-    for line in bcftools_query(cmd):
-        parts = line.rstrip("\n").split("\t")
-        if not parts:
-            continue
-        pos = int(parts[0])
-        vals = parts[1:]
-        if n_samp and len(vals) != 2 * n_samp:
-            continue
-        row: list[tuple[Optional[int], Optional[int]]] = []
-        for i in range(0, len(vals), 2):
-            row.append((parse_an(vals[i]), parse_an(vals[i + 1])))
-        positions.append(pos)
-        ancs.append(row)
-    if tmp is not None:
-        tmp.unlink(missing_ok=True)
+    try:
+        for line in bcftools_query(cmd, threads=threads):
+            parts = line.rstrip("\n").split("\t")
+            if not parts:
+                continue
+            pos = int(parts[0])
+            row = _parse_an_row(parts[1:], n_samp)
+            if row is None:
+                continue
+            positions.append(pos)
+            ancs.append(row)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
     return positions, ancs
+
+
+def load_anc_covering_for_panel(
+    anc_vcf: str,
+    samples: list[str],
+    panel_positions: Sequence[int],
+    *,
+    region: str = "",
+    threads: int = 0,
+) -> tuple[dict[int, list[tuple[Optional[int], Optional[int]]]], dict[int, int], int]:
+    """Stream LAI once; keep covering AN only at panel positions.
+
+    Covering = first LAI POS >= panel POS (else last LAI on contig). Returns
+    ``(anc_by_panel_pos, lai_pos_by_panel_pos, n_lai_sites_scanned)``.
+    """
+    import tempfile
+
+    wanted = sorted({int(p) for p in panel_positions})
+    if not wanted:
+        return {}, {}, 0
+
+    tmp: Optional[Path] = None
+    sample_arg: list[str] = []
+    if samples:
+        tf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".samples.txt")
+        tf.write("\n".join(samples) + "\n")
+        tf.close()
+        tmp = Path(tf.name)
+        sample_arg = ["-S", str(tmp)]
+    cmd = [*sample_arg, "-f", r"%POS[\t%AN1\t%AN2]\n"]
+    if region.strip():
+        cmd.extend(["-r", region.strip()])
+    cmd.append(anc_vcf)
+
+    n_samp = len(samples)
+    anc_by_pos: dict[int, list[tuple[Optional[int], Optional[int]]]] = {}
+    lai_pos_by_panel: dict[int, int] = {}
+    pi = 0
+    n_lai = 0
+    last_row: Optional[list[tuple[Optional[int], Optional[int]]]] = None
+    last_pos: Optional[int] = None
+    try:
+        for line in bcftools_query(cmd, threads=threads):
+            parts = line.rstrip("\n").split("\t")
+            if not parts:
+                continue
+            pos = int(parts[0])
+            row = _parse_an_row(parts[1:], n_samp)
+            if row is None:
+                continue
+            n_lai += 1
+            last_row, last_pos = row, pos
+            while pi < len(wanted) and wanted[pi] <= pos:
+                ppos = wanted[pi]
+                anc_by_pos[ppos] = row
+                lai_pos_by_panel[ppos] = pos
+                pi += 1
+            if pi >= len(wanted):
+                # Still drain? Can break early — remaining LAI not needed.
+                break
+        # Panel sites past the last LAI site → FELIX "else last"
+        if last_row is not None and last_pos is not None and pi < len(wanted):
+            while pi < len(wanted):
+                ppos = wanted[pi]
+                anc_by_pos[ppos] = last_row
+                lai_pos_by_panel[ppos] = last_pos
+                pi += 1
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+    return anc_by_pos, lai_pos_by_panel, n_lai
 
 
 def load_gt_alleles_at_panel(
@@ -207,6 +293,7 @@ def load_gt_alleles_at_panel(
     panel: list[dict[str, Any]],
     *,
     region: str = "",
+    threads: int = 0,
 ) -> dict[tuple[str, int], list[Optional[tuple[int, int]]]]:
     """Map (chrom,pos) -> per-sample (a1,a2) or None if missing / allele mismatch."""
     if not panel:
@@ -219,7 +306,8 @@ def load_gt_alleles_at_panel(
         s_path = sf.name
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".regions.txt") as rf:
         for m in panel:
-            rf.write(f"{m['chrom']}\t{m['pos']}\n")
+            # chrom, start, end (1-based inclusive) — portable for bcftools -R
+            rf.write(f"{m['chrom']}\t{m['pos']}\t{m['pos']}\n")
         r_path = rf.name
 
     want = {(m["chrom"], m["pos"], m["ref"], m["alt"]) for m in panel}
@@ -239,7 +327,7 @@ def load_gt_alleles_at_panel(
         cmd.extend(["-r", region.strip()])
     cmd.append(gt_vcf)
     try:
-        for line in bcftools_query(cmd):
+        for line in bcftools_query(cmd, threads=threads):
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 4 + len(samples):
                 continue
@@ -266,10 +354,11 @@ def load_gt_alleles_at_panel(
 def score_recipe(
     *,
     panel: list[dict[str, Any]],
-    lai_positions: Sequence[int],
-    lai_ancs: Sequence[Sequence[tuple[Optional[int], Optional[int]]]],
+    anc_by_panel_pos: dict[int, list[tuple[Optional[int], Optional[int]]]],
+    lai_pos_by_panel: dict[int, int],
     gt_by_pos: dict[tuple[str, int], list[Optional[tuple[int, int]]]],
     n_samples: int,
+    n_lai_markers: int,
 ) -> dict[str, Any]:
     sum_ll = 0.0
     sum_brier = 0.0
@@ -285,12 +374,12 @@ def score_recipe(
         if not gts:
             markers_missing_gt += 1
             continue
-        idx = covering_index(lai_positions, m["pos"])
-        if idx is None:
+        site_anc = anc_by_panel_pos.get(m["pos"])
+        if site_anc is None:
             markers_missing_lai += 1
             continue
-        exact = lai_positions[idx] == m["pos"]
-        site_anc = lai_ancs[idx]
+        lai_pos = lai_pos_by_panel.get(m["pos"])
+        exact = lai_pos == m["pos"]
         site_scored = 0
         for s_i in range(n_samples):
             al = gts[s_i] if s_i < len(gts) else None
@@ -323,7 +412,7 @@ def score_recipe(
         "n_carried_forward_haps": n_carried,
         "frac_carried_forward": (n_carried / n_scored) if n_scored else float("nan"),
         "n_samples": n_samples,
-        "n_lai_markers": len(lai_positions),
+        "n_lai_markers": n_lai_markers,
     }
 
 
@@ -346,6 +435,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--region", default="", help="Optional chr:start-end")
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--experiment", default="", help="Optional recipe id for JSON")
+    p.add_argument(
+        "--threads",
+        type=int,
+        default=int(os.environ.get("BCFTOOLS_THREADS", "4")),
+        help="bcftools --threads for BGZF decode (default 4 / $BCFTOOLS_THREADS)",
+    )
     args = p.parse_args(argv)
 
     panel = load_panel(args.panel)
@@ -362,16 +457,27 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not shared:
         raise SystemExit("no shared samples between anc, gt, and keep-list")
 
-    lai_pos, lai_ancs = load_anc_sites(args.anc_vcf, shared, region=args.region)
+    anc_by_pos, lai_pos_by_panel, n_lai = load_anc_covering_for_panel(
+        args.anc_vcf,
+        shared,
+        [m["pos"] for m in panel],
+        region=args.region,
+        threads=args.threads,
+    )
     gt_by_pos = load_gt_alleles_at_panel(
-        args.gt_vcf, shared, panel, region=args.region
+        args.gt_vcf,
+        shared,
+        panel,
+        region=args.region,
+        threads=args.threads,
     )
     summary = score_recipe(
         panel=panel,
-        lai_positions=lai_pos,
-        lai_ancs=lai_ancs,
+        anc_by_panel_pos=anc_by_pos,
+        lai_pos_by_panel=lai_pos_by_panel,
         gt_by_pos=gt_by_pos,
         n_samples=len(shared),
+        n_lai_markers=n_lai,
     )
     summary["experiment"] = args.experiment
     summary["panel"] = str(args.panel)

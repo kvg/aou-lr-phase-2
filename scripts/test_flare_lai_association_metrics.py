@@ -122,19 +122,16 @@ def test_score_recipe_carry_forward():
         }
     ]
     # LAI only at 100 and 200; query 150 covers 200 (FELIXla)
-    lai_pos = [100, 200]
-    # sample0: AN AFR/AFR at both; alleles 1|1 → high LL under AFR
-    lai_ancs = [
-        [(3, 3)],
-        [(3, 3)],
-    ]
+    anc_by_pos = {150: [(3, 3)]}
+    lai_pos_by_panel = {150: 200}
     gt_by_pos = {("chr22", 150): [(1, 1)]}
     s = score_recipe(
         panel=panel,
-        lai_positions=lai_pos,
-        lai_ancs=lai_ancs,
+        anc_by_panel_pos=anc_by_pos,
+        lai_pos_by_panel=lai_pos_by_panel,
         gt_by_pos=gt_by_pos,
         n_samples=1,
+        n_lai_markers=2,
     )
     assert s["n_scored_haps"] == 2
     assert s["n_carried_forward_haps"] == 2
