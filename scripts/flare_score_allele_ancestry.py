@@ -147,11 +147,14 @@ def score_haplotype(
 
 
 def bcftools_query(args: list[str], *, threads: int = 0):
-    """Yield lines from ``bcftools query``. Caller must exhaust or close early via the proc."""
-    cmd = ["bcftools", "query"]
-    if threads > 0:
-        cmd.extend(["--threads", str(threads)])
-    cmd.extend(args)
+    """Yield lines from ``bcftools query``.
+
+    ``threads`` is accepted for API compatibility but **ignored**: older Terra
+    bcftools builds reject ``query --threads``. Parallelize across recipes
+    instead (``ASSOC_JOBS``).
+    """
+    del threads  # not supported on Terra's bcftools query
+    cmd = ["bcftools", "query", *args]
     print("+", " ".join(cmd), file=sys.stderr)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
     assert proc.stdout is not None
@@ -449,8 +452,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument(
         "--threads",
         type=int,
-        default=int(os.environ.get("BCFTOOLS_THREADS", "4")),
-        help="bcftools --threads for BGZF decode (default 4 / $BCFTOOLS_THREADS)",
+        default=0,
+        help="Ignored (Terra bcftools query has no --threads); kept for CLI compat",
     )
     args = p.parse_args(argv)
 
