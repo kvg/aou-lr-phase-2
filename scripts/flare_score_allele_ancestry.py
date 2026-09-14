@@ -149,11 +149,11 @@ def score_haplotype(
 def bcftools_query(args: list[str], *, threads: int = 0):
     """Yield lines from ``bcftools query``.
 
-    ``threads`` is accepted for API compatibility but **ignored**: older Terra
-    bcftools builds reject ``query --threads``. Parallelize across recipes
-    instead (``ASSOC_JOBS``).
+    ``threads`` is accepted for API compatibility but ignored: older Terra
+    bcftools builds reject ``query --threads``. Parallelism comes from
+    running multiple recipe scorers (ASSOC_JOBS).
     """
-    del threads  # not supported on Terra's bcftools query
+    del threads  # unused — see docstring
     cmd = ["bcftools", "query", *args]
     print("+", " ".join(cmd), file=sys.stderr)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
@@ -452,8 +452,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument(
         "--threads",
         type=int,
-        default=0,
-        help="Ignored (Terra bcftools query has no --threads); kept for CLI compat",
+        default=int(os.environ.get("BCFTOOLS_THREADS", "4")),
+        help="bcftools --threads for BGZF decode (default 4 / $BCFTOOLS_THREADS)",
     )
     args = p.parse_args(argv)
 
