@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from terra_sync_repo import (  # noqa: E402
+    DEFAULT_EXTRA_ASSETS,
     DEFAULT_TABLE_TSVS,
     DEFAULT_WDLS,
     SyncReport,
@@ -30,6 +31,9 @@ def test_defaults_point_at_real_paths():
     root = Path(__file__).resolve().parents[1]
     for rel in DEFAULT_WDLS:
         assert (root / rel).is_file(), rel
+    for rel_src, _rel_dest in DEFAULT_EXTRA_ASSETS:
+        assert (root / rel_src).is_dir(), rel_src
+        assert any((root / rel_src).glob("*.bed")), rel_src
     for rel in DEFAULT_TABLE_TSVS.values():
         assert (root / rel).is_file(), rel
     tsv = (root / DEFAULT_TABLE_TSVS["flare_lai_exp"]).read_text().splitlines()[0]

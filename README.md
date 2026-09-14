@@ -21,6 +21,7 @@ repository does not publish callsets or covariates.
 | [`snv_stats/`](snv_stats/) | DeepVariant + GLnexus SNV/indel `bcftools stats` WDL |
 | [`methylation_stats/`](methylation_stats/) | pb-CpG-tools bedMethyl coverage / haplotype / concordance |
 | [`flare/`](flare/) | Per-population FLARE (fix T≈120 from cohort-wide EM) |
+| [`bam_to_contig/`](bam_to_contig/) | Haplotig sequence at GRCh38 loci (Julie / EichlerLab) |
 
 Package-level runbooks (image tags, input JSON, calibration gates):
 
@@ -31,6 +32,7 @@ Package-level runbooks (image tags, input JSON, calibration gates):
 - [Methylation maps (pb-CpG-tools)](methylation_stats/README.md)
 - [FLARE by population](flare/README.md)
 - [Propagate annotations](propagate_annotations/README.md)
+- [Haplotig locus extraction](bam_to_contig/README.md)
 - [Terra notebook bootstrap](notebooks/terra/README.md)
 
 ## How to run a Terra notebook
@@ -182,6 +184,13 @@ Details: [`tractor_mix/README.md`](tractor_mix/README.md),
 [`flare/README.md`](flare/README.md),
 [`propagate_annotations/README.md`](propagate_annotations/README.md).
 
+### 8. Haplotig locus extraction (Julie)
+
+Per-sample haplotig FASTA at GRCh38 intervals (Jiadong STRs, CYP2D6–7,
+CEL–CELP): [`bam_to_contig/wdl/BamToContig.wdl`](bam_to_contig/wdl/BamToContig.wdl)
+on the `sample-hifi-hg38-all-cohorts` table. Smoke-test **one row**, then four
+cohort submissions. Details: [`bam_to_contig/README.md`](bam_to_contig/README.md).
+
 ## Ad hoc notebooks (not manuscript tables)
 
 `tractor_cov_explore.ipynb`, `scratch_lr_pcs_hgna.ipynb`,
@@ -198,6 +207,7 @@ Default Terra workspace for joint-call shards and FLARE URIs:
 | `GL_INTERVAL_set` (`VCF`, `VCF_idx`, `stats`) | DeepVariant + GLnexus chrom shards (`snv_00`, `tractor_05`) |
 | `aou2_v1_phased_bams` (`combined_bed`, `hap1_bed`, `hap2_bed`) | pb-CpG-tools methylation pileups (`meth_00`, `PbCpgSampleStats.wdl`) |
 | `aou_lr_chrom` (`model_chr_anc_vcf`) | FLARE LAI VCFs (`scripts/resolve_flare_uris.py`) |
+| `sample-hifi-hg38-all-cohorts` (`asm_bam_h*`, `asm_h*`) | Haplotig BAM + FASTA for `BamToContig.wdl` |
 
 ```bash
 python scripts/resolve_gl_interval_manifest.py --from-firecloud

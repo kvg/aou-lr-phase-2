@@ -1,0 +1,15 @@
+{
+  "bam_to_contig.bam_to_contig_bash_script": "gs://WORKSPACE_BUCKET/scripts/bam_to_contig/bam_to_contig.sh",
+  "bam_to_contig.make_contig_bed_script": "gs://WORKSPACE_BUCKET/scripts/bam_to_contig/make_contig_bed.py",
+  "bam_to_contig.concat_contigs_script": "gs://WORKSPACE_BUCKET/scripts/bam_to_contig/concat_contigs.py",
+  "bam_to_contig.run_faidx_script": "gs://WORKSPACE_BUCKET/scripts/bam_to_contig/run_samtools_faidx_for_sample.sh",
+  "bam_to_contig.sample_name": "this.sample-hifi-hg38-all-cohorts_id",
+  "bam_to_contig.bam_hap1": "this.asm_bam_h1",
+  "bam_to_contig.bai_hap1": "this.asm_bai_h1",
+  "bam_to_contig.bam_hap2": "this.asm_bam_h2",
+  "bam_to_contig.bai_hap2": "this.asm_bai_h2",
+  "bam_to_contig.haplotig_fasta_hap1": "this.asm_h1",
+  "bam_to_contig.haplotig_fasta_hap2": "this.asm_h2",
+  "bam_to_contig.regions_bed": "gs://WORKSPACE_BUCKET/bam_to_contig/regions/jiadong_variable_strs_utr.bed",
+  "bam_to_contig.flank_bp": 150
+}

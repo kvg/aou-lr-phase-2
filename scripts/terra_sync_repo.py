@@ -7,7 +7,8 @@ and Firecloud/FISS credentials already exist. Typical flow:
 1. ``git clone`` / ``git pull`` ``kvg/aou-lr-phase-2`` (HTTPS + optional token)
 2. ``gsutil -m rsync`` ``scripts/`` → ``$WORKSPACE_BUCKET/scripts/``
 3. Copy ``notebooks/terra/*.ipynb`` onto the persistent notebook disk (+ optional bucket mirror)
-4. Upload WDLs to ``$WORKSPACE_BUCKET/wdl/`` and optionally push new Firecloud method snapshots
+4. Upload WDLs to ``$WORKSPACE_BUCKET/wdl/`` (and extra assets such as
+   ``bam_to_contig/regions/``) and optionally push new Firecloud method snapshots
 5. Upsert data tables (default: ``flare_lai_exp`` from ``flare/configs/lai_exp.tsv``) via FISS
 
 Example (Terra notebook)::
@@ -52,6 +53,12 @@ DEFAULT_WDLS: tuple[str, ...] = (
     "snv_stats/wdl/BcftoolsGlnexusStats.wdl",
     "methylation_stats/wdl/PbCpgSampleStats.wdl",
     "methylation_stats/wdl/PbCpgChromSites.wdl",
+    "bam_to_contig/wdl/BamToContig.wdl",
+)
+
+# repo-relative src dir, bucket-relative dest dir (rsync)
+DEFAULT_EXTRA_ASSETS: tuple[tuple[str, str], ...] = (
+    ("bam_to_contig/regions", "bam_to_contig/regions"),
 )
 
 # entity_type -> repo-relative TSV (Terra flexible import; first column entity:…_id)
@@ -71,6 +78,7 @@ class SyncReport:
     scripts_dest: str = ""
     notebooks_dest: str = ""
     notebooks_copied: list[str] = field(default_factory=list)
+    assets_staged: list[str] = field(default_factory=list)
     wdls_staged: list[str] = field(default_factory=list)
     wdls_changed: list[str] = field(default_factory=list)
     wdls_unchanged: list[str] = field(default_factory=list)
@@ -261,6 +269,32 @@ def stage_scripts(
         return dest
     run(["gsutil", "-m", "rsync", "-r", str(src) + "/", dest + "/"])
     return dest
+
+
+def stage_extra_assets(
+    repo: Path,
+    *,
+    bucket: Optional[str] = None,
+    assets: Sequence[tuple[str, str]] = DEFAULT_EXTRA_ASSETS,
+    dry_run: bool = False,
+) -> list[str]:
+    """Rsync small non-script WDL inputs (region BEDs, …) onto the bucket."""
+    bucket = (bucket or workspace_bucket()).rstrip("/")
+    if not bucket:
+        raise SystemExit("WORKSPACE_BUCKET is unset; cannot stage extra assets")
+    staged: list[str] = []
+    for rel_src, rel_dest in assets:
+        src = repo / rel_src
+        if not src.is_dir():
+            print(f"skip missing extra asset dir: {rel_src}", file=sys.stderr)
+            continue
+        dest = f"{bucket}/{rel_dest.strip('/')}"
+        if dry_run:
+            print(f"[dry-run] gsutil -m rsync -r {src}/ {dest}/")
+        else:
+            run(["gsutil", "-m", "rsync", "-r", str(src) + "/", dest + "/"])
+        staged.append(dest)
+    return staged
 
 
 def stage_notebooks(
@@ -864,6 +898,10 @@ def sync_all(
         report.wdls_new = wdl_info["new"]
         report.wdls_unchanged = wdl_info["unchanged"]
         report.wdls_manual_import = wdl_info["manual_import"]
+        try:
+            report.assets_staged = stage_extra_assets(repo, dry_run=dry_run)
+        except Exception as exc:  # noqa: BLE001
+            report.warnings.append(f"extra asset staging failed: {exc}")
 
     if upsert_tables:
         try:

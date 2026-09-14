@@ -95,7 +95,10 @@ Copy covering FLARE `AN1`/`AN2` onto interstitial sites of a phased target VCF:
 
 WDLs stay in `tractor_mix/wdl/`, `felix/wdl/`, `sv_annotation/wdl/`,
 `propagate_annotations/wdl/`, `snv_stats/wdl/`, `methylation_stats/wdl/`,
-and `flare/wdl/`.
+`flare/wdl/`, and `bam_to_contig/wdl/`.
+
+Haplotig locus extraction (Julie / EichlerLab): `bam_to_contig/wdl/BamToContig.wdl`.
+See `bam_to_contig/README.md`.
 
 FELIX workflows (`felix/wdl/FelixPilot.wdl`, `FelixGenome.wdl`) use the
 `felix-pilot:0.1.0` image. Stage FELIX scripts with `./scripts/stage_felix_scripts.sh`

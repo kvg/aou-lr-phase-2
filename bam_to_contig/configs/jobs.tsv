@@ -1,0 +1,5 @@
+job	flank_bp	regions_bed	n_intervals	julie_expected_cost_usd	notes
+jiadong_utr	150	jiadong_variable_strs_utr.bed	2559	400	Job 1: Jiadong variable triplet STRs in UTRs
+jiadong_cds	150	jiadong_variable_strs_cds.bed	2309	400	Job 2: same as Job 1 except the BED (Julie did not re-quote cost)
+cyp2d6_7	30000	CYP2D6_through_7_GRCh38.bed	1	120	Job 3: CYP2D6–CYP2D7 on GRCh38
+cel_celp	30000	CEL_through_CELP_GRCh38.bed	1	120	Job 4: CEL–CELP on GRCh38

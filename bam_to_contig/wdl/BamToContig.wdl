@@ -1,0 +1,185 @@
+version 1.0
+
+workflow bam_to_contig {
+  input {
+    File bam_to_contig_bash_script
+    File make_contig_bed_script
+    String sample_name
+    File bam_hap1
+    File bai_hap1
+    File bam_hap2
+    File bai_hap2
+    File haplotig_fasta_hap1
+    File haplotig_fasta_hap2
+    File regions_bed
+    Int flank_bp
+    File run_faidx_script
+    File concat_contigs_script
+  }
+
+  meta {
+    workflow_description: "Converts BAM to original haplotigs in reference genome region for each haplotype."
+  }
+
+  Array[String] haps = ["hap1", "hap2"]
+
+  scatter (hap in haps) {
+    String sample_w_hap = sample_name + "_" + hap
+    File bam_in = if (hap == "hap1") then bam_hap1 else bam_hap2
+    File bai_in = if (hap == "hap1") then bai_hap1 else bai_hap2
+    File haplotig_fasta = if (hap == "hap1") then haplotig_fasta_hap1 else haplotig_fasta_hap2
+    
+    call RunBamToContig {
+      input:
+        bam_to_contig_bash_script = bam_to_contig_bash_script,
+        make_contig_bed_script = make_contig_bed_script,
+        sample_w_hap = sample_w_hap,
+        bam_in = bam_in,
+        bai_in = bai_in,
+        regions_bed = regions_bed,
+        flank_bp = flank_bp
+    }
+    call RunFaidx {
+      input:
+        run_faidx_script = run_faidx_script,
+        contig_regions_file = RunBamToContig.out,
+        sample_w_hap = sample_w_hap,
+        haplotig_fasta = haplotig_fasta
+    }
+  }
+
+  call ConcatContigs {
+    input:
+      concat_contigs_script = concat_contigs_script,
+      contig_files = select_all(RunFaidx.out_fasta)
+  }
+
+  output {
+    File final_out = ConcatContigs.out
+  }
+}
+
+task RunBamToContig {
+  input {
+    File bam_to_contig_bash_script
+    File make_contig_bed_script
+    String sample_w_hap
+    File bam_in
+    File bai_in
+    File regions_bed
+    Int flank_bp
+
+    RuntimeAttr? runtime_attr_override
+  }
+  command <<<
+    sh ~{bam_to_contig_bash_script} ~{make_contig_bed_script} ~{bam_in} ~{regions_bed} ~{flank_bp} > ~{sample_w_hap}.txt
+  >>>
+
+  output {
+    File out = "~{sample_w_hap}.txt"
+  }
+
+  RuntimeAttr default_attr = object {
+    cpu_cores:          1,
+    mem_gb:             2,
+    disk_gb:            40,
+    boot_disk_gb:       40,
+    preemptible_tries:  2,
+    max_retries:        0,
+    docker: "us.gcr.io/broad-dsp-lrma/lr-talon:5.0"
+  }
+  RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
+  runtime {
+    cpu:                    select_first([runtime_attr.cpu_cores,         default_attr.cpu_cores])
+    memory:                 select_first([runtime_attr.mem_gb,            default_attr.mem_gb]) + " GiB"
+    disks: "local-disk " +  select_first([runtime_attr.disk_gb,           default_attr.disk_gb]) + " HDD"
+    bootDiskSizeGb:         select_first([runtime_attr.boot_disk_gb,      default_attr.boot_disk_gb])
+    preemptible:            select_first([runtime_attr.preemptible_tries, default_attr.preemptible_tries])
+    maxRetries:             select_first([runtime_attr.max_retries,       default_attr.max_retries])
+    docker:                 select_first([runtime_attr.docker,            default_attr.docker])
+  }
+}
+
+task RunFaidx {
+  input {
+    File run_faidx_script
+    File contig_regions_file
+    String sample_w_hap
+    File haplotig_fasta
+
+    RuntimeAttr? runtime_attr_override
+  }
+  command <<<
+    sh ~{run_faidx_script} ~{contig_regions_file} ~{haplotig_fasta} ~{sample_w_hap}.fa
+  >>>
+
+  output {
+    File out_fasta = "~{sample_w_hap}.fa"
+  }
+
+  RuntimeAttr default_attr = object {
+    cpu_cores:          1,
+    mem_gb:             1,
+    disk_gb:            10,
+    boot_disk_gb:       10,
+    preemptible_tries:  2,
+    max_retries:        0,
+    docker: "us.gcr.io/broad-dsp-lrma/lr-talon:5.0"
+  }
+  RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
+  runtime {
+    cpu:                    select_first([runtime_attr.cpu_cores,         default_attr.cpu_cores])
+    memory:                 select_first([runtime_attr.mem_gb,            default_attr.mem_gb]) + " GiB"
+    disks: "local-disk " +  select_first([runtime_attr.disk_gb,           default_attr.disk_gb]) + " HDD"
+    bootDiskSizeGb:         select_first([runtime_attr.boot_disk_gb,      default_attr.boot_disk_gb])
+    preemptible:            select_first([runtime_attr.preemptible_tries, default_attr.preemptible_tries])
+    maxRetries:             select_first([runtime_attr.max_retries,       default_attr.max_retries])
+    docker:                 select_first([runtime_attr.docker,            default_attr.docker])
+  }
+}
+
+task ConcatContigs {
+  input {
+    File concat_contigs_script
+    Array[File] contig_files
+
+    RuntimeAttr? runtime_attr_override
+  }
+  command <<<
+    python ~{concat_contigs_script} all_contigs_concat.fa ~{sep=" " contig_files}
+  >>>
+
+  output {
+    File out = "all_contigs_concat.fa"
+  }
+
+  RuntimeAttr default_attr = object {
+    cpu_cores:          1,
+    mem_gb:             1,
+    disk_gb:            10,
+    boot_disk_gb:       10,
+    preemptible_tries:  2,
+    max_retries:        0,
+    docker: "us.gcr.io/broad-dsp-lrma/lr-talon:5.0"
+  }
+  RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
+  runtime {
+    cpu:                    select_first([runtime_attr.cpu_cores,         default_attr.cpu_cores])
+    memory:                 select_first([runtime_attr.mem_gb,            default_attr.mem_gb]) + " GiB"
+    disks: "local-disk " +  select_first([runtime_attr.disk_gb,           default_attr.disk_gb]) + " HDD"
+    bootDiskSizeGb:         select_first([runtime_attr.boot_disk_gb,      default_attr.boot_disk_gb])
+    preemptible:            select_first([runtime_attr.preemptible_tries, default_attr.preemptible_tries])
+    maxRetries:             select_first([runtime_attr.max_retries,       default_attr.max_retries])
+    docker:                 select_first([runtime_attr.docker,            default_attr.docker])
+  }
+}
+
+struct RuntimeAttr {
+  Float? mem_gb
+  Int? cpu_cores
+  Int? disk_gb
+  Int? boot_disk_gb
+  Int? preemptible_tries
+  Int? max_retries
+  String? docker
+}
