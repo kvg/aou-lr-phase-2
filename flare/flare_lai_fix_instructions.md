@@ -242,7 +242,15 @@ closest to zero. If bootstrap CIs on \|λ−1\| overlap, tie-break with Part 2
 by cross-panel AF range (`eas,amr,eur,afr,sas`), keeps top ~5k / window with a
 MAC floor, writes `*.markers.tsv` + `*.bed.gz`.
 
-Stage once (chr22 method window + chr20):
+Stage once (chr22 method window + chr20) via Terra notebook (preferred):
+
+```text
+notebooks/terra/flare_04_stage_eval_panels.ipynb
+# → $WORKSPACE_BUCKET/refs/flare/eval_panels/chr22_10mb.markers.tsv
+# → $WORKSPACE_BUCKET/refs/flare/eval_panels/chr20_full.markers.tsv
+```
+
+Or from a shell (same builder):
 
 ```bash
 export WORKSPACE_BUCKET=gs://...
@@ -250,8 +258,6 @@ export REF_PANEL=.../aou_1000genomes.refmap
 export REF_VCF_CHR22=.../chr22....vcf.bgz
 export REF_VCF_CHR20=.../chr20....vcf.bgz
 bash flare/scripts/stage_eval_af_panels.sh
-# → $WORKSPACE_BUCKET/refs/flare/eval_panels/chr22_10mb.markers.tsv
-# → $WORKSPACE_BUCKET/refs/flare/eval_panels/chr20_full.markers.tsv
 ```
 
 Windows: `chr22:26897597-36897597` and full `chr20` (override `CHR20_REGION`).

@@ -248,6 +248,7 @@ def write_outputs(rows: list[dict], out_prefix: Path) -> None:
     tsv = Path(str(out_prefix) + ".markers.tsv")
     bed = Path(str(out_prefix) + ".bed")
     cols = ["chrom", "pos", "ref", "alt", "mac", "af_range"] + [f"af_{p}" for p in PANELS]
+    # TSV keeps AF-range ranking (panel priority order).
     with tsv.open("w") as fh:
         fh.write("\t".join(cols) + "\n")
         for r in rows:
@@ -259,11 +260,16 @@ def write_outputs(rows: list[dict], out_prefix: Path) -> None:
                 else:
                     vals.append(str(v))
             fh.write("\t".join(vals) + "\n")
+    # BED must be chrom/pos sorted for tabix (ranking order is not genomic).
+    bed_rows = sorted(rows, key=lambda r: (str(r["chrom"]), int(r["pos"])))
     with bed.open("w") as fh:
-        for r in rows:
+        for r in bed_rows:
             fh.write(f"{r['chrom']}\t{r['pos'] - 1}\t{r['pos']}\n")
     if shutil.which("bgzip"):
-        bgzip_tabix_bed(bed)
+        try:
+            bgzip_tabix_bed(bed)
+        except subprocess.CalledProcessError as exc:
+            print(f"warning: bgzip/tabix failed ({exc}); markers.tsv is still usable", file=sys.stderr)
     print(f"wrote {tsv} ({len(rows)} markers)", file=sys.stderr)
 
 
