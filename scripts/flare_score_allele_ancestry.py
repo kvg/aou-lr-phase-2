@@ -314,18 +314,28 @@ def load_gt_alleles_at_panel(
         return {}
     import tempfile
 
+    chrom_filter = ""
+    if region.strip():
+        chrom_filter = region.strip().split(":")[0]
+
     # Restrict query to panel positions via regions file when possible
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".samples.txt") as sf:
         sf.write("\n".join(samples) + "\n")
         s_path = sf.name
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".regions.txt") as rf:
         for m in panel:
+            if chrom_filter and str(m["chrom"]) != chrom_filter:
+                continue
             # chrom, start, end (1-based inclusive) — portable for bcftools -R
             rf.write(f"{m['chrom']}\t{m['pos']}\t{m['pos']}\n")
         r_path = rf.name
 
-    want = {(m["chrom"], m["pos"], m["ref"], m["alt"]) for m in panel}
-    want_pos = {(m["chrom"], m["pos"]) for m in panel}
+    want = {
+        (m["chrom"], m["pos"], m["ref"], m["alt"])
+        for m in panel
+        if not chrom_filter or str(m["chrom"]) == chrom_filter
+    }
+    want_pos = {(c, p) for (c, p, _r, _a) in want}
     out: dict[tuple[str, int], list[Optional[tuple[int, int]]]] = {}
 
     cmd = [
@@ -334,11 +344,11 @@ def load_gt_alleles_at_panel(
         "-R",
         r_path,
         "-f",
-        r"%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n",
+        "%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n",
     ]
-    if region.strip():
-        # -R already limits; optional -r further restricts
-        cmd.extend(["-r", region.strip()])
+    # Do not also pass -r here: older Terra bcftools/htslib mis-parses -R + -r and
+    # tries to open the region string as a regions file ("Protocol not supported").
+    # Panel -R already restricts to marker positions (optionally filtered to chrom).
     cmd.append(gt_vcf)
     try:
         for line in _iter_query(bcftools_query(cmd, threads=threads)):
