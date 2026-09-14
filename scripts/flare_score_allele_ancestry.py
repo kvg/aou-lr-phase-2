@@ -146,7 +146,8 @@ def score_haplotype(
     return ll, br, True
 
 
-def bcftools_query(args: list[str], *, threads: int = 0) -> Iterable[str]:
+def bcftools_query(args: list[str], *, threads: int = 0):
+    """Yield lines from ``bcftools query``. Caller must exhaust or close early via the proc."""
     cmd = ["bcftools", "query"]
     if threads > 0:
         cmd.extend(["--threads", str(threads)])
@@ -154,11 +155,21 @@ def bcftools_query(args: list[str], *, threads: int = 0) -> Iterable[str]:
     print("+", " ".join(cmd), file=sys.stderr)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
     assert proc.stdout is not None
-    for line in proc.stdout:
-        yield line
-    rc = proc.wait()
-    if rc != 0:
-        raise SystemExit(f"bcftools query failed ({rc}): {' '.join(cmd)}")
+    return proc
+
+
+def _iter_query(proc: subprocess.Popen) -> Iterable[str]:
+    assert proc.stdout is not None
+    try:
+        for line in proc.stdout:
+            yield line
+    finally:
+        if proc.stdout is not None and not proc.stdout.closed:
+            proc.stdout.close()
+        rc = proc.wait()
+        # 141 = SIGPIPE after early close (we got all panel coverings)
+        if rc not in (0, 141, -13):
+            raise SystemExit(f"bcftools query failed ({rc})")
 
 
 def _parse_an_row(vals: list[str], n_samp: int) -> Optional[list[tuple[Optional[int], Optional[int]]]]:
@@ -200,7 +211,7 @@ def load_anc_sites(
     ancs: list[list[tuple[Optional[int], Optional[int]]]] = []
     n_samp = len(samples)
     try:
-        for line in bcftools_query(cmd, threads=threads):
+        for line in _iter_query(bcftools_query(cmd, threads=threads)):
             parts = line.rstrip("\n").split("\t")
             if not parts:
                 continue
@@ -256,7 +267,7 @@ def load_anc_covering_for_panel(
     last_row: Optional[list[tuple[Optional[int], Optional[int]]]] = None
     last_pos: Optional[int] = None
     try:
-        for line in bcftools_query(cmd, threads=threads):
+        for line in _iter_query(bcftools_query(cmd, threads=threads)):
             parts = line.rstrip("\n").split("\t")
             if not parts:
                 continue
@@ -327,7 +338,7 @@ def load_gt_alleles_at_panel(
         cmd.extend(["-r", region.strip()])
     cmd.append(gt_vcf)
     try:
-        for line in bcftools_query(cmd, threads=threads):
+        for line in _iter_query(bcftools_query(cmd, threads=threads)):
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 4 + len(samples):
                 continue
