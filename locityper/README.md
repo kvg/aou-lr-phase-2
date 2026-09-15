@@ -56,6 +56,14 @@ v9 Illumina CRAMs:
 `workspace/vwb-aou-datasets-controlled-v9/v9/wgs/cram/manifest.csv`
 (`gs://vwb-aou-datasets-controlled/pooled/wgs/cram/v8_base/wgs_{person_id}.cram`).
 
+Staged reference (prep notebook, 2026-09-15):
+
+```
+gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta
+gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta.fai
+gs://aou-lr-phase2-resources/locityper/refs/counts.Homo_sapiens_assembly38.k25.jf
+```
+
 Single job:
 
 ```bash
