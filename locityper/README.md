@@ -8,7 +8,7 @@ Isaac’s Terra original: [EichlerLab/AoU_WDL `locityper_stream.wdl`](https://gi
 Do **not** submit it from Terra. In a VWB Jupyter app:
 
 1. [`notebooks/rw/locityper_00_prep_reference.ipynb`](../notebooks/rw/locityper_00_prep_reference.ipynb)
-   — NCBI GRCh38 no-alt FASTA, `samtools faidx`, Jellyfish 25-mers; locates the
+   — GATK `Homo_sapiens_assembly38` FASTA + fai, Jellyfish 25-mers; locates the
    v9 CRAM manifest
 2. [`notebooks/rw/locityper_01_run_stream.ipynb`](../notebooks/rw/locityper_01_run_stream.ipynb)
    — stage / register / submit via [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
@@ -45,8 +45,8 @@ sample** and a tiny BED before a cohort CSV.
 
 1. Open a JupyterLab app in the workspace (CLI `wb` is on `PATH`).
 2. Clone this repo into the app if it is not already a git resource.
-3. Run `locityper_00_prep_reference` (NCBI FASTA + Jellyfish). Size the VM
-   to ≥16 GB RAM / ~20 GB free disk.
+3. Run `locityper_00_prep_reference` (GATK `Homo_sapiens_assembly38` + Jellyfish).
+   Size the VM to ≥16 GB RAM / ~20 GB free disk.
 4. Open `locityper_01_run_stream`. Paste the `gs://` URIs and smoke-test
    CRAM from the prep notebook; add a loci BED + `vcf_db.tar.gz`.
 5. Stage the WDL → register `locityper-stream` → submit. `SUBMIT` is off
@@ -103,7 +103,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 |---|---|
 | `sample_id` | Output prefix |
 | `cram` / `crai` | Mapped WGS; CRAM is streamed, CRAI is localized |
-| `ref_fa_uncompressed` / `ref_fai_uncompressed` | Uncompressed FASTA + fai (Isaac gunzipped assembly38 once and reused it) |
+| `ref_fa_uncompressed` / `ref_fai_uncompressed` | Uncompressed FASTA + fai (AoU srWGS: GATK `Homo_sapiens_assembly38`) |
 | `counts_jf` | Jellyfish k-mer counts for that reference (prep notebook: canonical 25-mers, `--lower-count 2`) |
 | `bed` | `chrom start end locus_name` |
 | `locityper_db_tar_gz` | `tar czf` of a Locityper DB directory named `vcf_db` (Isaac’s `locityper add -d vcf_db`) |
