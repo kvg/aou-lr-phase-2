@@ -1,0 +1,18 @@
+{
+  "LocityperStream.sample_id": "SAMPLE_ID",
+  "LocityperStream.cram": "gs://BUCKET/path/sample.cram",
+  "LocityperStream.crai": "gs://BUCKET/path/sample.cram.crai",
+  "LocityperStream.ref_fa_uncompressed": "gs://BUCKET/refs/Homo_sapiens_assembly38.fasta",
+  "LocityperStream.ref_fai_uncompressed": "gs://BUCKET/refs/Homo_sapiens_assembly38.fasta.fai",
+  "LocityperStream.counts_jf": "gs://BUCKET/refs/counts.Homo_sapiens_assembly38.jf",
+  "LocityperStream.bed": "gs://BUCKET/locityper/regions.bed",
+  "LocityperStream.locityper_db_tar_gz": "gs://BUCKET/locityper/vcf_db.tar.gz",
+  "LocityperStream.N_split": 150,
+  "LocityperStream.locityper_n_cpu": 2,
+  "LocityperStream.locityper_extra_mem_gb": 4,
+  "LocityperStream.window_grab": 3000,
+  "LocityperStream.max_retry": 7,
+  "LocityperStream.wait_time": 75,
+  "LocityperStream.n_preemptible": 2,
+  "LocityperStream.technology": "illumina"
+}

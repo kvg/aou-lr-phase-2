@@ -97,6 +97,10 @@ WDLs stay in `tractor_mix/wdl/`, `felix/wdl/`, `sv_annotation/wdl/`,
 `propagate_annotations/wdl/`, `snv_stats/wdl/`, `methylation_stats/wdl/`,
 `flare/wdl/`, and `bam_to_contig/wdl/`.
 
+Locityper (`locityper/wdl/LocityperStream.wdl`) is **Verily Workbench only** —
+run [`../rw/locityper_00_run_stream.ipynb`](../rw/locityper_00_run_stream.ipynb),
+not Terra.
+
 Haplotig locus extraction (Julie / EichlerLab): `bam_to_contig/wdl/BamToContig.wdl`.
 See `bam_to_contig/README.md`.
 

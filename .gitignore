@@ -37,6 +37,9 @@ felix/.docker_scripts/
 # Ad-hoc eval / smoke logs
 felix/eval/*.log
 
+# VWB locityper notebook scratch (inputs JSON / batch CSV)
+notebooks/rw/locityper_rw_scratch/
+
 # Rust extract-tracts-flare build artifacts
 tractor_mix/extract_tracts_flare/target/
 .venv-pca/

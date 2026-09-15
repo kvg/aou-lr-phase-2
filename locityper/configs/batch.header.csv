@@ -1,0 +1,2 @@
+sample_id,cram,crai,ref_fa_uncompressed,ref_fai_uncompressed,counts_jf,bed,locityper_db_tar_gz
+SAMPLE_ID,gs://BUCKET/path/sample.cram,gs://BUCKET/path/sample.cram.crai,gs://BUCKET/refs/Homo_sapiens_assembly38.fasta,gs://BUCKET/refs/Homo_sapiens_assembly38.fasta.fai,gs://BUCKET/refs/counts.Homo_sapiens_assembly38.jf,gs://BUCKET/locityper/regions.bed,gs://BUCKET/locityper/vcf_db.tar.gz

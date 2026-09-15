@@ -4,7 +4,7 @@ Reproducible notebooks, CLIs, and Cromwell/WDL workflows for the All of Us
 long-read Phase 2 manuscript. Companion LaTeX:
 [`kvg/aou-lr-phase-2-manuscript`](https://github.com/kvg/aou-lr-phase-2-manuscript).
 
-Most analyses run on **Terra**. A few Workbench-only notebooks live under
+Most analyses run on **Terra**. Workbench-only notebooks (Locityper) live under
 `notebooks/rw/`. Person-level data are All of Us controlled-tier; this
 repository does not publish callsets or covariates.
 
@@ -13,8 +13,9 @@ repository does not publish callsets or covariates.
 | Path | What |
 |---|---|
 | [`notebooks/terra/`](notebooks/terra/) | Terra analysis notebooks (primary entrypoints) |
-| [`notebooks/rw/`](notebooks/rw/) | Verily Workbench notebooks |
+| [`notebooks/rw/`](notebooks/rw/) | Verily Workbench notebooks (`wb workflow` CLI) |
 | [`scripts/`](scripts/) | CLIs used by notebooks and WDLs |
+| [`locityper/`](locityper/) | Locityper targeted genotyping (VWB; Isaac / EichlerLab stream WDL) |
 | [`tractor_mix/`](tractor_mix/) | Tractor-Mix / SAIGE association (WDL, Docker, configs) |
 | [`felix/`](felix/) | FELIX LAI GWAS (WDL, Docker, configs) |
 | [`sv_annotation/`](sv_annotation/) | SV site table, CADD-SV, discovery plots |
@@ -33,7 +34,9 @@ Package-level runbooks (image tags, input JSON, calibration gates):
 - [FLARE by population](flare/README.md)
 - [Propagate annotations](propagate_annotations/README.md)
 - [Haplotig locus extraction](bam_to_contig/README.md)
+- [Locityper (Verily Workbench)](locityper/README.md)
 - [Terra notebook bootstrap](notebooks/terra/README.md)
+- [Verily Workbench notebooks](notebooks/rw/README.md)
 
 ## How to run a Terra notebook
 
@@ -190,6 +193,14 @@ Per-sample haplotig FASTA at GRCh38 intervals (Jiadong STRs, CYP2D6–7,
 CEL–CELP): [`bam_to_contig/wdl/BamToContig.wdl`](bam_to_contig/wdl/BamToContig.wdl)
 on the `sample-hifi-hg38-all-cohorts` table. Smoke-test **one row**, then four
 cohort submissions. Details: [`bam_to_contig/README.md`](bam_to_contig/README.md).
+
+### 9. Locityper (Verily Workbench)
+
+Isaac’s per-sample stream/genotype WDL, adapted for VWB Cromwell. The
+Workbench Workflows GUI is not used. Open
+[`notebooks/rw/locityper_00_run_stream.ipynb`](notebooks/rw/locityper_00_run_stream.ipynb)
+in a VWB Jupyter app and submit with `wb workflow job run`. Details:
+[`locityper/README.md`](locityper/README.md).
 
 ## Ad hoc notebooks (not manuscript tables)
 

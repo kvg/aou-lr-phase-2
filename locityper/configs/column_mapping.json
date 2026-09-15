@@ -1,0 +1,10 @@
+{
+  "LocityperStream.sample_id": "sample_id",
+  "LocityperStream.cram": "cram",
+  "LocityperStream.crai": "crai",
+  "LocityperStream.ref_fa_uncompressed": "ref_fa_uncompressed",
+  "LocityperStream.ref_fai_uncompressed": "ref_fai_uncompressed",
+  "LocityperStream.counts_jf": "counts_jf",
+  "LocityperStream.bed": "bed",
+  "LocityperStream.locityper_db_tar_gz": "locityper_db_tar_gz"
+}
