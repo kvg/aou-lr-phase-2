@@ -5,11 +5,16 @@ complex loci from a streamed CRAM subset. One workflow job = one sample.
 
 Isaac’s Terra original: [EichlerLab/AoU_WDL `locityper_stream.wdl`](https://github.com/EichlerLab/AoU_WDL/blob/main/locityper/locityper_stream.wdl)
 ([`SOURCE.md`](SOURCE.md)). The WDL here is a **Verily Workbench** adaptation.
-Do **not** submit it from Terra; run
-[`notebooks/rw/locityper_00_run_stream.ipynb`](../notebooks/rw/locityper_00_run_stream.ipynb)
-in a VWB Jupyter app. The Workbench **Workflows GUI is unreliable**; the
-notebook uses the [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
-CLI (same pattern as Matt’s `eTRs_getPhasedAlleleInfo` notebook).
+Do **not** submit it from Terra. In a VWB Jupyter app:
+
+1. [`notebooks/rw/locityper_00_prep_reference.ipynb`](../notebooks/rw/locityper_00_prep_reference.ipynb)
+   — NCBI GRCh38 no-alt FASTA, `samtools faidx`, Jellyfish 25-mers; locates the
+   v9 CRAM manifest
+2. [`notebooks/rw/locityper_01_run_stream.ipynb`](../notebooks/rw/locityper_01_run_stream.ipynb)
+   — stage / register / submit via [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
+   (same pattern as Matt’s `eTRs_getPhasedAlleleInfo` notebook)
+
+The Workbench **Workflows GUI is unreliable**.
 
 ## What the WDL does
 
@@ -40,11 +45,16 @@ sample** and a tiny BED before a cohort CSV.
 
 1. Open a JupyterLab app in the workspace (CLI `wb` is on `PATH`).
 2. Clone this repo into the app if it is not already a git resource.
-3. Open `notebooks/rw/locityper_00_run_stream.ipynb`.
-4. Fill the config cell (workspace bucket resource ID, CRAM, reference,
-   jellyfish counts, loci BED, `vcf_db.tar.gz`).
+3. Run `locityper_00_prep_reference` (NCBI FASTA + Jellyfish). Size the VM
+   to ≥16 GB RAM / ~20 GB free disk.
+4. Open `locityper_01_run_stream`. Paste the `gs://` URIs and smoke-test
+   CRAM from the prep notebook; add a loci BED + `vcf_db.tar.gz`.
 5. Stage the WDL → register `locityper-stream` → submit. `SUBMIT` is off
    until you set it.
+
+v9 Illumina CRAMs:
+`workspace/vwb-aou-datasets-controlled-v9/v9/wgs/cram/manifest.csv`
+(`gs://vwb-aou-datasets-controlled/pooled/wgs/cram/v8_base/wgs_{person_id}.cram`).
 
 Single job:
 
@@ -94,7 +104,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 | `sample_id` | Output prefix |
 | `cram` / `crai` | Mapped WGS; CRAM is streamed, CRAI is localized |
 | `ref_fa_uncompressed` / `ref_fai_uncompressed` | Uncompressed FASTA + fai (Isaac gunzipped assembly38 once and reused it) |
-| `counts_jf` | Jellyfish k-mer counts for that reference |
+| `counts_jf` | Jellyfish k-mer counts for that reference (prep notebook: canonical 25-mers, `--lower-count 2`) |
 | `bed` | `chrom start end locus_name` |
 | `locityper_db_tar_gz` | `tar czf` of a Locityper DB directory named `vcf_db` (Isaac’s `locityper add -d vcf_db`) |
 | `technology` | Default `illumina` |

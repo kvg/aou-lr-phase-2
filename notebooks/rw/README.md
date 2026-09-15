@@ -7,4 +7,5 @@ Companion CLIs live in [`../../scripts/`](../../scripts/).
 
 | Notebook | Use |
 |---|---|
-| [`locityper_00_run_stream.ipynb`](locityper_00_run_stream.ipynb) | Stage / register / submit Isaac’s Locityper stream WDL (`locityper/wdl/LocityperStream.wdl`) |
+| [`locityper_00_prep_reference.ipynb`](locityper_00_prep_reference.ipynb) | Download GRCh38 no-alt FASTA, `faidx`, Jellyfish 25-mers; peek at the v9 CRAM manifest |
+| [`locityper_01_run_stream.ipynb`](locityper_01_run_stream.ipynb) | Stage / register / submit Isaac’s Locityper stream WDL (`locityper/wdl/LocityperStream.wdl`) |

@@ -198,7 +198,9 @@ cohort submissions. Details: [`bam_to_contig/README.md`](bam_to_contig/README.md
 
 Isaac’s per-sample stream/genotype WDL, adapted for VWB Cromwell. The
 Workbench Workflows GUI is not used. Open
-[`notebooks/rw/locityper_00_run_stream.ipynb`](notebooks/rw/locityper_00_run_stream.ipynb)
+[`notebooks/rw/locityper_00_prep_reference.ipynb`](notebooks/rw/locityper_00_prep_reference.ipynb)
+then
+[`notebooks/rw/locityper_01_run_stream.ipynb`](notebooks/rw/locityper_01_run_stream.ipynb)
 in a VWB Jupyter app and submit with `wb workflow job run`. Details:
 [`locityper/README.md`](locityper/README.md).
 

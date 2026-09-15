@@ -2,7 +2,8 @@ version 1.0
 
 # Per-sample Locityper on a streamed CRAM subset.
 # Upstream: EichlerLab/AoU_WDL locityper/locityper_stream.wdl (ValidateVariants).
-# Run from notebooks/rw/locityper_00_run_stream.ipynb via `wb workflow`.
+# Prep: notebooks/rw/locityper_00_prep_reference.ipynb
+# Submit: notebooks/rw/locityper_01_run_stream.ipynb via `wb workflow`.
 
 workflow LocityperStream {
     input {
