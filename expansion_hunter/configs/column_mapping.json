@@ -1,0 +1,9 @@
+{
+  "ExpansionHunterMinicram.sample_id": "sample_id",
+  "ExpansionHunterMinicram.cram": "cram",
+  "ExpansionHunterMinicram.crai": "crai",
+  "ExpansionHunterMinicram.ref_fa": "ref_fa",
+  "ExpansionHunterMinicram.ref_fai": "ref_fai",
+  "ExpansionHunterMinicram.catalog": "catalog",
+  "ExpansionHunterMinicram.sex": "sex"
+}

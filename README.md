@@ -4,9 +4,9 @@ Reproducible notebooks, CLIs, and Cromwell/WDL workflows for the All of Us
 long-read Phase 2 manuscript. Companion LaTeX:
 [`kvg/aou-lr-phase-2-manuscript`](https://github.com/kvg/aou-lr-phase-2-manuscript).
 
-Most analyses run on **Terra**. Workbench-only notebooks (Locityper) live under
-`notebooks/rw/`. Person-level data are All of Us controlled-tier; this
-repository does not publish callsets or covariates.
+Most analyses run on **Terra**. Workbench-only notebooks (Locityper,
+ExpansionHunter) live under `notebooks/rw/`. Person-level data are All of Us
+controlled-tier; this repository does not publish callsets or covariates.
 
 ## Layout
 
@@ -16,6 +16,7 @@ repository does not publish callsets or covariates.
 | [`notebooks/rw/`](notebooks/rw/) | Verily Workbench notebooks (`wb workflow` CLI) |
 | [`scripts/`](scripts/) | CLIs used by notebooks and WDLs |
 | [`locityper/`](locityper/) | Locityper targeted genotyping (VWB; Isaac / EichlerLab stream WDL) |
+| [`expansion_hunter/`](expansion_hunter/) | ExpansionHunter STR genotyping (VWB; minicram + bw2 fork) |
 | [`tractor_mix/`](tractor_mix/) | Tractor-Mix / SAIGE association (WDL, Docker, configs) |
 | [`felix/`](felix/) | FELIX LAI GWAS (WDL, Docker, configs) |
 | [`sv_annotation/`](sv_annotation/) | SV site table, CADD-SV, discovery plots |
@@ -35,6 +36,7 @@ Package-level runbooks (image tags, input JSON, calibration gates):
 - [Propagate annotations](propagate_annotations/README.md)
 - [Haplotig locus extraction](bam_to_contig/README.md)
 - [Locityper (Verily Workbench)](locityper/README.md)
+- [ExpansionHunter (Verily Workbench)](expansion_hunter/README.md)
 - [Terra notebook bootstrap](notebooks/terra/README.md)
 - [Verily Workbench notebooks](notebooks/rw/README.md)
 
@@ -204,6 +206,16 @@ then
 [`notebooks/rw/locityper_01_run_stream.ipynb`](notebooks/rw/locityper_01_run_stream.ipynb)
 in a VWB Jupyter app and submit with `wb workflow job run`. Details:
 [`locityper/README.md`](locityper/README.md).
+
+### 10. ExpansionHunter (Verily Workbench)
+
+Per-sample STR genotyping with the bw2 ExpansionHunter fork. Nearline CRAMs
+are subset once with `make_minicram_for_expansion_hunter` (catalog regions +
+mates), then EH runs `--analysis-mode optimized-streaming` on the local
+minicram. Reuse the assembly38 FASTA from the Locityper prep notebook. Open
+[`notebooks/rw/expansion_hunter_01_run.ipynb`](notebooks/rw/expansion_hunter_01_run.ipynb)
+in a VWB Jupyter app and submit with `wb workflow job run`. Details:
+[`expansion_hunter/README.md`](expansion_hunter/README.md).
 
 ## Ad hoc notebooks (not manuscript tables)
 

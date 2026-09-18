@@ -1,0 +1,36 @@
+# Cloud Build config for expansion_hunter/docker/Dockerfile
+# Invoked from expansion_hunter/ via:
+#   gcloud builds submit . --config=docker/cloudbuild.yaml --substitutions=_IMAGE=...,_TAG=...
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-expansion-hunter
+  _TAG: "0.1.0"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 100
+
+timeout: 3600s
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --platform
+      - linux/amd64
+      - -f
+      - docker/Dockerfile
+      - -t
+      - ${_IMAGE}:${_TAG}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - ${_IMAGE}:${_TAG}
+
+images:
+  - ${_IMAGE}:${_TAG}

@@ -1,0 +1,14 @@
+[
+  {
+    "ReferenceRegion": "chr1:2335828-2335843",
+    "VariantType": "Repeat",
+    "LocusStructure": "(AGCCC)*",
+    "LocusId": "1-2335828-2335843-AGCCC"
+  },
+  {
+    "ReferenceRegion": "chr1:2529936-2529946",
+    "VariantType": "Repeat",
+    "LocusStructure": "(CAG)*",
+    "LocusId": "1-2529936-2529946-CAG"
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "ExpansionHunterMinicram.sample_id": "1000000",
+  "ExpansionHunterMinicram.cram": "gs://vwb-aou-datasets-controlled/pooled/wgs/cram/v8_base/wgs_1000000.cram",
+  "ExpansionHunterMinicram.crai": "gs://vwb-aou-datasets-controlled/pooled/wgs/cram/v8_base/wgs_1000000.cram.crai",
+  "ExpansionHunterMinicram.ref_fa": "gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta",
+  "ExpansionHunterMinicram.ref_fai": "gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta.fai",
+  "ExpansionHunterMinicram.catalog": "gs://aou-lr-phase2-resources/expansion_hunter/smoke.catalog.json",
+  "ExpansionHunterMinicram.sex": "female",
+  "ExpansionHunterMinicram.window_size": 1000,
+  "ExpansionHunterMinicram.merge_regions_distance": 1000,
+  "ExpansionHunterMinicram.max_retry": 3,
+  "ExpansionHunterMinicram.wait_time": 30,
+  "ExpansionHunterMinicram.minicram_n_preemptible": 0,
+  "ExpansionHunterMinicram.print_reads_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.0",
+  "ExpansionHunterMinicram.eh_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-expansion-hunter:0.1.0"
+}

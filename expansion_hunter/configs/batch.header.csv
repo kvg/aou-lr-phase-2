@@ -1,0 +1,2 @@
+sample_id,cram,crai,ref_fa,ref_fai,catalog,sex
+1000000,gs://vwb-aou-datasets-controlled/pooled/wgs/cram/v8_base/wgs_1000000.cram,gs://vwb-aou-datasets-controlled/pooled/wgs/cram/v8_base/wgs_1000000.cram.crai,gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta,gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta.fai,gs://aou-lr-phase2-resources/expansion_hunter/smoke.catalog.json,female
