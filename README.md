@@ -212,9 +212,11 @@ in a VWB Jupyter app and submit with `wb workflow job run`. Details:
 Per-sample STR genotyping with the bw2 ExpansionHunter fork. Nearline CRAMs
 are subset once with `make_minicram_for_expansion_hunter` (catalog regions +
 mates), then EH runs `--analysis-mode optimized-streaming` on the local
-minicram. Reuse the assembly38 FASTA from the Locityper prep notebook. Open
+minicram. EH has its own Jupyter VM: open
+[`notebooks/rw/expansion_hunter_00_prep_reference.ipynb`](notebooks/rw/expansion_hunter_00_prep_reference.ipynb)
+then
 [`notebooks/rw/expansion_hunter_01_run.ipynb`](notebooks/rw/expansion_hunter_01_run.ipynb)
-in a VWB Jupyter app and submit with `wb workflow job run`. Details:
+and submit with `wb workflow job run`. Details:
 [`expansion_hunter/README.md`](expansion_hunter/README.md).
 
 ## Ad hoc notebooks (not manuscript tables)

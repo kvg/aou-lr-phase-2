@@ -103,9 +103,9 @@ then [`../rw/locityper_01_run_stream.ipynb`](../rw/locityper_01_run_stream.ipynb
 not Terra.
 
 ExpansionHunter (`expansion_hunter/wdl/ExpansionHunterMinicram.wdl`) is the
-same VWB path:
-[`../rw/expansion_hunter_01_run.ipynb`](../rw/expansion_hunter_01_run.ipynb)
-(reuses the Locityper-staged assembly38 FASTA).
+same VWB path on its own Jupyter VM:
+[`../rw/expansion_hunter_00_prep_reference.ipynb`](../rw/expansion_hunter_00_prep_reference.ipynb)
+then [`../rw/expansion_hunter_01_run.ipynb`](../rw/expansion_hunter_01_run.ipynb).
 
 Haplotig locus extraction (Julie / EichlerLab): `bam_to_contig/wdl/BamToContig.wdl`.
 See `bam_to_contig/README.md`.

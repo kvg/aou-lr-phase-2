@@ -8,12 +8,15 @@ pass builds a local minicram (catalog regions + mates), then EH never touches
 GCS again.
 
 This is a **Verily Workbench** adaptation ([`SOURCE.md`](SOURCE.md)). Do **not**
-submit it from Terra. In a VWB Jupyter app:
+submit it from Terra. EH runs on its **own** Jupyter VM (not the Locityper
+app), so restage refs there. In that VWB Jupyter app:
 
-1. Reuse the GATK `Homo_sapiens_assembly38` FASTA + fai already staged by
-   [`notebooks/rw/locityper_00_prep_reference.ipynb`](../notebooks/rw/locityper_00_prep_reference.ipynb)
+1. [`notebooks/rw/expansion_hunter_00_prep_reference.ipynb`](../notebooks/rw/expansion_hunter_00_prep_reference.ipynb)
+   — GATK `Homo_sapiens_assembly38` FASTA + fai (reuses `locityper/refs/` on
+   GCS if present, else copies Broad → `expansion_hunter/refs/`), smoke +
+   full catalogs; locates the v9 CRAM manifest. No Jellyfish.
 2. [`notebooks/rw/expansion_hunter_01_run.ipynb`](../notebooks/rw/expansion_hunter_01_run.ipynb)
-   — stage catalogs + WDL / register / submit via
+   — stage WDL / register / submit via
    [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
 
 The Workbench **Workflows GUI is unreliable**.
@@ -42,25 +45,27 @@ mate pass (and any `OfftargetRegions`) so genotypes match a full-CRAM run.
 3. Build/push the EH image (`./build_docker.sh`) **and** have the print_reads
    image from [`locityper/`](../locityper/) (or mirrors in a workspace-readable
    Artifact Registry). VPC-SC cannot pull the default tags.
-4. Confirm `locityper_00_prep_reference` already uploaded assembly38 FASTA +
-   fai (EH does not need Jellyfish).
-5. Open `expansion_hunter_01_run`. Set `PRINT_READS_DOCKER` / `EH_DOCKER` if
-   you mirrored the images. `RECREATE_WORKFLOW=True` once after a WDL change.
-6. Stage catalogs + WDL → register `expansion-hunter` → submit. `SUBMIT` is
-   off until you set it.
+4. Run `expansion_hunter_00_prep_reference` on **this** VM (FASTA + catalogs;
+   skips GCS objects that already exist). EH does not need Jellyfish.
+5. Open `expansion_hunter_01_run`. Paste the `gs://` URIs from the prep
+   notebook. Set `PRINT_READS_DOCKER` / `EH_DOCKER` if you mirrored the
+   images. `RECREATE_WORKFLOW=True` once after a WDL change.
+6. Stage the WDL → register `expansion-hunter` → submit. `SUBMIT` is off
+   until you set it.
 
 v9 Illumina CRAMs:
 `workspace/vwb-aou-datasets-controlled-v9/v9/wgs/cram/manifest.csv`
 (`gs://vwb-aou-datasets-controlled/pooled/wgs/cram/v8_base/wgs_{person_id}.cram`).
 
-Staged reference (Locityper prep notebook, 2026-09-15):
+Staged reference (prep notebook prefers an existing Locityper copy, else
+`expansion_hunter/refs/`):
 
 ```
 gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta
 gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta.fai
 ```
 
-Smoke catalog (upload from the runner notebook):
+Smoke catalog (prep notebook upload):
 [`configs/smoke.catalog.json`](configs/smoke.catalog.json) — first two loci from
 the 711-locus panel. Full panel:
 [`configs/candidate_EH_Loci.GRCh38.json`](configs/candidate_EH_Loci.GRCh38.json).
