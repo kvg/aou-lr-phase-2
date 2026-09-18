@@ -10,12 +10,18 @@ upstream:
 - Dropped unused helper tasks (`GenerateDBFromVCF`, `GunzipReference`,
   `SplitBedNames`, `SubsetBed`, `FilterNames`, `FilterBed`).
 - Dropped the `docker://` image prefix (GCP Cromwell).
-- `locityper_docker` / `util_docker` are workflow inputs so VPC-SC workspaces
-  can point at Artifact Registry mirrors.
+- `locityper_docker` / `print_reads_docker` / `util_docker` are workflow
+  inputs so VPC-SC workspaces can point at Artifact Registry mirrors.
 - `technology` and `bg_region_bed` are inputs (Isaac hardcoded
   `--technology illumina` and the GRCh38 chr17 background interval).
 - `Summarize` inlines JSON→TSV instead of `/locityper/extra/into_csv.py` on
   the Broad `lr-hidive` image (that GCR tag is often not pullable from VWB).
+- CRAM extract is **not** `samtools view` over `GCS_OAUTH_TOKEN`. Isaac’s
+  combined `LocityperPreprocessAndGenotype` scatter streamed the Nearline CRAM
+  (and the 4.5 Mb chr17 background) once per shard. Here `MakeMinicram` runs
+  [str-analysis `print_reads`](https://github.com/broadinstitute/str-analysis/blob/main/str_analysis/print_reads.py)
+  once per sample (CRAI → unique containers), `LocityperPreprocess` runs once
+  on that minicram, and `LocityperGenotype` scatters without GCS.
 
 Isaac’s Terra input JSON (data-table placeholders, `fc-secure-` URIs) lived at
 [`locityper/inputs.locityper.json`](https://github.com/EichlerLab/AoU_WDL/blob/main/locityper/inputs.locityper.json).

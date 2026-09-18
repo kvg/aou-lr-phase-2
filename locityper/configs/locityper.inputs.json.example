@@ -5,14 +5,17 @@
   "LocityperStream.ref_fa_uncompressed": "gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta",
   "LocityperStream.ref_fai_uncompressed": "gs://aou-lr-phase2-resources/locityper/refs/Homo_sapiens_assembly38.fasta.fai",
   "LocityperStream.counts_jf": "gs://aou-lr-phase2-resources/locityper/refs/counts.Homo_sapiens_assembly38.k25.jf",
-  "LocityperStream.bed": "gs://BUCKET/locityper/regions.bed",
-  "LocityperStream.locityper_db_tar_gz": "gs://BUCKET/locityper/vcf_db.tar.gz",
+  "LocityperStream.bed": "gs://aou-lr-phase2-resources/locityper/smoke.bed",
+  "LocityperStream.locityper_db_tar_gz": "gs://aou-lr-phase2-resources/locityper/vcf_db.smoke.tar.gz",
   "LocityperStream.N_split": 150,
   "LocityperStream.locityper_n_cpu": 2,
   "LocityperStream.locityper_extra_mem_gb": 4,
   "LocityperStream.window_grab": 3000,
-  "LocityperStream.max_retry": 7,
-  "LocityperStream.wait_time": 75,
+  "LocityperStream.max_retry": 3,
+  "LocityperStream.wait_time": 30,
   "LocityperStream.n_preemptible": 2,
-  "LocityperStream.technology": "illumina"
+  "LocityperStream.minicram_n_preemptible": 0,
+  "LocityperStream.technology": "illumina",
+  "LocityperStream.print_reads_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.0",
+  "LocityperStream.locityper_docker": "eichlerlab/locityper:1.4.5.0"
 }

@@ -196,7 +196,8 @@ cohort submissions. Details: [`bam_to_contig/README.md`](bam_to_contig/README.md
 
 ### 9. Locityper (Verily Workbench)
 
-Isaac’s per-sample stream/genotype WDL, adapted for VWB Cromwell. The
+Isaac’s per-sample genotype WDL, adapted for VWB Cromwell. Nearline CRAMs
+are subset once with `print_reads` (not `samtools view` per shard). The
 Workbench Workflows GUI is not used. Open
 [`notebooks/rw/locityper_00_prep_reference.ipynb`](notebooks/rw/locityper_00_prep_reference.ipynb)
 then
