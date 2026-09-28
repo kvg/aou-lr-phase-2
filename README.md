@@ -198,26 +198,31 @@ cohort submissions. Details: [`bam_to_contig/README.md`](bam_to_contig/README.md
 
 ### 9. Locityper (Verily Workbench)
 
-Isaac’s per-sample genotype WDL, adapted for VWB Cromwell. Nearline CRAMs
-are subset once with `print_reads` (not `samtools view` per shard). The
-Workbench Workflows GUI is not used. Open
-[`notebooks/rw/locityper_00_prep_reference.ipynb`](notebooks/rw/locityper_00_prep_reference.ipynb)
-then
-[`notebooks/rw/locityper_01_run_stream.ipynb`](notebooks/rw/locityper_01_run_stream.ipynb)
-in a VWB Jupyter app and submit with `wb workflow job run`. Details:
-[`locityper/README.md`](locityper/README.md).
+Isaac’s per-sample genotype WDL, adapted for VWB. Nearline CRAMs are
+subset once with `print_reads` (not `samtools view` per shard). Prefer
+Cloud Batch (`dsub --provider google-batch`) when Cromwell is spotty:
+[`notebooks/rw/locityper_02_run_batch.ipynb`](notebooks/rw/locityper_02_run_batch.ipynb).
+Cromwell remains in
+[`notebooks/rw/locityper_01_run_stream.ipynb`](notebooks/rw/locityper_01_run_stream.ipynb).
+Prep refs with
+[`notebooks/rw/locityper_00_prep_reference.ipynb`](notebooks/rw/locityper_00_prep_reference.ipynb).
+Details: [`locityper/README.md`](locityper/README.md),
+[`locityper/batch/README.md`](locityper/batch/README.md).
 
 ### 10. ExpansionHunter (Verily Workbench)
 
 Per-sample STR genotyping with the bw2 ExpansionHunter fork. Nearline CRAMs
 are subset once with `make_minicram_for_expansion_hunter` (catalog regions +
 mates), then EH runs `--analysis-mode optimized-streaming` on the local
-minicram. EH has its own Jupyter VM: open
-[`notebooks/rw/expansion_hunter_00_prep_reference.ipynb`](notebooks/rw/expansion_hunter_00_prep_reference.ipynb)
-then
-[`notebooks/rw/expansion_hunter_01_run.ipynb`](notebooks/rw/expansion_hunter_01_run.ipynb)
-and submit with `wb workflow job run`. Details:
-[`expansion_hunter/README.md`](expansion_hunter/README.md).
+minicram. EH has its own Jupyter VM. Prefer Cloud Batch
+(`dsub --provider google-batch`) when Cromwell is spotty:
+[`notebooks/rw/expansion_hunter_02_run_batch.ipynb`](notebooks/rw/expansion_hunter_02_run_batch.ipynb).
+Cromwell remains in
+[`notebooks/rw/expansion_hunter_01_run.ipynb`](notebooks/rw/expansion_hunter_01_run.ipynb).
+Prep refs with
+[`notebooks/rw/expansion_hunter_00_prep_reference.ipynb`](notebooks/rw/expansion_hunter_00_prep_reference.ipynb).
+Details: [`expansion_hunter/README.md`](expansion_hunter/README.md),
+[`expansion_hunter/batch/README.md`](expansion_hunter/batch/README.md).
 
 ## Ad hoc notebooks (not manuscript tables)
 

@@ -15,11 +15,18 @@ app), so restage refs there. In that VWB Jupyter app:
    — GATK `Homo_sapiens_assembly38` FASTA + fai (reuses `locityper/refs/` on
    GCS if present, else copies Broad → `expansion_hunter/refs/`), smoke +
    full catalogs; locates the v9 CRAM manifest. No Jellyfish.
-2. [`notebooks/rw/expansion_hunter_01_run.ipynb`](../notebooks/rw/expansion_hunter_01_run.ipynb)
+2. **Cloud Batch (preferred when Cromwell is spotty):**
+   [`notebooks/rw/expansion_hunter_02_run_batch.ipynb`](../notebooks/rw/expansion_hunter_02_run_batch.ipynb)
+   — [`dsub --provider google-batch`](https://github.com/DataBiosphere/dsub)
+   via [`batch/submit_dsub.sh`](batch/submit_dsub.sh). Details:
+   [`batch/README.md`](batch/README.md).
+3. **Cromwell (still works, less consistent):**
+   [`notebooks/rw/expansion_hunter_01_run.ipynb`](../notebooks/rw/expansion_hunter_01_run.ipynb)
    — stage WDL / register / submit via
    [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
 
-The Workbench **Workflows GUI is unreliable**.
+The Workbench **Workflows GUI is unreliable**. VWB Cloud Batch via dsub is
+the more consistent / cheaper submit path; keep the WDL around as a backup.
 
 ## What the WDL does
 
@@ -35,6 +42,10 @@ name `ExpansionHunterMinicram`.
 Nearline. Smoke-test **one sample** and the two-locus catalog before a cohort
 CSV.
 
+The Cloud Batch scripts ([`batch/`](batch/)) run the same two steps as two
+`dsub` jobs (different Docker images). Minicram is not preemptible; genotype
+is `--preemptible 2`.
+
 Do not swap this extract for Locityper’s `print_reads` + BED: EH needs the
 mate pass (and any `OfftargetRegions`) so genotypes match a full-CRAM run.
 
@@ -47,11 +58,12 @@ mate pass (and any `OfftargetRegions`) so genotypes match a full-CRAM run.
    Artifact Registry). VPC-SC cannot pull the default tags.
 4. Run `expansion_hunter_00_prep_reference` on **this** VM (FASTA + catalogs;
    skips GCS objects that already exist). EH does not need Jellyfish.
-5. Open `expansion_hunter_01_run`. Paste the `gs://` URIs from the prep
-   notebook. Set `PRINT_READS_DOCKER` / `EH_DOCKER` if you mirrored the
-   images. `RECREATE_WORKFLOW=True` once after a WDL change.
-6. Stage the WDL → register `expansion-hunter` → submit. `SUBMIT` is off
-   until you set it.
+5. Open `expansion_hunter_02_run_batch` (Cloud Batch) **or**
+   `expansion_hunter_01_run` (Cromwell). Paste the `gs://` URIs from the
+   prep notebook. Set `PRINT_READS_DOCKER` / `EH_DOCKER` if you mirrored
+   the images. For Cromwell, `RECREATE_WORKFLOW=True` once after a WDL
+   change.
+6. `SUBMIT` is off until you set it.
 
 v9 Illumina CRAMs:
 `workspace/vwb-aou-datasets-controlled-v9/v9/wgs/cram/manifest.csv`

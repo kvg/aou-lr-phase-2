@@ -12,11 +12,18 @@ Do **not** submit it from Terra. In a VWB Jupyter app:
 1. [`notebooks/rw/locityper_00_prep_reference.ipynb`](../notebooks/rw/locityper_00_prep_reference.ipynb)
    — GATK `Homo_sapiens_assembly38` FASTA + fai, Jellyfish 25-mers, one-locus
    smoke BED + toy `vcf_db.tar.gz`; locates the v9 CRAM manifest
-2. [`notebooks/rw/locityper_01_run_stream.ipynb`](../notebooks/rw/locityper_01_run_stream.ipynb)
+2. **Cloud Batch (preferred when Cromwell is spotty):**
+   [`notebooks/rw/locityper_02_run_batch.ipynb`](../notebooks/rw/locityper_02_run_batch.ipynb)
+   — [`dsub --provider google-batch`](https://github.com/DataBiosphere/dsub)
+   via [`batch/submit_dsub.sh`](batch/submit_dsub.sh). Details:
+   [`batch/README.md`](batch/README.md).
+3. **Cromwell (still works, less consistent):**
+   [`notebooks/rw/locityper_01_run_stream.ipynb`](../notebooks/rw/locityper_01_run_stream.ipynb)
    — stage / register / submit via [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
    (same pattern as Matt’s `eTRs_getPhasedAlleleInfo` notebook)
 
-The Workbench **Workflows GUI is unreliable**.
+The Workbench **Workflows GUI is unreliable**. VWB Cloud Batch via dsub is
+the more consistent / cheaper submit path; keep the WDL around as a backup.
 
 ## What the WDL does
 
@@ -38,6 +45,10 @@ The Workbench **Workflows GUI is unreliable**.
 `bg_region_bed` for a non-GRCh38 reference. `minicram_n_preemptible` defaults
 to **0** so a preempt does not re-read Nearline.
 
+The Cloud Batch scripts ([`batch/`](batch/)) collapse preprocess + all-locus
+genotype + summarize onto **one** VM (GNU parallel, no scatter) after the
+same `print_reads` minicram job.
+
 BED column 4 is the locus name (`cut -f4`). Missing names → empty
 `--subset-loci` and failed shards.
 
@@ -54,12 +65,12 @@ sample** and a tiny BED before a cohort CSV.
    workspace-readable Artifact Registry. VPC-SC cannot pull the default tag.
 4. Run `locityper_00_prep_reference` (GATK `Homo_sapiens_assembly38` + Jellyfish
    + smoke catalog). Size the VM to ≥16 GB RAM / ~20 GB free disk.
-5. Open `locityper_01_run_stream`. Paste the `gs://` URIs from the prep
-   notebook (including `smoke.bed` + `vcf_db.smoke.tar.gz`). Set
-   `PRINT_READS_DOCKER` if you mirrored the image. `RECREATE_WORKFLOW=True`
-   once after this WDL change.
-6. Stage the WDL → register `locityper-stream` → submit. `SUBMIT` is off
-   until you set it.
+5. Open `locityper_02_run_batch` (Cloud Batch) **or**
+   `locityper_01_run_stream` (Cromwell). Paste the `gs://` URIs from the
+   prep notebook (including `smoke.bed` + `vcf_db.smoke.tar.gz`). Set
+   `PRINT_READS_DOCKER` / `LOCITYPER_DOCKER` if you mirrored the images.
+   For Cromwell, `RECREATE_WORKFLOW=True` once after a WDL change.
+6. `SUBMIT` is off until you set it.
 
 v9 Illumina CRAMs:
 `workspace/vwb-aou-datasets-controlled-v9/v9/wgs/cram/manifest.csv`

@@ -38,8 +38,12 @@ felix/.docker_scripts/
 felix/eval/*.log
 
 # VWB locityper / ExpansionHunter notebook scratch (inputs JSON / batch CSV)
-notebooks/rw/locityper_rw_scratch/
 notebooks/rw/expansion_hunter_rw_scratch/
+notebooks/rw/locityper_rw_scratch/
+
+# dsub task TSVs generated at submit time
+expansion_hunter/batch/.tasks/
+locityper/batch/.tasks/
 
 # Rust extract-tracts-flare build artifacts
 tractor_mix/extract_tracts_flare/target/

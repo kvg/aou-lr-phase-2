@@ -99,13 +99,15 @@ WDLs stay in `tractor_mix/wdl/`, `felix/wdl/`, `sv_annotation/wdl/`,
 
 Locityper (`locityper/wdl/LocityperStream.wdl`) is **Verily Workbench only** —
 run [`../rw/locityper_00_prep_reference.ipynb`](../rw/locityper_00_prep_reference.ipynb)
-then [`../rw/locityper_01_run_stream.ipynb`](../rw/locityper_01_run_stream.ipynb),
+then the Cloud Batch notebook [`../rw/locityper_02_run_batch.ipynb`](../rw/locityper_02_run_batch.ipynb)
+(or Cromwell [`../rw/locityper_01_run_stream.ipynb`](../rw/locityper_01_run_stream.ipynb)),
 not Terra.
 
 ExpansionHunter (`expansion_hunter/wdl/ExpansionHunterMinicram.wdl`) is the
 same VWB path on its own Jupyter VM:
 [`../rw/expansion_hunter_00_prep_reference.ipynb`](../rw/expansion_hunter_00_prep_reference.ipynb)
-then [`../rw/expansion_hunter_01_run.ipynb`](../rw/expansion_hunter_01_run.ipynb).
+then [`../rw/expansion_hunter_02_run_batch.ipynb`](../rw/expansion_hunter_02_run_batch.ipynb)
+(or Cromwell [`../rw/expansion_hunter_01_run.ipynb`](../rw/expansion_hunter_01_run.ipynb)).
 
 Haplotig locus extraction (Julie / EichlerLab): `bam_to_contig/wdl/BamToContig.wdl`.
 See `bam_to_contig/README.md`.
