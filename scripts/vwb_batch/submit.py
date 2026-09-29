@@ -11,15 +11,18 @@ from typing import Any
 MAX_JOB_JSON_BYTES = 900_000  # Batch limit is 1 MiB; leave headroom
 
 
-def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    print("$", " ".join(cmd), flush=True)
+def _run(cmd: list[str], *, check: bool = True, quiet: bool = False) -> subprocess.CompletedProcess[str]:
+    if not quiet:
+        print("$", " ".join(cmd), flush=True)
     proc = subprocess.run(cmd, check=False, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout, end="" if proc.stdout.endswith("\n") else "\n")
-    if proc.stderr:
-        print(proc.stderr, end="" if proc.stderr.endswith("\n") else "\n")
+    if not quiet:
+        if proc.stdout:
+            print(proc.stdout, end="" if proc.stdout.endswith("\n") else "\n")
+        if proc.stderr:
+            print(proc.stderr, end="" if proc.stderr.endswith("\n") else "\n")
     if check and proc.returncode != 0:
-        raise RuntimeError(f"command failed ({proc.returncode}): {' '.join(cmd)}")
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(f"command failed ({proc.returncode}): {' '.join(cmd)}" + (f"\n{err}" if err else ""))
     return proc
 
 
@@ -68,7 +71,7 @@ def submit_job(
     return job_id
 
 
-def describe_job(*, job_id: str, project: str, region: str) -> dict[str, Any]:
+def describe_job(*, job_id: str, project: str, region: str, quiet: bool = False) -> dict[str, Any]:
     proc = _run(
         [
             "gcloud",
@@ -81,6 +84,7 @@ def describe_job(*, job_id: str, project: str, region: str) -> dict[str, Any]:
             "--format=json",
         ],
         check=False,
+        quiet=quiet,
     )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
@@ -88,7 +92,29 @@ def describe_job(*, job_id: str, project: str, region: str) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
-def list_tasks(*, job_id: str, project: str, region: str) -> list[dict[str, Any]]:
+def list_jobs(*, project: str, region: str, filter_expr: str = "") -> list[dict[str, Any]]:
+    cmd = [
+        "gcloud",
+        "batch",
+        "jobs",
+        "list",
+        f"--location={region}",
+        f"--project={project}",
+        "--format=json",
+    ]
+    if filter_expr:
+        cmd.append(f"--filter={filter_expr}")
+    proc = _run(cmd, check=False, quiet=True)
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(f"jobs list failed: {err}")
+    data = json.loads(proc.stdout or "[]")
+    if isinstance(data, dict):
+        return data.get("jobs") or []
+    return data
+
+
+def list_tasks(*, job_id: str, project: str, region: str, quiet: bool = False) -> list[dict[str, Any]]:
     proc = _run(
         [
             "gcloud",
@@ -101,6 +127,7 @@ def list_tasks(*, job_id: str, project: str, region: str) -> list[dict[str, Any]
             "--format=json",
         ],
         check=False,
+        quiet=quiet,
     )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()

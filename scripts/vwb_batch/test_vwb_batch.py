@@ -11,8 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from vwb_batch import alloc, cohort, cost, submit  # noqa: E402
+from vwb_batch import alloc, cohort, cost, monitor, submit  # noqa: E402
 from vwb_batch.pipelines import expansion_hunter as eh  # noqa: E402
+from vwb_batch.pipelines import locityper as lt  # noqa: E402
 
 
 def _records(n: int) -> list[dict[str, str]]:
@@ -186,6 +187,123 @@ def test_worker_source_compiles() -> None:
     print("worker source + tuned compute ok")
 
 
+def test_locityper_job_json() -> None:
+    records = []
+    for i in range(80):
+        sid = f"s{i:06d}"
+        records.append(
+            {
+                "sample_id": sid,
+                "cram": f"gs://bucket/wgs_{sid}.cram",
+                "crai": f"gs://bucket/wgs_{sid}.cram.crai",
+                "ref_fa": "gs://bucket/ref.fa",
+                "ref_fai": "gs://bucket/ref.fa.fai",
+                "counts_jf": "gs://bucket/counts.jf",
+                "bed": "gs://bucket/loci.bed",
+                "db_tar": "gs://bucket/vcf_db.tar.gz",
+                "sex": "female",
+            }
+        )
+    rows = lt.env_rows(records, stage="minicram", out_prefix="gs://out/lt", project="proj")
+    job = lt.build_job(
+        stage="minicram",
+        rows=rows,
+        tasks_tsv_uri="gs://out/runs/r/shards/minicram/shard-0000/tasks.tsv",
+        out_prefix="gs://out/lt",
+        project="proj",
+        region="us-central1",
+        sa="pet@example.com",
+        image=lt.PRINT_READS_DOCKER,
+        parallelism=20,
+        labels=alloc.job_labels(pipeline="locityper", run_id="lt-test", stage="minicram", shard=0),
+    )
+    group = job["taskGroups"][0]
+    assert group["taskCount"] == 80
+    assert "taskEnvironments" not in group
+    size = submit.assert_job_json_ok(job)
+    assert size < submit.MAX_JOB_JSON_BYTES
+    print("locityper minicram TASKS_TSV job json", size, "bytes")
+
+    gt_rows = lt.env_rows(records[:10], stage="genotype", out_prefix="gs://out/lt", project="proj")
+    gt = lt.build_job(
+        stage="genotype",
+        rows=gt_rows,
+        tasks_tsv_uri="gs://out/runs/r/shards/genotype/shard-0000/tasks.tsv",
+        out_prefix="gs://out/lt",
+        project="proj",
+        region="us-central1",
+        sa="pet@example.com",
+        image=lt.LOCITYPER_DOCKER,
+        parallelism=10,
+        labels=alloc.job_labels(pipeline="locityper", run_id="lt-test", stage="genotype", shard=0),
+    )
+    spec = gt["taskGroups"][0]["taskSpec"]
+    assert spec["runnables"][2]["alwaysRun"] is True
+    assert spec["computeResource"]["cpuMilli"] == 2000
+    csv_path = ROOT / "locityper" / "configs" / "batch.header.csv"
+    mod = lt._load_submit_batch()
+    smoke = mod.build_minicram_job(
+        csv_path=csv_path,
+        worker_path=ROOT / "locityper" / "batch" / "make_minicram.py",
+        image=lt.PRINT_READS_DOCKER,
+        out_prefix="gs://out/lt",
+        project="proj",
+        region="us-central1",
+        sa="pet@example.com",
+    )
+    env = smoke["taskGroups"][0]["taskSpec"]["environment"]["variables"]
+    assert env["SAMPLE_ID"] == "1000000"
+    assert env["BED"].endswith("smoke.bed")
+    src = mod._worker_source(ROOT / "locityper" / "batch" / "make_minicram.py")
+    compile(src, "lt-minicram-worker", "exec")
+    print("locityper genotype + smoke csv ok", submit.job_json_size(gt), "bytes")
+
+
+def test_monitor_summary() -> None:
+    job = {
+        "name": "projects/p/locations/us-central1/jobs/eh-mc-pilot-s000-120000",
+        "createTime": "2026-09-28T20:00:00Z",
+        "labels": {
+            "pipeline": "expansion-hunter",
+            "run-id": "eh-260928-pilot",
+            "stage": "minicram",
+            "shard": "0",
+        },
+        "taskGroups": [
+            {
+                "taskCount": 20,
+                "parallelism": 20,
+                "taskSpec": {"computeResource": {"cpuMilli": 4000, "memoryMib": 16384}},
+            }
+        ],
+        "allocationPolicy": {"instances": [{"policy": {"machineType": "e2-standard-4"}}]},
+        "status": {
+            "state": "RUNNING",
+            "runDuration": "120s",
+            "taskGroups": {"group0": {"counts": {"SUCCEEDED": "5", "RUNNING": "15"}}},
+        },
+    }
+    row = monitor.summarize_job(job)
+    assert row["job_id"] == "eh-mc-pilot-s000-120000"
+    assert row["succeeded"] == 5
+    assert row["running"] == 15
+    assert row["inflight_vcpu"] == 60
+    assert row["age"] == "2m00s"
+    done = dict(job)
+    done["status"] = {
+        "state": "SUCCEEDED",
+        "runDuration": "480s",
+        "taskGroups": {"group0": {"counts": {"SUCCEEDED": "20"}}},
+    }
+    assert monitor.summarize_job(done)["inflight_vcpu"] == 0
+    kept = monitor.filter_jobs([job], name_prefix="eh-", run_id="eh-260928-pilot")
+    assert len(kept) == 1
+    assert monitor.filter_jobs([job], name_prefix="lt-") == []
+    table = monitor.format_table([row])
+    assert "eh-mc-pilot-s000-120000" in table
+    print("monitor ok", row["inflight_vcpu"], "vCPU")
+
+
 def main() -> None:
     test_cost()
     test_job_json_tsv()
@@ -193,6 +311,8 @@ def main() -> None:
     test_shards_and_ids()
     test_recommend_compute()
     test_worker_source_compiles()
+    test_locityper_job_json()
+    test_monitor_summary()
     print("all ok")
 
 

@@ -8,6 +8,17 @@ import random
 from pathlib import Path
 
 BATCH_FIELDS = ("sample_id", "cram", "crai", "ref_fa", "ref_fai", "catalog", "sex")
+LOCITYPER_FIELDS = (
+    "sample_id",
+    "cram",
+    "crai",
+    "ref_fa",
+    "ref_fai",
+    "counts_jf",
+    "bed",
+    "db_tar",
+    "sex",
+)
 
 
 def find_v9_manifest() -> Path | None:

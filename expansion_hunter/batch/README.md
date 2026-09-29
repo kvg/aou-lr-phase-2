@@ -30,6 +30,8 @@ Cohort runs use a GCS ledger (`scripts/vwb_batch/`):
 [`expansion_hunter_03_budget.ipynb`](../../notebooks/rw/expansion_hunter_03_budget.ipynb)
 then
 [`expansion_hunter_04_dispatch.ipynb`](../../notebooks/rw/expansion_hunter_04_dispatch.ipynb).
+Read-only status of smoke + ledger jobs:
+[`batch_monitor.ipynb`](../../notebooks/rw/batch_monitor.ipynb).
 Tasks read a GCS TSV (`TASKS_TSV` + `BATCH_TASK_INDEX`) so job JSON stays
 under 1 MiB at 100k samples. Pilot workers write peak RSS/CPU to
 `*.resources.tsv`; `_03` tunes `cpuMilli` / `memoryMib` / `bootDiskMib` into

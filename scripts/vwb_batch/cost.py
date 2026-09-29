@@ -162,11 +162,12 @@ def recommend_compute(
     mem_headroom: float = 1.4,
     min_memory_mib: int = 2048,
     min_disk_mib: int = 20480,
+    defaults: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Pilot p90 RSS/CPU/disk → Batch computeResource. Never larger than the default."""
     if not rows:
         raise ValueError(f"no resource stats for {stage}")
-    default = dict(DEFAULT_COMPUTE[stage])
+    default = dict(defaults or DEFAULT_COMPUTE[stage])
     rss_mib = [r["peak_rss_bytes"] / (1024**2) for r in rows]
     disk_mib = [r["peak_disk_bytes"] / (1024**2) for r in rows]
     cores = [r["cpu_cores_avg"] for r in rows]

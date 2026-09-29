@@ -21,8 +21,9 @@ app), so restage refs there. In that VWB Jupyter app:
    [`expansion_hunter_03_budget.ipynb`](../notebooks/rw/expansion_hunter_03_budget.ipynb)
    (20-sample pilot + p90 keep list) then
    [`expansion_hunter_04_dispatch.ipynb`](../notebooks/rw/expansion_hunter_04_dispatch.ipynb)
-   (shards / poll / retry). Library:
-   [`scripts/vwb_batch/`](../scripts/vwb_batch/). Details:
+   (shards / poll / retry). Status of every Batch job:
+   [`batch_monitor.ipynb`](../notebooks/rw/batch_monitor.ipynb) (read-only).
+   Library: [`scripts/vwb_batch/`](../scripts/vwb_batch/). Details:
    [`batch/README.md`](batch/README.md).
 3. **Cromwell (still works, less consistent):**
    [`notebooks/rw/expansion_hunter_01_run.ipynb`](../notebooks/rw/expansion_hunter_01_run.ipynb)

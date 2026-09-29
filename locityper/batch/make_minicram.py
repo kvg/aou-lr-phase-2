@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""Native Batch minicram worker (print-reads 0.1.2: python, no bash).
+
+Downloads BED, hg38, and the CRAI with google.cloud.storage. Leaves the
+Nearline CRAM as gs:// so str-analysis IntervalReader range-fetches only the
+locus + chr17 background containers. Uploads minicram, crai, transfer stats.
+"""
+
+from __future__ import annotations
+
+import csv
+import os
+import subprocess
+import sys
+import time
+import traceback
+from pathlib import Path
+
+from google.cloud import storage
+
+VIP = "199.36.153.4"
+HOSTS = (
+    "restricted.googleapis.com",
+    "storage.googleapis.com",
+    "oauth2.googleapis.com",
+    "www.googleapis.com",
+    "accounts.google.com",
+    "iamcredentials.googleapis.com",
+)
+DEFAULT_BG = "chr17\t72062001\t76562000"
+
+
+def _start_monitor(work: Path):
+    try:
+        mon_cls = ResourceMonitor  # prepended by submit_batch._worker_source
+    except NameError:
+        try:
+            from resource_monitor import ResourceMonitor as mon_cls
+        except ImportError:
+            return None
+    mon = mon_cls(work)
+    mon.start()
+    return mon
+
+
+def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str) -> Path | None:
+    if mon is None:
+        return None
+    stats = mon.stop()
+    stats["sample_id"] = sample_id
+    stats["stage"] = stage
+    path = work / "resource_stats.tsv"
+    try:
+        write_resource_tsv(path, stats)
+    except NameError:
+        from resource_monitor import write_resource_tsv as _write
+
+        _write(path, stats)
+    print(
+        f"resource peak_rss_mib={stats['peak_rss_bytes'] / (1024**2):.1f} "
+        f"cpu_cores_avg={stats['cpu_cores_avg']:.2f} wall_sec={stats['wall_sec']:.1f}",
+        flush=True,
+    )
+    return path
+
+
+def env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise SystemExit(f"{name} is empty")
+    return value
+
+
+def apply_task_tsv() -> None:
+    uri = os.environ.get("TASKS_TSV", "").strip()
+    if not uri:
+        return
+    idx = int(os.environ.get("BATCH_TASK_INDEX", "0"))
+    project = (
+        os.environ.get("GCLOUD_PROJECT", "").strip()
+        or os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    )
+    if not project:
+        raise SystemExit("GCLOUD_PROJECT is empty (needed to load TASKS_TSV)")
+    work = Path("/work")
+    work.mkdir(parents=True, exist_ok=True)
+    dest = work / "tasks.tsv"
+    download(client(project), uri, dest, project)
+    with dest.open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    if idx < 0 or idx >= len(rows):
+        raise SystemExit(f"BATCH_TASK_INDEX {idx} out of range n={len(rows)}")
+    for key, value in rows[idx].items():
+        if key:
+            os.environ[key] = "" if value is None else str(value)
+    print(f"TASKS_TSV row {idx} SAMPLE_ID={os.environ.get('SAMPLE_ID')}", flush=True)
+
+
+def split_gs(uri: str) -> tuple[str, str]:
+    if not uri.startswith("gs://"):
+        raise SystemExit(f"expected gs:// URI, got {uri}")
+    bucket, _, blob = uri[5:].partition("/")
+    if not bucket or not blob:
+        raise SystemExit(f"bad gs:// URI: {uri}")
+    return bucket, blob
+
+
+def ensure_restricted_vip() -> None:
+    try:
+        existing = Path("/etc/hosts").read_text(encoding="utf-8")
+    except OSError:
+        return
+    needed = [h for h in HOSTS if h not in existing]
+    if not needed:
+        return
+    try:
+        with Path("/etc/hosts").open("a", encoding="utf-8") as fh:
+            for host in needed:
+                fh.write(f"{VIP} {host}\n")
+    except OSError:
+        return
+
+
+def client(project: str) -> storage.Client:
+    os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+    os.environ["GOOGLE_CLOUD_PROJECT"] = project
+    os.environ["CLOUDSDK_CORE_PROJECT"] = project
+    return storage.Client(project=project)
+
+
+def download(gcs: storage.Client, uri: str, dest: Path, project: str) -> None:
+    bucket_name, blob_name = split_gs(uri)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    print(f"download {uri} -> {dest}", flush=True)
+    gcs.bucket(bucket_name, user_project=project).blob(blob_name).download_to_filename(str(dest))
+    if dest.stat().st_size <= 0:
+        raise SystemExit(f"empty download: {uri}")
+
+
+def upload(gcs: storage.Client, src: Path, uri: str, project: str) -> None:
+    bucket_name, blob_name = split_gs(uri)
+    print(f"upload {src} -> {uri} ({src.stat().st_size} bytes)", flush=True)
+    gcs.bucket(bucket_name, user_project=project).blob(blob_name).upload_from_filename(str(src))
+
+
+def write_intervals(bed: Path, dest: Path, *, window: int, bg_line: str) -> None:
+    lines: list[str] = []
+    for raw in bed.read_text(encoding="utf-8").splitlines():
+        raw = raw.strip()
+        if not raw or raw.startswith("#"):
+            continue
+        parts = raw.split("\t")
+        if len(parts) < 3:
+            raise SystemExit(f"BED needs chrom/start/end: {raw}")
+        start = max(int(parts[1]) - window, 0)
+        end = int(parts[2]) + window
+        lines.append(f"{parts[0]}\t{start}\t{end}")
+    bg = bg_line.replace("\\t", "\t").strip()
+    if bg:
+        parts = bg.split("\t")
+        if len(parts) >= 3:
+            start = max(int(parts[1]) - window, 0)
+            end = int(parts[2]) + window
+            lines.append(f"{parts[0]}\t{start}\t{end}")
+    if not lines:
+        raise SystemExit("no intervals from BED")
+    dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {len(lines)} intervals to {dest}", flush=True)
+
+
+def run_print_reads(work: Path, *, cram: str, crai: Path, ref: Path, intervals: Path, out_cram: Path, project: str) -> None:
+    cmd = [
+        sys.executable,
+        "-u",
+        "-m",
+        "str_analysis.print_reads",
+        "-R",
+        str(ref),
+        "--read-index",
+        str(crai),
+        "-L",
+        str(intervals),
+        "--padding",
+        "0",
+        "-o",
+        str(out_cram),
+        "--verbose",
+        "--output-data-transfer-stats",
+        "--gcloud-project",
+        project,
+        cram,
+    ]
+    print("+", " ".join(cmd), flush=True)
+    subprocess.run(cmd, check=True, cwd=work)
+
+
+def main() -> int:
+    ensure_restricted_vip()
+    work = Path("/work")
+    work.mkdir(parents=True, exist_ok=True)
+    os.chdir(work)
+    apply_task_tsv()
+
+    sample_id = env("SAMPLE_ID")
+    cram = env("CRAM")
+    crai_uri = env("CRAI")
+    ref_fa_uri = env("REF_FA")
+    ref_fai_uri = env("REF_FAI")
+    bed_uri = env("BED")
+    project = env("GCLOUD_PROJECT")
+    minicram_uri = env("MINICRAM")
+    minicrai_uri = env("MINICRAI")
+    stats_uri = env("TRANSFER_STATS")
+    resource_uri = os.environ.get("RESOURCE_STATS", "").strip()
+    log_uri = os.environ.get("WORKER_LOG_GCS", "").strip()
+    window = int(os.environ.get("WINDOW_GRAB", "3000"))
+    bg_line = os.environ.get("BG_REGION_BED", DEFAULT_BG)
+    max_retry = int(os.environ.get("MAX_RETRY", "3"))
+    wait_time = int(os.environ.get("WAIT_TIME", "30"))
+    monitor = _start_monitor(work)
+
+    if not cram.startswith("gs://") or not crai_uri.startswith("gs://"):
+        raise SystemExit(f"CRAM and CRAI must stay gs:// (not localized): {cram} {crai_uri}")
+
+    log_path = work / "worker.log"
+    log_fh = log_path.open("w", encoding="utf-8")
+
+    class Tee:
+        def __init__(self, *streams):
+            self.streams = streams
+
+        def write(self, data):
+            for stream in self.streams:
+                stream.write(data)
+                stream.flush()
+            return len(data)
+
+        def flush(self):
+            for stream in self.streams:
+                stream.flush()
+
+    sys.stdout = Tee(sys.__stdout__, log_fh)
+    sys.stderr = Tee(sys.__stderr__, log_fh)
+
+    gcs = client(project)
+    status = 0
+    try:
+        print(f"minicram start sample={sample_id} project={project}", flush=True)
+        print(f"CRAM={cram}", flush=True)
+        bed = work / "loci.bed"
+        ref = work / "reference.fa"
+        ref_fai = work / "reference.fa.fai"
+        crai = work / f"{sample_id}.cram.crai"
+        intervals = work / "intervals.bed"
+        out_cram = work / f"{sample_id}.minicram.cram"
+
+        download(gcs, bed_uri, bed, project)
+        download(gcs, ref_fa_uri, ref, project)
+        download(gcs, ref_fai_uri, ref_fai, project)
+        download(gcs, crai_uri, crai, project)
+        write_intervals(bed, intervals, window=window, bg_line=bg_line)
+        print(intervals.read_text(encoding="utf-8"), flush=True)
+
+        last_error = None
+        for attempt in range(1, max_retry + 1):
+            for leftover in work.glob("*.data_transfer_stats.tsv"):
+                leftover.unlink()
+            out_cram.unlink(missing_ok=True)
+            Path(str(out_cram) + ".crai").unlink(missing_ok=True)
+            try:
+                run_print_reads(
+                    work,
+                    cram=cram,
+                    crai=crai,
+                    ref=ref,
+                    intervals=intervals,
+                    out_cram=out_cram,
+                    project=project,
+                )
+                last_error = None
+                break
+            except subprocess.CalledProcessError as exc:
+                last_error = exc
+                print(f"print_reads failed attempt {attempt}/{max_retry}", flush=True)
+                if attempt == max_retry:
+                    raise
+                time.sleep(wait_time)
+
+        if last_error is not None:
+            raise last_error
+        out_crai = Path(str(out_cram) + ".crai")
+        if not out_cram.is_file() or out_cram.stat().st_size <= 0:
+            raise SystemExit("print_reads wrote no CRAM")
+        if not out_crai.is_file() or out_crai.stat().st_size <= 0:
+            raise SystemExit("print_reads wrote no CRAI")
+        stats = sorted(work.glob("*.data_transfer_stats.tsv"))
+        if not stats:
+            raise SystemExit("print_reads wrote no data_transfer_stats.tsv")
+
+        upload(gcs, out_cram, minicram_uri, project)
+        upload(gcs, out_crai, minicrai_uri, project)
+        upload(gcs, stats[0], stats_uri, project)
+        print("minicram done", flush=True)
+    except Exception:
+        status = 1
+        traceback.print_exc()
+    finally:
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        stats_path = _dump_monitor(monitor, work, sample_id=sample_id, stage="minicram")
+        log_fh.close()
+        up = client(project)
+        if stats_path is not None and resource_uri:
+            try:
+                upload(up, stats_path, resource_uri, project)
+            except Exception as exc:
+                print(f"resource stats upload failed: {exc}", file=sys.__stderr__)
+        if log_uri:
+            try:
+                upload(up, log_path, log_uri, project)
+            except Exception as exc:
+                print(f"worker log upload failed: {exc}", file=sys.__stderr__)
+    return status
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

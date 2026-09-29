@@ -1,7 +1,7 @@
 """Shared Verily Workbench / native Google Batch helpers.
 
 Notebooks and pipelines use this for PET/VPC allocation, a GCS run ledger,
-job submit/poll, and VM+Nearline cost estimates. ExpansionHunter is the first
+job submit/poll, a read-only job monitor, and VM+Nearline cost estimates. ExpansionHunter is the first
 pipeline; Locityper should plug in the same registry later.
 
 Success is Batch task SUCCEEDED **and** the expected GCS objects existing.
@@ -16,6 +16,7 @@ __all__ = [
     "cohort",
     "cost",
     "gcs",
+    "monitor",
     "poll",
     "registry",
     "submit",

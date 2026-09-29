@@ -14,16 +14,18 @@ Do **not** submit it from Terra. In a VWB Jupyter app:
    smoke BED + toy `vcf_db.tar.gz`; locates the v9 CRAM manifest
 2. **Cloud Batch (preferred when Cromwell is spotty):**
    [`notebooks/rw/locityper_02_run_batch.ipynb`](../notebooks/rw/locityper_02_run_batch.ipynb)
-   — [`dsub --provider google-batch`](https://github.com/DataBiosphere/dsub)
-   via [`batch/submit_dsub.sh`](batch/submit_dsub.sh). Details:
+   — one-sample smoke (`gcloud batch`, no dsub). Cohort run:
+   [`locityper_03_budget.ipynb`](../notebooks/rw/locityper_03_budget.ipynb)
+   then [`locityper_04_dispatch.ipynb`](../notebooks/rw/locityper_04_dispatch.ipynb).
+   Library: [`scripts/vwb_batch/`](../scripts/vwb_batch/). Details:
    [`batch/README.md`](batch/README.md).
 3. **Cromwell (still works, less consistent):**
    [`notebooks/rw/locityper_01_run_stream.ipynb`](../notebooks/rw/locityper_01_run_stream.ipynb)
    — stage / register / submit via [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
    (same pattern as Matt’s `eTRs_getPhasedAlleleInfo` notebook)
 
-The Workbench **Workflows GUI is unreliable**. VWB Cloud Batch via dsub is
-the more consistent / cheaper submit path; keep the WDL around as a backup.
+The Workbench **Workflows GUI is unreliable**. Native Cloud Batch is the
+more consistent / cheaper submit path; keep the WDL around as a backup.
 
 ## What the WDL does
 
@@ -65,7 +67,7 @@ sample** and a tiny BED before a cohort CSV.
    workspace-readable Artifact Registry. VPC-SC cannot pull the default tag.
 4. Run `locityper_00_prep_reference` (GATK `Homo_sapiens_assembly38` + Jellyfish
    + smoke catalog). Size the VM to ≥16 GB RAM / ~20 GB free disk.
-5. Open `locityper_02_run_batch` (Cloud Batch) **or**
+5. Open `locityper_02_run_batch` (native Cloud Batch) **or**
    `locityper_01_run_stream` (Cromwell). Paste the `gs://` URIs from the
    prep notebook (including `smoke.bed` + `vcf_db.smoke.tar.gz`). Set
    `PRINT_READS_DOCKER` / `LOCITYPER_DOCKER` if you mirrored the images.

@@ -59,6 +59,16 @@ class RunPaths:
         return f"{self.shard_prefix(stage, shard)}/job.json"
 
 
+def list_runs(*, output_bucket: str, pipeline: str) -> list[str]:
+    prefix = f"{output_bucket.rstrip('/')}/batchRuns/{pipeline}/runs/"
+    ids: list[str] = []
+    for uri in gcs.ls(prefix):
+        rid = uri.rstrip("/").rsplit("/", 1)[-1]
+        if rid and rid != "runs":
+            ids.append(rid)
+    return sorted(set(ids))
+
+
 def run_paths(*, output_bucket: str, pipeline: str, run_id: str) -> RunPaths:
     prefix = f"{output_bucket.rstrip('/')}/batchRuns/{pipeline}/runs/{run_id}"
     return RunPaths(prefix=prefix, pipeline=pipeline, run_id=run_id)
