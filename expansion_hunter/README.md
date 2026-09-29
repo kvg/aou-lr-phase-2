@@ -42,8 +42,8 @@ Nearline. Smoke-test **one sample** and the two-locus catalog before a cohort
 CSV.
 
 The Cloud Batch scripts ([`batch/`](batch/)) run minicram as one print-reads
-container (`gcloud batch`). Genotype is not wired yet. Minicram is not
-preemptible (a preempt would re-read Nearline).
+container, then genotype as host `gcloud` I/O plus the EH image. Minicram is
+not preemptible (a preempt would re-read Nearline).
 
 Do not swap this extract for Locityper’s `print_reads` + BED: EH needs the
 mate pass (and any `OfftargetRegions`) so genotypes match a full-CRAM run.
