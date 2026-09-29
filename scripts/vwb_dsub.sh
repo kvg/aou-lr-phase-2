@@ -6,14 +6,15 @@
 # VWB flags (PET SA, private VPC, --use-private-address) match
 # https://support.workbench.verily.com/docs/guides/workflows/dsub/
 #
-# dsub google-batch does *not* copy --input/--output/--logging from the user
-# image. A sidecar uses DSUB_CLOUD_SDK_IMAGE (default
-# gcr.io/google.com/cloudsdktool/cloud-sdk:slim). VPC-SC cannot pull gcr.io,
-# so prepare/localize/log-copy never run and GCS log objects never appear.
-# Override with a pkg.dev image Google publishes for the same CLI.
+# dsub google-batch copies --input/--output/--logging from a sidecar
+# (DSUB_CLOUD_SDK_IMAGE), not from --image. Default gcr.io cloud-sdk is
+# outside AoU VPC-SC, so we use the print_reads Broad AR tag (python3 +
+# gcloud + str-analysis).
 
-# GoogleCloudPlatform/cloud-sdk-docker cloudbuild.yaml.
-DEFAULT_DSUB_CLOUD_SDK_IMAGE="us-docker.pkg.dev/google.com/cloudsdktool/gcr.io/google-cloud-cli:slim"
+# Same Broad AR tag as minicram --image: python3 + gcloud (dsub prepare /
+# localize / --logging) and str-analysis. Google's gcr.io / pkg.dev cloud-sdk
+# images are outside the AoU VPC-SC perimeter.
+DEFAULT_DSUB_CLOUD_SDK_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1"
 
 vwb_dsub_require_env() {
   if [[ -z "${GOOGLE_CLOUD_PROJECT:-}" ]]; then

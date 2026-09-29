@@ -38,7 +38,7 @@ workflow ExpansionHunterMinicram {
         Int eh_mem_gb = 8
         Int eh_n_preemptible = 2
 
-        String print_reads_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.0"
+        String print_reads_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1"
         String eh_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-expansion-hunter:0.1.0"
     }
 

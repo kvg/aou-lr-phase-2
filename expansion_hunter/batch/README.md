@@ -20,7 +20,8 @@ guide](https://support.workbench.verily.com/docs/guides/workflows/dsub/)).
 `PET_SA_EMAIL` and `GOOGLE_CLOUD_PROJECT` are set by the app. VPC-SC still
 needs workspace-readable **user** image mirrors **and** dsub’s sidecar
 image (`DSUB_CLOUD_SDK_IMAGE`; default in [`vwb_dsub.sh`](../../scripts/vwb_dsub.sh)
-is Google’s pkg.dev `google-cloud-cli:slim`, not `gcr.io/.../cloud-sdk:slim`).
+is the print_reads Broad AR tag (`0.1.1`, includes `gcloud`), not Google’s
+`gcr.io` / pkg.dev cloud-sdk images).
 
 ```bash
 # one-row smoke CSV: configs/batch.header.csv

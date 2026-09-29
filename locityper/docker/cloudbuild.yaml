@@ -4,7 +4,7 @@
 
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads
-  _TAG: "0.1.0"
+  _TAG: "0.1.1"
 
 options:
   logging: CLOUD_LOGGING_ONLY

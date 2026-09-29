@@ -11,6 +11,6 @@
   "ExpansionHunterMinicram.max_retry": 3,
   "ExpansionHunterMinicram.wait_time": 30,
   "ExpansionHunterMinicram.minicram_n_preemptible": 0,
-  "ExpansionHunterMinicram.print_reads_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.0",
+  "ExpansionHunterMinicram.print_reads_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1",
   "ExpansionHunterMinicram.eh_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-expansion-hunter:0.1.0"
 }
