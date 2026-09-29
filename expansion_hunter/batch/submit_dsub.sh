@@ -88,13 +88,13 @@ run_dsub() {
     --min-cores "${cores}"
     --disk-size "${disk}"
     --boot-disk-size "${boot}"
-    --retries 2
   )
   if [[ ${#extra[@]} -gt 0 ]]; then
     cmd+=("${extra[@]}")
   fi
+  # dsub: --retries is only legal together with --wait.
   if [[ "${THIS_WAIT}" -eq 1 ]]; then
-    cmd+=(--wait)
+    cmd+=(--wait --retries 2)
   fi
   printf '+' >&2
   printf ' %q' "${cmd[@]}" >&2
