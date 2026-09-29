@@ -15,8 +15,12 @@ Genotype localizes the **minicram** plus fasta / jellyfish / BED / `vcf_db`,
 runs `locityper preproc` then per-locus `genotype` on one VM (no WDL scatter),
 and uploads `gts.filtered.csv` + `locityper.tar.gz`.
 
-VPC-SC cannot pull Docker Hub (`eichlerlab/locityper:1.4.5.0`). Set
-`LOCITYPER_DOCKER` to a workspace-readable Artifact Registry mirror.
+VPC-SC cannot pull Docker Hub (`eichlerlab/locityper:1.4.5.0`). The default
+`LOCITYPER_DOCKER` is the Artifact Registry mirror
+`us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper:1.4.5.0`
+([`docker-locityper/`](../docker-locityper/)). `_02` still refuses a Docker Hub
+tag. If genotype fails, check `{sample}.locityper.host.log` (download
+breadcrumbs) and `{sample}.locityper.worker.log` (container).
 
 ## Submit (VWB Jupyter)
 

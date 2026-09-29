@@ -256,6 +256,16 @@ def test_locityper_job_json() -> None:
     assert env["BED"].endswith("smoke.bed")
     src = mod._worker_source(ROOT / "locityper" / "batch" / "make_minicram.py")
     compile(src, "lt-minicram-worker", "exec")
+    assert "HOST_LOG_GCS" in gt_rows[0]
+    assert "host.log" in mod.UPLOAD_SCRIPT
+    assert "pkg.dev/" in lt.LOCITYPER_DOCKER
+    try:
+        mod.require_artifact_registry("eichlerlab/locityper:1.4.5.0")
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("docker hub image should be rejected")
+    mod.require_artifact_registry(lt.PRINT_READS_DOCKER)
     print("locityper genotype + smoke csv ok", submit.job_json_size(gt), "bytes")
 
 

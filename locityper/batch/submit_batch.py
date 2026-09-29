@@ -16,6 +16,16 @@ from pathlib import Path
 
 WORKDIR = "/mnt/disks/lt"
 
+
+def require_artifact_registry(image: str, *, role: str = "LOCITYPER_DOCKER") -> None:
+    """VWB Batch VMs cannot pull Docker Hub under VPC-SC."""
+    if "pkg.dev/" not in (image or ""):
+        raise SystemExit(
+            f"{role}={image!r} is not Artifact Registry. "
+            "VPC-SC cannot pull Docker Hub (eichlerlab/locityper:1.4.5.0). "
+            "Mirror the image into a workspace-readable AR repo and set LOCITYPER_DOCKER."
+        )
+
 LOAD_TASK_ENV = r"""
 if [ -n "${TASKS_TSV:-}" ]; then
   python3 - <<'PY'
@@ -51,11 +61,18 @@ PY
 fi
 """
 
-DOWNLOAD_SCRIPT = r"""#!/bin/bash
+DOWNLOAD_SCRIPT = r"""#!/bin/sh
 set -eu
 WORKDIR=/mnt/disks/lt
 mkdir -p "${WORKDIR}"
 chmod 777 "${WORKDIR}"
+HOST_LOG="${WORKDIR}/host.log"
+{
+  echo "=== download start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+  echo "MINICRAM=${MINICRAM:-}"
+  echo "COUNTS_JF=${COUNTS_JF:-}"
+  echo "DB_TAR=${DB_TAR:-}"
+} >> "${HOST_LOG}"
 """ + LOAD_TASK_ENV + r"""
 gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${MINICRAM}" "${WORKDIR}/reads.cram"
 gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${MINICRAI}" "${WORKDIR}/reads.cram.crai"
@@ -65,15 +82,23 @@ gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${COUNTS_JF}" "${WORKDI
 gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${BED}" "${WORKDIR}/loci.bed"
 gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${DB_TAR}" "${WORKDIR}/vcf_db.tar.gz"
 ls -lh "${WORKDIR}"
+ls -lh "${WORKDIR}" >> "${WORKDIR}/host.log" || true
+echo "=== download done $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "${WORKDIR}/host.log"
 """
 
-UPLOAD_SCRIPT = r"""#!/bin/bash
+UPLOAD_SCRIPT = r"""#!/bin/sh
 set -eu
 WORKDIR=/mnt/disks/lt
 if [ -f "${WORKDIR}/task.env" ]; then
   # shellcheck disable=SC1091
   . "${WORKDIR}/task.env"
 fi
+HOST_LOG="${WORKDIR}/host.log"
+{
+  echo "=== upload start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+  echo "SAMPLE_ID=${SAMPLE_ID:-}"
+  ls -lh "${WORKDIR}" || true
+} >> "${HOST_LOG}"
 csv="${WORKDIR}/gts.filtered.csv"
 tgz="${WORKDIR}/${SAMPLE_ID}.locityper.tar.gz"
 log="${WORKDIR}/worker.log"
@@ -89,7 +114,11 @@ fi
 if [ -n "${RESOURCE_STATS:-}" ] && [ -s "${WORKDIR}/resource_stats.tsv" ]; then
   gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${WORKDIR}/resource_stats.tsv" "${RESOURCE_STATS}"
 fi
-ls -lh "${csv}" "${tgz}" "${log}" "${WORKDIR}/resource_stats.tsv" 2>/dev/null || true
+if [ -n "${HOST_LOG_GCS:-}" ] && [ -s "${HOST_LOG}" ]; then
+  echo "=== upload done $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "${HOST_LOG}"
+  gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${HOST_LOG}" "${HOST_LOG_GCS}"
+fi
+ls -lh "${csv}" "${tgz}" "${log}" "${WORKDIR}/resource_stats.tsv" "${HOST_LOG}" 2>/dev/null || true
 """
 
 # dsub used 4 vCPU / 16 GiB minicram and 2 vCPU / (4*n+6) GiB genotype.
@@ -200,6 +229,7 @@ def genotype_rows_from_records(
                 "DB_TAR": _db_tar(rec),
                 "GCLOUD_PROJECT": _project_for_row(rec, project),
                 "WORKER_LOG_GCS": _gs(out_prefix, sid, f"{sid}.locityper.worker.log"),
+                "HOST_LOG_GCS": _gs(out_prefix, sid, f"{sid}.locityper.host.log"),
                 "SUMMARY_CSV": _gs(out_prefix, sid, f"{sid}.gts.filtered.csv"),
                 "RESULTS_TAR": _gs(out_prefix, sid, f"{sid}.locityper.tar.gz"),
                 "RESOURCE_STATS": _gs(out_prefix, sid, f"{sid}.locityper.resources.tsv"),

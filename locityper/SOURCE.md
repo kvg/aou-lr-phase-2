@@ -26,4 +26,6 @@ upstream:
 Isaac’s Terra input JSON (data-table placeholders, `fc-secure-` URIs) lived at
 [`locityper/inputs.locityper.json`](https://github.com/EichlerLab/AoU_WDL/blob/main/locityper/inputs.locityper.json).
 The Dockerfile next to it builds `eichlerlab/locityper:1.4.5.0` (gcloud +
-samtools `--enable-libcurl` + GNU parallel).
+samtools `--enable-libcurl` + GNU parallel). VPC-SC Batch uses the Artifact
+Registry mirror `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper:1.4.5.0`
+([`docker-locityper/`](docker-locityper/)).

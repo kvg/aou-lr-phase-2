@@ -19,7 +19,7 @@ if [[ -n "${OUTPUT_BUCKET_GS:-}" ]]; then
   OUT_PREFIX="${OUTPUT_BUCKET_GS%/}/batchRuns/locityper"
 fi
 PRINT_READS_DOCKER="${PRINT_READS_DOCKER:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2}"
-LOCITYPER_DOCKER="${LOCITYPER_DOCKER:-eichlerlab/locityper:1.4.5.0}"
+LOCITYPER_DOCKER="${LOCITYPER_DOCKER:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper:1.4.5.0}"
 
 usage() {
   cat <<EOF
@@ -62,6 +62,14 @@ else
   JOB_ID="lt-gt-$(date -u +%y%m%d-%H%M%S)"
   IMAGE="${LOCITYPER_DOCKER}"
   WORKER="${SCRIPT_DIR}/genotype.py"
+  case "${IMAGE}" in
+    *pkg.dev/*) ;;
+    *)
+      echo "LOCITYPER_DOCKER=${IMAGE} is not Artifact Registry." >&2
+      echo "VPC-SC cannot pull Docker Hub. Mirror eichlerlab/locityper:1.4.5.0 and retry." >&2
+      exit 1
+      ;;
+  esac
 fi
 CFG="$(mktemp)"
 trap 'rm -f "${CFG}"' EXIT

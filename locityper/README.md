@@ -63,8 +63,9 @@ sample** and a tiny BED before a cohort CSV.
 
 1. Open a JupyterLab app in the workspace (CLI `wb` is on `PATH`).
 2. Clone this repo into the app if it is not already a git resource.
-3. Build/push the print_reads image (`./build_docker.sh`) or mirror it into a
-   workspace-readable Artifact Registry. VPC-SC cannot pull the default tag.
+3. The Locityper image default is the Artifact Registry mirror
+   `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper:1.4.5.0`.
+   Rebuild/push print_reads with `./build_docker.sh` if you need a newer tag.
 4. Run `locityper_00_prep_reference` (GATK `Homo_sapiens_assembly38` + Jellyfish
    + smoke catalog). Size the VM to ≥16 GB RAM / ~20 GB free disk.
 5. Open `locityper_02_run_batch` (native Cloud Batch) **or**
@@ -149,7 +150,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 | `technology` | Default `illumina` |
 | `gcloud_project` | Requester-pays billing project for the CRAM bucket; empty uses `$GOOGLE_CLOUD_PROJECT` |
 | `print_reads_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2` ([`build_docker.sh`](build_docker.sh)) |
-| `locityper_docker` | Default `eichlerlab/locityper:1.4.5.0` (needs `samtools`, `parallel`, `locityper`) |
+| `locityper_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper:1.4.5.0` (mirror of `eichlerlab/locityper:1.4.5.0`; [`docker-locityper/`](docker-locityper/)) |
 | `util_docker` | Default `python:3.11-slim` (split / tar / summarize) |
 
 VPC-SC workspaces often cannot pull Docker Hub or Broad AR. Mirror

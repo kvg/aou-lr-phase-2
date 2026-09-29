@@ -17,5 +17,5 @@
   "LocityperStream.minicram_n_preemptible": 0,
   "LocityperStream.technology": "illumina",
   "LocityperStream.print_reads_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2",
-  "LocityperStream.locityper_docker": "eichlerlab/locityper:1.4.5.0"
+  "LocityperStream.locityper_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper:1.4.5.0"
 }
