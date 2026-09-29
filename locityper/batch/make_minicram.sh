@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cloud Batch / dsub: Nearline-efficient minicram for Locityper (print_reads).
-# CRAM must be a gs:// URI (--env), not a localized --input.
+# CRAM and CRAI must be gs:// URIs (--env), not localized --input.
 set -euo pipefail
 date
 
@@ -18,6 +18,13 @@ WINDOW_GRAB="${WINDOW_GRAB:-3000}"
 BG_REGION_BED="${BG_REGION_BED:-chr17	72062001	76562000}"
 MAX_RETRY="${MAX_RETRY:-3}"
 WAIT_TIME="${WAIT_TIME:-30}"
+
+echo "SAMPLE_ID=${SAMPLE_ID}"
+echo "CRAM=${CRAM}"
+echo "CRAI=${CRAI}"
+echo "REF_FA=${REF_FA}"
+echo "BED=${BED}"
+python3 -c "import str_analysis; print('str_analysis', str_analysis.__file__)"
 
 awk -v w="${WINDOW_GRAB}" 'BEGIN { OFS="\t" } {
   s = $2 - w
@@ -38,11 +45,18 @@ cat intervals.bed
 wc -l intervals.bed
 
 PROJ="${GCLOUD_PROJECT:-${GOOGLE_CLOUD_PROJECT:-}}"
-if [[ -n "${PROJ}" ]]; then
-  echo "requester-pays project: ${PROJ}"
+if [[ -z "${PROJ}" ]]; then
+  echo "GCLOUD_PROJECT / GOOGLE_CLOUD_PROJECT empty; requester-pays CRAM reads will 403" >&2
+  exit 1
+fi
+echo "requester-pays project: ${PROJ}"
+
+if [[ "${CRAM}" != gs://* || "${CRAI}" != gs://* ]]; then
+  echo "CRAM and CRAI must be gs:// URIs (not localized files): CRAM=${CRAM} CRAI=${CRAI}" >&2
+  exit 1
 fi
 
-tmp_cram="${TMPDIR:-/tmp}/${SAMPLE_ID}.minicram.cram"
+tmp_cram="${PWD}/${SAMPLE_ID}.minicram.cram"
 
 run_print_reads() {
   local -a cmd=(
@@ -54,11 +68,12 @@ run_print_reads() {
     -o "${tmp_cram}"
     --verbose
     --output-data-transfer-stats
+    --gcloud-project "${PROJ}"
+    "${CRAM}"
   )
-  if [[ -n "${PROJ}" ]]; then
-    cmd+=(--gcloud-project "${PROJ}")
-  fi
-  cmd+=("${CRAM}")
+  printf '+'
+  printf ' %q' "${cmd[@]}"
+  printf '\n'
   "${cmd[@]}"
 }
 

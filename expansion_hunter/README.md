@@ -130,7 +130,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 | Input | Notes |
 |---|---|
 | `sample_id` | Output prefix |
-| `cram` / `crai` | Mapped WGS. CRAM is `localization_optional` (stays in Nearline); CRAI is localized |
+| `cram` / `crai` | Mapped WGS. Both are `localization_optional` (stay in Nearline). Minicram reads the CRAI from `gs://` with `--gcloud-project` |
 | `ref_fa` / `ref_fai` | Uncompressed FASTA + fai (AoU srWGS: GATK `Homo_sapiens_assembly38`) |
 | `catalog` | ExpansionHunter variant catalog JSON. Smoke: [`configs/smoke.catalog.json`](configs/smoke.catalog.json) |
 | `sex` | `male` / `female` (also `m`/`f`/`1`/`2`). Default `female` |

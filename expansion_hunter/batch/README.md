@@ -8,7 +8,8 @@ Cromwell is flaky. VWB’s dsub flags (PET SA + private VPC) are documented
 at [Get started with dsub on Verily Workbench](https://support.workbench.verily.com/docs/guides/workflows/dsub/).
 
 The WGS CRAM is an `--env` `gs://` URI (never `--input`), so Batch does not
-localize the Nearline object. Stage 1 (`make_minicram.sh`) runs in the
+localize the Nearline object. The CRAI is `--env` `gs://` as well (same
+requester-pays bucket). Stage 1 (`make_minicram.sh`) runs in the
 print_reads image; stage 2 (`genotype.sh`) runs in the EH image. Two jobs
 because the images differ; `--after` chains them.
 

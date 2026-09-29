@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Cloud Batch / dsub: Nearline-efficient minicram for ExpansionHunter.
-# CRAM must be a gs:// URI (--env), not a localized --input.
+# CRAM and CRAI must be gs:// URIs (--env), not localized --input.
+# The CRAI lives in the same requester-pays bucket; localizing it is what
+# failed MakeMinicram under both Cromwell and dsub.
 set -euo pipefail
 date
 
@@ -19,6 +21,13 @@ MERGE_REGIONS_DISTANCE="${MERGE_REGIONS_DISTANCE:-1000}"
 MAX_RETRY="${MAX_RETRY:-3}"
 WAIT_TIME="${WAIT_TIME:-30}"
 
+echo "SAMPLE_ID=${SAMPLE_ID}"
+echo "CRAM=${CRAM}"
+echo "CRAI=${CRAI}"
+echo "REF_FA=${REF_FA}"
+echo "CATALOG=${CATALOG}"
+python3 -c "import str_analysis; print('str_analysis', str_analysis.__file__)"
+
 python3 -c "import json; json.load(open('${CATALOG}'))" \
   || { echo "catalog is not valid JSON: ${CATALOG}" >&2; exit 1; }
 
@@ -26,11 +35,19 @@ ln -sf "${REF_FA}" reference.fa
 ln -sf "${REF_FAI}" reference.fa.fai
 
 PROJ="${GCLOUD_PROJECT:-${GOOGLE_CLOUD_PROJECT:-}}"
-if [[ -n "${PROJ}" ]]; then
-  echo "requester-pays project: ${PROJ}"
+if [[ -z "${PROJ}" ]]; then
+  echo "GCLOUD_PROJECT / GOOGLE_CLOUD_PROJECT empty; requester-pays CRAM reads will 403" >&2
+  exit 1
+fi
+echo "requester-pays project: ${PROJ}"
+
+if [[ "${CRAM}" != gs://* || "${CRAI}" != gs://* ]]; then
+  echo "CRAM and CRAI must be gs:// URIs (not localized files): CRAM=${CRAM} CRAI=${CRAI}" >&2
+  exit 1
 fi
 
-tmp_cram="${TMPDIR:-/tmp}/${SAMPLE_ID}.minicram.cram"
+# Write on the dsub data disk, not /tmp (boot disk).
+tmp_cram="${PWD}/${SAMPLE_ID}.minicram.cram"
 
 run_minicram() {
   local -a cmd=(
@@ -43,11 +60,12 @@ run_minicram() {
     -d "${MERGE_REGIONS_DISTANCE}"
     --verbose
     --output-data-transfer-stats
+    --gcloud-project "${PROJ}"
+    "${CRAM}"
   )
-  if [[ -n "${PROJ}" ]]; then
-    cmd+=(--gcloud-project "${PROJ}")
-  fi
-  cmd+=("${CRAM}")
+  printf '+'
+  printf ' %q' "${cmd[@]}"
+  printf '\n'
   "${cmd[@]}"
 }
 

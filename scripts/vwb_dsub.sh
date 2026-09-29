@@ -25,7 +25,8 @@ vwb_dsub_base_args() {
     --service-account "${PET_SA_EMAIL}" \
     --network "projects/${GOOGLE_CLOUD_PROJECT}/global/networks/network" \
     --subnetwork "projects/${GOOGLE_CLOUD_PROJECT}/regions/${region}/subnetworks/subnetwork" \
-    --use-private-address
+    --use-private-address \
+    --env "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}"
 }
 
 vwb_dsub_parse_job_id() {

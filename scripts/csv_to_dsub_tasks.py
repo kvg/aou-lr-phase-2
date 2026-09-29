@@ -2,7 +2,9 @@
 """Build dsub --tasks TSV files from a per-sample CSV.
 
 The WGS CRAM stays an --env gs:// URI (never --input) so Cloud Batch does not
-localize the Nearline object.
+localize the Nearline object. The CRAI is --env gs:// too: it lives in the
+same requester-pays bucket, and dsub/Cromwell localization of that index is
+what was failing MakeMinicram.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ def eh_rows(csv_path: Path, out_prefix: str) -> tuple[list[str], list[list[str]]
     mini_header = [
         "--env SAMPLE_ID",
         "--env CRAM",
-        "--input CRAI",
+        "--env CRAI",
         "--input REF_FA",
         "--input REF_FAI",
         "--input CATALOG",
@@ -80,7 +82,7 @@ def locityper_rows(csv_path: Path, out_prefix: str) -> tuple[list[str], list[lis
     mini_header = [
         "--env SAMPLE_ID",
         "--env CRAM",
-        "--input CRAI",
+        "--env CRAI",
         "--input REF_FA",
         "--input BED",
         "--env GCLOUD_PROJECT",

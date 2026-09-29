@@ -7,7 +7,8 @@ instead of Cromwell. Use this from a Verily Workbench Jupyter app when
 Cromwell is flaky. VWB’s dsub flags (PET SA + private VPC) are documented
 at [Get started with dsub on Verily Workbench](https://support.workbench.verily.com/docs/guides/workflows/dsub/).
 
-The WGS CRAM is an `--env` `gs://` URI (never `--input`). Stage 1
+The WGS CRAM is an `--env` `gs://` URI (never `--input`). The CRAI is `--env`
+`gs://` as well (same requester-pays bucket). Stage 1
 (`make_minicram.sh`) is `print_reads` plus Isaac’s chr17 background interval.
 Stage 2 (`genotype.sh`) runs `locityper preproc`, then GNU parallel over
 every BED locus on **one** VM (no WDL scatter), then the same summary TSV.

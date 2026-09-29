@@ -104,10 +104,12 @@ task MakeMinicram {
         String docker
     }
 
-    # Do not size disk from the WGS CRAM. localization_optional leaves it in Nearline;
-    # Cromwell size() would still see the full object and over-allocate.
+    # Do not size disk from the WGS CRAM. localization_optional leaves CRAM and
+    # CRAI in Nearline. Localizing the CRAI from the requester-pays AoU bucket is
+    # what failed this task under VWB Cromwell.
     parameter_meta {
         cram: { localization_optional: true }
+        crai: { localization_optional: true }
     }
 
     String out_cram = sample_id + ".minicram.cram"

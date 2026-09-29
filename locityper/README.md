@@ -139,7 +139,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 | Input | Notes |
 |---|---|
 | `sample_id` | Output prefix |
-| `cram` / `crai` | Mapped WGS. CRAM is `localization_optional` (stays in Nearline); CRAI is localized |
+| `cram` / `crai` | Mapped WGS. Both are `localization_optional` (stay in Nearline). `print_reads` reads the CRAI from `gs://` with `--gcloud-project` |
 | `ref_fa_uncompressed` / `ref_fai_uncompressed` | Uncompressed FASTA + fai (AoU srWGS: GATK `Homo_sapiens_assembly38`) |
 | `counts_jf` | Jellyfish k-mer counts for that reference (prep notebook: canonical 25-mers, `--lower-count 2`) |
 | `bed` | `chrom start end locus_name`. Smoke: [`configs/smoke.bed`](configs/smoke.bed) (`CYP2D6_smoke`) |
