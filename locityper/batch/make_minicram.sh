@@ -13,26 +13,50 @@ upload_worker_log() {
     echo "no local worker log at ${local_log}" >&2
     return 1
   fi
+  # Batch copies --input/--output from the agent. ADC inside the user
+  # container is often missing; use the GCE metadata token instead.
   python3 - "${local_log}" "${WORKER_LOG_GCS}" <<'PY'
-import os, sys, traceback
-from google.cloud import storage
+import json, sys, urllib.error, urllib.parse, urllib.request
 
 local, dest = sys.argv[1], sys.argv[2]
 if not dest.startswith("gs://"):
     raise SystemExit(f"WORKER_LOG_GCS is not gs://: {dest}")
-bucket_name, blob_name = dest[5:].split("/", 1)
-project = os.environ.get("GCLOUD_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT") or None
+bucket, _, blob = dest[5:].partition("/")
+blob_q = urllib.parse.quote(blob, safe="")
+
+def metadata(path: str) -> bytes:
+    last = None
+    for host in ("metadata.google.internal", "169.254.169.254"):
+        req = urllib.request.Request(
+            f"http://{host}/computeMetadata/v1/{path}",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        try:
+            return urllib.request.urlopen(req, timeout=10).read()
+        except Exception as exc:
+            last = exc
+    raise RuntimeError(f"metadata token failed: {last}")
+
+token = json.loads(metadata("instance/service-accounts/default/token"))["access_token"]
+url = (
+    "https://storage.googleapis.com/upload/storage/v1/b/"
+    f"{urllib.parse.quote(bucket, safe='')}/o?uploadType=media&name={blob_q}"
+)
+body = open(local, "rb").read()
+req = urllib.request.Request(url, data=body, method="POST")
+req.add_header("Authorization", f"Bearer {token}")
+req.add_header("Content-Type", "text/plain")
 try:
-    storage.Client(project=project).bucket(bucket_name).blob(blob_name).upload_from_filename(local)
-except Exception:
-    traceback.print_exc()
+    urllib.request.urlopen(req, timeout=60)
+except urllib.error.HTTPError as exc:
+    sys.stderr.write(exc.read().decode("utf-8", "replace")[:4000] + "\n")
     raise
-print(f"uploaded worker log to {dest}", flush=True)
+print(f"uploaded worker log to {dest} ({len(body)} bytes)", flush=True)
 PY
 }
 
 LOG_FILE="${PWD}/worker.log"
-echo "minicram start $(date -Is) SAMPLE_ID=${SAMPLE_ID:-?} WORKER_LOG_GCS=${WORKER_LOG_GCS:-UNSET}" > "${LOG_FILE}"
+echo "minicram start $(date -u) SAMPLE_ID=${SAMPLE_ID:-?} WORKER_LOG_GCS=${WORKER_LOG_GCS:-UNSET}" > "${LOG_FILE}"
 upload_worker_log "${LOG_FILE}" || echo "heartbeat log upload failed" >&2
 
 run() {
