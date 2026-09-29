@@ -4,7 +4,7 @@
 # Stage 1: make_minicram (print_reads image). CRAM is --env gs:// (not localized).
 # Stage 2: ExpansionHunter on the minicram (--after stage 1).
 #
-# Usage (in a VWB Jupyter app, after `dsub_activate` if needed):
+# Usage (in a VWB Jupyter app; `dsub_activate` in the terminal):
 #   ./submit_dsub.sh --csv ../../expansion_hunter/configs/batch.header.csv
 #   ./submit_dsub.sh --csv smoke.csv --stage minicram
 #   ./submit_dsub.sh --csv smoke.csv --stage genotype --after JOBID
@@ -110,6 +110,7 @@ run_dsub() {
   fi
   printf '%s\n' "${id}" > "${TASKS_DIR}/${name}.job_id"
   echo "${name} job-id: ${id}"
+  vwb_dsub_print_log_uris "${LOG_ROOT}" "${id}"
 }
 
 MINI_ID=""

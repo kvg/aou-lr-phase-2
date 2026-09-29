@@ -108,6 +108,7 @@ run_dsub() {
   fi
   printf '%s\n' "${id}" > "${TASKS_DIR}/${name}.job_id"
   echo "${name} job-id: ${id}"
+  vwb_dsub_print_log_uris "${LOG_ROOT}" "${id}"
 }
 
 MINI_ID=""

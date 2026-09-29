@@ -15,9 +15,12 @@ because the images differ; `--after` chains them.
 
 ## Submit (VWB Jupyter)
 
-`dsub` must be on `PATH` (`pip install dsub` if it is not). `PET_SA_EMAIL`
-and `GOOGLE_CLOUD_PROJECT` are set by the app. VPC-SC still needs
-workspace-readable image mirrors.
+On a VWB Jupyter terminal, run `dsub_activate` first ([VWB dsub
+guide](https://support.workbench.verily.com/docs/guides/workflows/dsub/)).
+`PET_SA_EMAIL` and `GOOGLE_CLOUD_PROJECT` are set by the app. VPC-SC still
+needs workspace-readable **user** image mirrors **and** dsub’s sidecar
+image (`DSUB_CLOUD_SDK_IMAGE`; default in [`vwb_dsub.sh`](../../scripts/vwb_dsub.sh)
+is Google’s pkg.dev `google-cloud-cli:slim`, not `gcr.io/.../cloud-sdk:slim`).
 
 ```bash
 # one-row smoke CSV: configs/batch.header.csv
@@ -57,7 +60,25 @@ logs/
 
 ```bash
 dstat --provider google-batch --project "$GOOGLE_CLOUD_PROJECT" \
-  --jobs JOB_ID --status '*'
+  --location us-central1 --users jupyter --jobs JOB_ID --status '*'
+```
+
+`--logging` is a directory. On FAILURE or SUCCESS dsub copies:
+
+```
+gs://…/batchRuns/expansion_hunter/logs/{job-id}.{task-id}.log
+gs://…/batchRuns/expansion_hunter/logs/{job-id}.{task-id}-stdout.log
+gs://…/batchRuns/expansion_hunter/logs/{job-id}.{task-id}-stderr.log
+```
+
+`{sample}.minicram.worker.log` is a separate upload from the user container
+and is often missing (no ADC on the Batch VM). If the three `--logging`
+objects are also missing, the cloud-sdk sidecar never ran — check the Batch
+job (dsub internal id is `{job-id}-1-0`):
+
+```bash
+gcloud batch jobs describe JOB_ID-1-0 \
+  --project "$GOOGLE_CLOUD_PROJECT" --location us-central1
 ```
 
 Cancel: `ddel --provider google-batch --project "$GOOGLE_CLOUD_PROJECT" --jobs JOB_ID`.

@@ -5,7 +5,11 @@ reliable. Prefer Cloud Batch (`dsub --provider google-batch`) from the `_02`
 notebooks when Cromwell is spotty; Cromwell `wb workflow` remains in the `_01`
 notebooks.
 
-Companion CLIs live in [`../../scripts/`](../../scripts/).
+Companion CLIs live in [`../../scripts/`](../../scripts/). VWB’s
+[dsub guide](https://support.workbench.verily.com/docs/guides/workflows/dsub/)
+covers PET SA + private VPC (`dsub_activate` in a terminal). dsub still
+needs `DSUB_CLOUD_SDK_IMAGE` under VPC-SC; [`vwb_dsub.sh`](../../scripts/vwb_dsub.sh)
+sets that.
 
 | Notebook | Use |
 |---|---|
