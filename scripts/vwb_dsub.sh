@@ -24,6 +24,9 @@ vwb_dsub_require_env() {
     echo "PET_SA_EMAIL is empty. VWB sets this in cloud apps." >&2
     exit 1
   fi
+  # Must run in the submitting shell. mapfile < <(vwb_dsub_base_args) is a
+  # subshell, so an export there never reaches dsub.
+  vwb_dsub_export_cloud_sdk_image
 }
 
 vwb_dsub_export_cloud_sdk_image() {
@@ -34,7 +37,6 @@ vwb_dsub_export_cloud_sdk_image() {
 # Prints base dsub args (one per line) for `mapfile` / xargs.
 vwb_dsub_base_args() {
   vwb_dsub_require_env
-  vwb_dsub_export_cloud_sdk_image
   local region="${DSUB_REGION:-us-central1}"
   printf '%s\n' \
     --provider google-batch \

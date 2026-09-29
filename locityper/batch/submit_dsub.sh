@@ -71,6 +71,7 @@ run_dsub() {
   local name="$1" image="$2" script="$3" tasks="$4" ram="$5" cores="$6" disk="$7" boot="$8"
   shift 8
   local extra=("$@")
+  vwb_dsub_export_cloud_sdk_image
   local -a cmd=(
     dsub
     "${BASE[@]}"
