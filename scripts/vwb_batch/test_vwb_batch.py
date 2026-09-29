@@ -131,11 +131,68 @@ def test_shards_and_ids() -> None:
     print("shards/job_id ok", jid)
 
 
+def test_recommend_compute() -> None:
+    rows = [
+        {
+            "peak_rss_bytes": 1.5 * 1024**3,
+            "peak_disk_bytes": 4 * 1024**3,
+            "cpu_cores_avg": 0.4,
+            "wall_sec": 400,
+            "cpu_sec": 160,
+        }
+        for _ in range(10)
+    ]
+    rec = cost.recommend_compute(rows, stage="minicram")
+    assert rec["cpuMilli"] == 1000
+    assert rec["memoryMib"] == 3072  # 1.5 GiB * 1.4 → 2.1 → ceil to 3 GiB
+    assert rec["bootDiskMib"] == 20480
+    assert rec["machine"] == "e2-standard-2"
+    fat = cost.recommend_compute(
+        [
+            {
+                "peak_rss_bytes": 20 * 1024**3,
+                "peak_disk_bytes": 40 * 1024**3,
+                "cpu_cores_avg": 3.5,
+                "wall_sec": 1,
+                "cpu_sec": 3.5,
+            }
+        ],
+        stage="minicram",
+    )
+    assert fat["memoryMib"] == 16384  # cap at default
+    assert fat["cpuMilli"] == 4000
+    print("recommend_compute ok", rec)
+
+
+def test_worker_source_compiles() -> None:
+    mod = eh._load_submit_batch()
+    src = mod._worker_source(ROOT / "expansion_hunter" / "batch" / "make_minicram.py")
+    compile(src, "minicram-worker", "exec")
+    assert "class ResourceMonitor" in src
+    job = mod.build_minicram_job(
+        csv_path=ROOT / "expansion_hunter" / "configs" / "batch.header.csv",
+        worker_path=ROOT / "expansion_hunter" / "batch" / "make_minicram.py",
+        image=eh.PRINT_READS_DOCKER,
+        out_prefix="gs://out/eh",
+        project="proj",
+        region="us-central1",
+        sa="pet@example.com",
+        compute={"cpuMilli": 1000, "memoryMib": 4096, "bootDiskMib": 20480},
+    )
+    cr = job["taskGroups"][0]["taskSpec"]["computeResource"]
+    assert cr == {"cpuMilli": 1000, "memoryMib": 4096, "bootDiskMib": 20480}
+    env = job["taskGroups"][0]["taskSpec"]["environment"]["variables"]
+    assert env["RESOURCE_STATS"].endswith("minicram.resources.tsv")
+    print("worker source + tuned compute ok")
+
+
 def main() -> None:
     test_cost()
     test_job_json_tsv()
     test_smoke_csv_job_still_embeds_env()
     test_shards_and_ids()
+    test_recommend_compute()
+    test_worker_source_compiles()
     print("all ok")
 
 

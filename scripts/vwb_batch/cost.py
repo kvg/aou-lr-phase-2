@@ -123,3 +123,79 @@ def n_keep(*, budget_usd: float, planning_usd: float, retry_margin: float, n_ava
     if unit <= 0:
         raise ValueError("planning cost must be > 0")
     return max(0, min(n_available, int(budget_usd // unit)))
+
+
+DEFAULT_COMPUTE = {
+    "minicram": {"cpuMilli": 4000, "memoryMib": 16384, "bootDiskMib": 51200},
+    "genotype": {"cpuMilli": 4000, "memoryMib": 8192, "bootDiskMib": 51200},
+}
+
+
+def parse_resource_stats(text: str) -> dict[str, float]:
+    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    rec = next(reader, None)
+    if rec is None:
+        raise ValueError("empty resource stats")
+    return {
+        "peak_rss_bytes": float(rec["peak_rss_bytes"]),
+        "peak_disk_bytes": float(rec["peak_disk_bytes"]),
+        "wall_sec": float(rec["wall_sec"]),
+        "cpu_sec": float(rec["cpu_sec"]),
+        "cpu_cores_avg": float(rec["cpu_cores_avg"]),
+        "peak_nproc": float(rec.get("peak_nproc") or 0),
+        "n_samples": float(rec.get("n_samples") or 0),
+        "n_cpus_os": float(rec.get("n_cpus_os") or 0),
+    }
+
+
+def machine_for(*, cpu_milli: int, memory_mib: int) -> str:
+    if cpu_milli <= 2000 and memory_mib <= 8192:
+        return "e2-standard-2"
+    return "e2-standard-4"
+
+
+def recommend_compute(
+    rows: list[dict[str, float]],
+    *,
+    stage: str,
+    q: float = 0.90,
+    mem_headroom: float = 1.4,
+    min_memory_mib: int = 2048,
+    min_disk_mib: int = 20480,
+) -> dict[str, Any]:
+    """Pilot p90 RSS/CPU/disk → Batch computeResource. Never larger than the default."""
+    if not rows:
+        raise ValueError(f"no resource stats for {stage}")
+    default = dict(DEFAULT_COMPUTE[stage])
+    rss_mib = [r["peak_rss_bytes"] / (1024**2) for r in rows]
+    disk_mib = [r["peak_disk_bytes"] / (1024**2) for r in rows]
+    cores = [r["cpu_cores_avg"] for r in rows]
+    p90_rss = quantile(rss_mib, q)
+    p90_disk = quantile(disk_mib, q)
+    p90_cores = quantile(cores, q)
+    memory_mib = int(math.ceil(p90_rss * mem_headroom / 1024.0) * 1024)
+    memory_mib = max(memory_mib, min_memory_mib)
+    memory_mib = min(memory_mib, default["memoryMib"])
+    if p90_cores < 0.75:
+        cpu_milli = 1000
+    elif p90_cores < 1.75:
+        cpu_milli = 2000
+    else:
+        cpu_milli = 4000
+    cpu_milli = min(cpu_milli, default["cpuMilli"])
+    boot = int(math.ceil(p90_disk * 2.0 / 1024.0) * 1024)
+    boot = max(boot, min_disk_mib)
+    boot = min(boot, default["bootDiskMib"])
+    return {
+        "stage": stage,
+        "n": len(rows),
+        "quantile": q,
+        "p90_rss_mib": p90_rss,
+        "p90_disk_mib": p90_disk,
+        "p90_cpu_cores": p90_cores,
+        "cpuMilli": cpu_milli,
+        "memoryMib": memory_mib,
+        "bootDiskMib": boot,
+        "machine": machine_for(cpu_milli=cpu_milli, memory_mib=memory_mib),
+        "default": default,
+    }

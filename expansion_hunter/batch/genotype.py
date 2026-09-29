@@ -24,6 +24,40 @@ def env(name: str) -> str:
     return value
 
 
+def _start_monitor(work: Path):
+    try:
+        mon_cls = ResourceMonitor  # prepended by submit_batch._worker_source
+    except NameError:
+        try:
+            from resource_monitor import ResourceMonitor as mon_cls
+        except ImportError:
+            return None
+    mon = mon_cls(work)
+    mon.start()
+    return mon
+
+
+def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str) -> Path | None:
+    if mon is None:
+        return None
+    stats = mon.stop()
+    stats["sample_id"] = sample_id
+    stats["stage"] = stage
+    path = work / "resource_stats.tsv"
+    try:
+        write_resource_tsv(path, stats)
+    except NameError:
+        from resource_monitor import write_resource_tsv as _write
+
+        _write(path, stats)
+    print(
+        f"resource peak_rss_mib={stats['peak_rss_bytes'] / (1024**2):.1f} "
+        f"cpu_cores_avg={stats['cpu_cores_avg']:.2f} wall_sec={stats['wall_sec']:.1f}",
+        flush=True,
+    )
+    return path
+
+
 def apply_task_file() -> None:
     path = Path("/work/task.json")
     if not path.is_file():
@@ -78,9 +112,12 @@ def main() -> int:
     sys.stdout = Tee(sys.__stdout__, log_fh)
     sys.stderr = Tee(sys.__stderr__, log_fh)
     status = 0
+    monitor = None
+    sample_id = "unknown"
     try:
         apply_task_file()
         sample_id = env("SAMPLE_ID")
+        monitor = _start_monitor(work)
         prefix = f"{sample_id}.EH"
         reads = work / "reads.cram"
         reads_idx = work / "reads.cram.crai"
@@ -146,6 +183,7 @@ def main() -> int:
         status = 1
         traceback.print_exc()
     finally:
+        _dump_monitor(monitor, work, sample_id=sample_id, stage="genotype")
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
         log_fh.close()

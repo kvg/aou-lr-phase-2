@@ -61,6 +61,14 @@ def transfer_stats_uri(sample_id: str, out_prefix: str) -> str:
     return _gs(out_prefix, sample_id, f"{sample_id}.data_transfer_stats.tsv")
 
 
+def resource_stats_uri(sample_id: str, stage: str, out_prefix: str) -> str:
+    if stage == "minicram":
+        return _gs(out_prefix, sample_id, f"{sample_id}.minicram.resources.tsv")
+    if stage == "genotype":
+        return _gs(out_prefix, sample_id, f"{sample_id}.EH.resources.tsv")
+    raise ValueError(f"unknown stage {stage!r}")
+
+
 def worker_path(stage: str) -> Path:
     batch = _repo_root() / "expansion_hunter" / "batch"
     if stage == "minicram":
@@ -106,6 +114,7 @@ def build_job(
     parallelism: int,
     labels: dict[str, str],
     max_run_duration: str = "28800s",
+    compute: dict | None = None,
 ) -> dict[str, Any]:
     eh = _load_submit_batch()
     worker = worker_path(stage)
@@ -121,6 +130,7 @@ def build_job(
         tasks_tsv_uri=tasks_tsv_uri,
         parallelism=parallelism,
         labels=labels,
+        compute=compute,
     )
     if stage == "minicram":
         return eh.build_minicram_job_from_rows(**common)

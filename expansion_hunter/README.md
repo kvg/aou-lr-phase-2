@@ -19,7 +19,7 @@ app), so restage refs there. In that VWB Jupyter app:
    [`notebooks/rw/expansion_hunter_02_run_batch.ipynb`](../notebooks/rw/expansion_hunter_02_run_batch.ipynb)
    — one-sample smoke (`gcloud batch`, no dsub). Cohort run:
    [`expansion_hunter_03_budget.ipynb`](../notebooks/rw/expansion_hunter_03_budget.ipynb)
-   (pilot + p90 keep list) then
+   (20-sample pilot + p90 keep list) then
    [`expansion_hunter_04_dispatch.ipynb`](../notebooks/rw/expansion_hunter_04_dispatch.ipynb)
    (shards / poll / retry). Library:
    [`scripts/vwb_batch/`](../scripts/vwb_batch/). Details:

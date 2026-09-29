@@ -87,8 +87,30 @@ fi
 if [ -s "${log}" ]; then
   gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${log}" "${WORKER_LOG_GCS}"
 fi
-ls -lh "${json}" "${vcf}" "${log}" 2>/dev/null || true
+if [ -n "${RESOURCE_STATS:-}" ] && [ -s "${WORKDIR}/resource_stats.tsv" ]; then
+  gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "${WORKDIR}/resource_stats.tsv" "${RESOURCE_STATS}"
+fi
+ls -lh "${json}" "${vcf}" "${log}" "${WORKDIR}/resource_stats.tsv" 2>/dev/null || true
 """
+
+DEFAULT_COMPUTE = {
+    "minicram": {"cpuMilli": 4000, "memoryMib": 16384, "bootDiskMib": 51200},
+    "genotype": {"cpuMilli": 4000, "memoryMib": 8192, "bootDiskMib": 51200},
+}
+
+
+def _worker_source(worker_path: Path) -> str:
+    monitor = Path(__file__).resolve().parent / "resource_monitor.py"
+    worker = worker_path.read_text(encoding="utf-8")
+    worker = worker.replace("from __future__ import annotations\n", "", 1)
+    return monitor.read_text(encoding="utf-8") + "\n" + worker
+
+
+def _compute(stage: str, override: dict | None) -> dict:
+    spec = dict(DEFAULT_COMPUTE[stage])
+    if override:
+        spec.update({k: int(override[k]) for k in spec if k in override})
+    return spec
 
 
 def _gs(prefix: str, sample_id: str, name: str) -> str:
@@ -134,6 +156,7 @@ def minicram_rows_from_records(
                 "MINICRAM": _gs(out_prefix, sid, f"{sid}.minicram.cram"),
                 "MINICRAI": _gs(out_prefix, sid, f"{sid}.minicram.cram.crai"),
                 "TRANSFER_STATS": _gs(out_prefix, sid, f"{sid}.data_transfer_stats.tsv"),
+                "RESOURCE_STATS": _gs(out_prefix, sid, f"{sid}.minicram.resources.tsv"),
                 "WINDOW_SIZE": os.environ.get("WINDOW_SIZE", "1000"),
                 "MERGE_REGIONS_DISTANCE": os.environ.get("MERGE_REGIONS_DISTANCE", "1000"),
                 "MAX_RETRY": os.environ.get("MAX_RETRY", "3"),
@@ -164,6 +187,7 @@ def genotype_rows_from_records(
                 "WORKER_LOG_GCS": _gs(out_prefix, sid, f"{sid}.EH.worker.log"),
                 "EH_JSON": _gs(out_prefix, sid, f"{sid}.EH.json"),
                 "EH_VCF": _gs(out_prefix, sid, f"{sid}.EH.vcf"),
+                "RESOURCE_STATS": _gs(out_prefix, sid, f"{sid}.EH.resources.tsv"),
             }
         )
     if not rows:
@@ -238,15 +262,12 @@ def build_minicram_job_from_rows(
     tasks_tsv_uri: str | None = None,
     parallelism: int | None = None,
     labels: dict[str, str] | None = None,
+    compute: dict | None = None,
 ) -> dict:
     del out_prefix  # rows already contain output URIs
-    worker = worker_path.read_text(encoding="utf-8")
+    worker = _worker_source(worker_path)
     spec: dict = {
-        "computeResource": {
-            "cpuMilli": 4000,
-            "memoryMib": 16384,
-            "bootDiskMib": 51200,
-        },
+        "computeResource": _compute("minicram", compute),
         "maxRetryCount": 0,
         "maxRunDuration": max_run_duration,
         "environment": {"variables": {}},
@@ -278,15 +299,12 @@ def build_genotype_job_from_rows(
     tasks_tsv_uri: str | None = None,
     parallelism: int | None = None,
     labels: dict[str, str] | None = None,
+    compute: dict | None = None,
 ) -> dict:
     del out_prefix
-    worker = worker_path.read_text(encoding="utf-8")
+    worker = _worker_source(worker_path)
     spec: dict = {
-        "computeResource": {
-            "cpuMilli": 4000,
-            "memoryMib": 8192,
-            "bootDiskMib": 51200,
-        },
+        "computeResource": _compute("genotype", compute),
         "maxRetryCount": 0,
         "maxRunDuration": max_run_duration,
         "environment": {"variables": {}},
@@ -321,6 +339,7 @@ def build_minicram_job(
     tasks_tsv_uri: str | None = None,
     parallelism: int | None = None,
     labels: dict[str, str] | None = None,
+    compute: dict | None = None,
 ) -> dict:
     rows = minicram_rows(csv_path, out_prefix, project)
     return build_minicram_job_from_rows(
@@ -335,6 +354,7 @@ def build_minicram_job(
         tasks_tsv_uri=tasks_tsv_uri,
         parallelism=parallelism,
         labels=labels,
+        compute=compute,
     )
 
 
@@ -351,6 +371,7 @@ def build_genotype_job(
     tasks_tsv_uri: str | None = None,
     parallelism: int | None = None,
     labels: dict[str, str] | None = None,
+    compute: dict | None = None,
 ) -> dict:
     rows = genotype_rows(csv_path, out_prefix, project)
     return build_genotype_job_from_rows(
@@ -365,6 +386,7 @@ def build_genotype_job(
         tasks_tsv_uri=tasks_tsv_uri,
         parallelism=parallelism,
         labels=labels,
+        compute=compute,
     )
 
 

@@ -18,5 +18,5 @@ workspace PET SA and private VPC.
 | [`expansion_hunter_00_prep_reference.ipynb`](expansion_hunter_00_prep_reference.ipynb) | Stage GATK `Homo_sapiens_assembly38` + EH catalogs on the EH VM (no Jellyfish); peek at the v9 CRAM manifest |
 | [`expansion_hunter_01_run.ipynb`](expansion_hunter_01_run.ipynb) | Cromwell: stage / register / submit `ExpansionHunterMinicram` |
 | [`expansion_hunter_02_run_batch.ipynb`](expansion_hunter_02_run_batch.ipynb) | Native Cloud Batch **smoke**: one sample, minicram then ExpansionHunter (no dsub) |
-| [`expansion_hunter_03_budget.ipynb`](expansion_hunter_03_budget.ipynb) | Pilot ~100, p90/p95 cost, write `keep.csv` to the GCS run ledger |
+| [`expansion_hunter_03_budget.ipynb`](expansion_hunter_03_budget.ipynb) | Pilot 20 samples, p90/p95 cost, write `keep.csv` to the GCS run ledger |
 | [`expansion_hunter_04_dispatch.ipynb`](expansion_hunter_04_dispatch.ipynb) | Read keep list, shard, poll, retry missing/failed (native Batch, no DAG) |

@@ -30,6 +30,40 @@ HOSTS = (
 )
 
 
+def _start_monitor(work: Path):
+    try:
+        mon_cls = ResourceMonitor  # prepended by submit_batch._worker_source
+    except NameError:
+        try:
+            from resource_monitor import ResourceMonitor as mon_cls
+        except ImportError:
+            return None
+    mon = mon_cls(work)
+    mon.start()
+    return mon
+
+
+def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str) -> Path | None:
+    if mon is None:
+        return None
+    stats = mon.stop()
+    stats["sample_id"] = sample_id
+    stats["stage"] = stage
+    path = work / "resource_stats.tsv"
+    try:
+        write_resource_tsv(path, stats)
+    except NameError:
+        from resource_monitor import write_resource_tsv as _write
+
+        _write(path, stats)
+    print(
+        f"resource peak_rss_mib={stats['peak_rss_bytes'] / (1024**2):.1f} "
+        f"cpu_cores_avg={stats['cpu_cores_avg']:.2f} wall_sec={stats['wall_sec']:.1f}",
+        flush=True,
+    )
+    return path
+
+
 def env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -156,9 +190,11 @@ def main() -> int:
     minicram_uri = env("MINICRAM")
     minicrai_uri = env("MINICRAI")
     stats_uri = env("TRANSFER_STATS")
+    resource_uri = os.environ.get("RESOURCE_STATS", "").strip()
     log_uri = os.environ.get("WORKER_LOG_GCS", "").strip()
     max_retry = int(os.environ.get("MAX_RETRY", "3"))
     wait_time = int(os.environ.get("WAIT_TIME", "30"))
+    monitor = _start_monitor(work)
 
     if not cram.startswith("gs://") or not crai_uri.startswith("gs://"):
         raise SystemExit(f"CRAM and CRAI must stay gs:// (not localized): {cram} {crai_uri}")
@@ -248,10 +284,17 @@ def main() -> int:
     finally:
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
+        stats_path = _dump_monitor(monitor, work, sample_id=sample_id, stage="minicram")
         log_fh.close()
+        up = client(project)
+        if stats_path is not None and resource_uri:
+            try:
+                upload(up, stats_path, resource_uri, project)
+            except Exception as exc:
+                print(f"resource stats upload failed: {exc}", file=sys.__stderr__)
         if log_uri:
             try:
-                upload(client(project), log_path, log_uri, project)
+                upload(up, log_path, log_uri, project)
             except Exception as exc:
                 print(f"worker log upload failed: {exc}", file=sys.__stderr__)
     return status

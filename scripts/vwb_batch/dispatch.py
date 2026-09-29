@@ -26,6 +26,7 @@ def prepare_shard(
     parallelism: int,
     max_run_duration: str,
     scratch: Path,
+    compute: dict | None = None,
 ) -> dict[str, Any]:
     if not records:
         raise ValueError("empty shard")
@@ -50,6 +51,7 @@ def prepare_shard(
         parallelism=min(int(parallelism), len(env_rows)),
         labels=labels,
         max_run_duration=max_run_duration,
+        compute=compute,
     )
     size = submit.assert_job_json_ok(job)
     local_job.write_text(json.dumps(job, indent=2) + "\n", encoding="utf-8")

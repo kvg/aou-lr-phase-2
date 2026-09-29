@@ -31,7 +31,10 @@ Cohort runs use a GCS ledger (`scripts/vwb_batch/`):
 then
 [`expansion_hunter_04_dispatch.ipynb`](../../notebooks/rw/expansion_hunter_04_dispatch.ipynb).
 Tasks read a GCS TSV (`TASKS_TSV` + `BATCH_TASK_INDEX`) so job JSON stays
-under 1 MiB at 100k samples. Or:
+under 1 MiB at 100k samples. Pilot workers write peak RSS/CPU to
+`*.resources.tsv`; `_03` tunes `cpuMilli` / `memoryMib` / `bootDiskMib` into
+`run.json` for `_04`. Slide figures from the 711-locus smoke live in
+[`figures/`](figures/). Or:
 
 ```bash
 ./submit_batch.sh --csv ../configs/batch.header.csv --stage minicram
