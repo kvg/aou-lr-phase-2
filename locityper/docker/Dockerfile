@@ -22,6 +22,7 @@ RUN apt-get update \
         gnupg \
         apt-transport-https \
         git \
+        bash \
         libcurl4 \
         libssl3 \
     && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
@@ -38,7 +39,9 @@ RUN apt-get update \
 
 RUN python3 -c "import str_analysis.print_reads; import str_analysis.make_minicram_for_expansion_hunter; import google.cloud.storage; import pysam" \
     && gcloud version \
-    && command -v gcloud
+    && command -v gcloud \
+    && command -v bash \
+    && test -x /bin/bash
 
 COPY docker/sitecustomize.py /usr/local/lib/python3.11/site-packages/sitecustomize.py
 COPY docker/vpcsc-hosts.sh /usr/local/etc/vpcsc-hosts.sh

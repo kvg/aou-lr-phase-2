@@ -214,8 +214,8 @@ Details: [`locityper/README.md`](locityper/README.md),
 Per-sample STR genotyping with the bw2 ExpansionHunter fork. Nearline CRAMs
 are subset once with `make_minicram_for_expansion_hunter` (catalog regions +
 mates), then EH runs `--analysis-mode optimized-streaming` on the local
-minicram. EH has its own Jupyter VM. Prefer Cloud Batch
-(`dsub --provider google-batch`) when Cromwell is spotty:
+minicram. EH has its own Jupyter VM. Prefer native Cloud Batch
+(`gcloud batch`, no dsub) when Cromwell is spotty:
 [`notebooks/rw/expansion_hunter_02_run_batch.ipynb`](notebooks/rw/expansion_hunter_02_run_batch.ipynb).
 Cromwell remains in
 [`notebooks/rw/expansion_hunter_01_run.ipynb`](notebooks/rw/expansion_hunter_01_run.ipynb).

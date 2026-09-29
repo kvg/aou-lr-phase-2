@@ -17,16 +17,15 @@ app), so restage refs there. In that VWB Jupyter app:
    full catalogs; locates the v9 CRAM manifest. No Jellyfish.
 2. **Cloud Batch (preferred when Cromwell is spotty):**
    [`notebooks/rw/expansion_hunter_02_run_batch.ipynb`](../notebooks/rw/expansion_hunter_02_run_batch.ipynb)
-   — [`dsub --provider google-batch`](https://github.com/DataBiosphere/dsub)
-   via [`batch/submit_dsub.sh`](batch/submit_dsub.sh). Details:
+   — native `gcloud batch` (one print-reads container, no dsub). Details:
    [`batch/README.md`](batch/README.md).
 3. **Cromwell (still works, less consistent):**
    [`notebooks/rw/expansion_hunter_01_run.ipynb`](../notebooks/rw/expansion_hunter_01_run.ipynb)
    — stage WDL / register / submit via
    [`wb workflow`](https://support.workbench.verily.com/docs/guides/workflows/cromwell/)
 
-The Workbench **Workflows GUI is unreliable**. VWB Cloud Batch via dsub is
-the more consistent / cheaper submit path; keep the WDL around as a backup.
+The Workbench **Workflows GUI is unreliable**. Native Cloud Batch is the
+more consistent / cheaper submit path; keep the WDL around as a backup.
 
 ## What the WDL does
 
@@ -42,9 +41,9 @@ name `ExpansionHunterMinicram`.
 Nearline. Smoke-test **one sample** and the two-locus catalog before a cohort
 CSV.
 
-The Cloud Batch scripts ([`batch/`](batch/)) run the same two steps as two
-`dsub` jobs (different Docker images). Minicram is not preemptible; genotype
-is `--preemptible 2`.
+The Cloud Batch scripts ([`batch/`](batch/)) run minicram as one print-reads
+container (`gcloud batch`). Genotype is not wired yet. Minicram is not
+preemptible (a preempt would re-read Nearline).
 
 Do not swap this extract for Locityper’s `print_reads` + BED: EH needs the
 mate pass (and any `OfftargetRegions`) so genotypes match a full-CRAM run.
