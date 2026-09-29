@@ -1,47 +1,76 @@
-#!/usr/bin/env bash
-# Cloud Batch / dsub: locityper preproc + genotype (all BED loci) + summarize.
-# No BED scatter — GNU parallel on this VM, same as the WDL shard internals.
+#!/bin/bash
+# Locityper container worker (this image has locityper + bash + GNU parallel, not python3).
+# Host already downloaded reads/reference/counts/BED/db onto /work.
 set -euo pipefail
-date
+cd /work
+if [ -f /work/task.env ]; then
+  # shellcheck disable=SC1091
+  . /work/task.env
+fi
+: "${SAMPLE_ID:?SAMPLE_ID empty}"
+: "${LOCITYPER_N_CPU:=2}"
+: "${TECHNOLOGY:=illumina}"
+export SHELL=/bin/bash
 
-: "${SAMPLE_ID:?}"
-: "${MINICRAM:?}"
-: "${MINICRAI:?}"
-: "${REF_FA:?}"
-: "${REF_FAI:?}"
-: "${COUNTS_JF:?}"
-: "${BED:?}"
-: "${DB_TAR:?}"
-: "${SUMMARY_CSV:?}"
-: "${RESULTS_TAR:?}"
+exec >>/work/worker.log 2>&1
+echo "genotype start sample=${SAMPLE_ID} n_cpu=${LOCITYPER_N_CPU} tech=${TECHNOLOGY}"
 
-N_CPU="${LOCITYPER_N_CPU:-2}"
-TECHNOLOGY="${TECHNOLOGY:-illumina}"
+(
+  printf 'timestamp\trss_kb\n' > /work/resource_stats.tsv
+  while true; do
+    rss=$(awk '/^VmRSS:/{s+=$2} END {print s+0}' /proc/[0-9]*/status 2>/dev/null || echo 0)
+    printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${rss}" >> /work/resource_stats.tsv
+    sleep 5
+  done
+) &
+MON_PID=$!
+trap 'kill "${MON_PID}" 2>/dev/null || true' EXIT
 
-ln -sf "${REF_FA}" reference.fa
-ln -sf "${REF_FAI}" reference.fa.fai
-ln -sf "${MINICRAM}" subset.cram
-ln -sf "${MINICRAI}" subset.cram.crai
+for f in reads.cram reads.cram.crai reference.fa reference.fa.fai counts.jf loci.bed vcf_db.tar.gz; do
+  if [ ! -s "${f}" ]; then
+    echo "missing input: /work/${f}" >&2
+    exit 1
+  fi
+done
 
-locityper preproc -a subset.cram \
+ln -sfn reads.cram subset.cram
+ln -sfn reads.cram.crai subset.cram.crai
+
+if ! command -v locityper >/dev/null 2>&1; then
+  echo "locityper is not on PATH" >&2
+  exit 1
+fi
+
+echo "+ locityper preproc ..."
+locityper preproc \
+  -a subset.cram \
   -r reference.fa \
-  -j "${COUNTS_JF}" \
-  -@ "${N_CPU}" \
+  -j counts.jf \
+  -@ "${LOCITYPER_N_CPU}" \
   --technology "${TECHNOLOGY}" \
   -o locityper_preproc
 
-tar -xzf "${DB_TAR}"
+tar -xzf vcf_db.tar.gz
+if [ ! -d vcf_db ]; then
+  echo "vcf_db.tar.gz did not contain vcf_db/" >&2
+  exit 1
+fi
+
 mkdir -p out_dir/loci
 
 process_single_locus() {
   line="$1"
-  locus_name=$(echo "$line" | cut -f4)
-  if [[ -z "${locus_name}" ]]; then
-    echo "BED line missing column 4 (locus name): ${line}" >&2
+  case "${line}" in
+    ""|\#*) return 0 ;;
+  esac
+  locus_name=$(printf '%s\n' "${line}" | cut -f4)
+  if [ -z "${locus_name}" ]; then
+    echo "BED line missing column 4: ${line}" >&2
     return 1
   fi
   mkdir -p "out_dir/loci/${locus_name}"
-  locityper genotype -a subset.cram \
+  locityper genotype \
+    -a subset.cram \
     -r reference.fa \
     -d vcf_db \
     -p locityper_preproc \
@@ -50,48 +79,17 @@ process_single_locus() {
 }
 export -f process_single_locus
 
-cat "${BED}" | /usr/bin/parallel --line-buffer -j "${N_CPU}" process_single_locus {}
-find out_dir -type f -name "*.bam" -exec rm -f {} \;
+if [ ! -x /usr/bin/parallel ]; then
+  echo "GNU parallel missing at /usr/bin/parallel" >&2
+  command -v parallel || true
+  exit 1
+fi
 
+grep -v '^#' loci.bed | grep -ve '^[[:space:]]*$' > /work/loci.bed.nz
+echo "loci: $(wc -l < /work/loci.bed.nz)"
+/usr/bin/parallel --line-buffer -j "${LOCITYPER_N_CPU}" process_single_locus {} < /work/loci.bed.nz
+
+find out_dir -type f -name '*.bam' -exec rm -f {} \;
 tar -czf "${SAMPLE_ID}.locityper.tar.gz" out_dir
-
-python3 - <<PY
-import gzip, json, math
-from pathlib import Path
-
-sample_id = "${SAMPLE_ID}"
-loci_root = Path("out_dir") / "loci"
-out_path = Path("gts.filtered.csv")
-rows = ["sample\tlocus\tgenotype\tquality\ttotal_reads\tunexpl_reads\tweight_dist\twarnings"]
-if loci_root.is_dir():
-    for entry in sorted(loci_root.iterdir(), key=lambda p: p.name):
-        if not entry.is_dir():
-            continue
-        json_path = entry / "res.json.gz"
-        if not json_path.is_file():
-            continue
-        with gzip.open(json_path, "rt") as fh:
-            res = json.load(fh)
-        line = f"{sample_id}\t{entry.name}\t"
-        if "genotype" not in res:
-            rows.append(line + "*")
-            continue
-        gt = res["genotype"]
-        qual = math.floor(10 * float(res["quality"])) * 0.1
-        total_reads = res.get("total_reads", "")
-        unexpl_reads = res.get("unexpl_reads", "")
-        weight_dist = res.get("weight_dist")
-        weight_s = "" if weight_dist is None else f"{float(weight_dist):.5f}"
-        warnings = ";".join(res.get("warnings", [])) or "*"
-        rows.append(
-            line + f"{gt}\t{qual:.1f}\t{total_reads}\t{unexpl_reads}\t{weight_s}\t{warnings}"
-        )
-out_path.write_text("\n".join(rows) + "\n")
-print(f"wrote {len(rows) - 1} loci to {out_path}", flush=True)
-PY
-
-mkdir -p "$(dirname "${SUMMARY_CSV}")" "$(dirname "${RESULTS_TAR}")"
-cp -f gts.filtered.csv "${SUMMARY_CSV}"
-cp -f "${SAMPLE_ID}.locityper.tar.gz" "${RESULTS_TAR}"
-ls -lh "${SUMMARY_CSV}" "${RESULTS_TAR}"
-date
+ls -lh "${SAMPLE_ID}.locityper.tar.gz"
+echo "genotype container done"

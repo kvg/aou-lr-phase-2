@@ -61,7 +61,7 @@ if [[ "${STAGE}" == "minicram" ]]; then
 else
   JOB_ID="lt-gt-$(date -u +%y%m%d-%H%M%S)"
   IMAGE="${LOCITYPER_DOCKER}"
-  WORKER="${SCRIPT_DIR}/genotype.py"
+  WORKER="${SCRIPT_DIR}/genotype.sh"
   case "${IMAGE}" in
     *pkg.dev/*) ;;
     *)

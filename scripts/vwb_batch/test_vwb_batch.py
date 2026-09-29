@@ -238,7 +238,13 @@ def test_locityper_job_json() -> None:
         labels=alloc.job_labels(pipeline="locityper", run_id="lt-test", stage="genotype", shard=0),
     )
     spec = gt["taskGroups"][0]["taskSpec"]
-    assert spec["runnables"][2]["alwaysRun"] is True
+    ctr = spec["runnables"][1]["container"]
+    assert ctr["entrypoint"] == "/bin/bash"
+    assert "locityper preproc" in ctr["commands"][1]
+    assert "python3" in spec["runnables"][2]["script"]["text"]
+    assert "LT_WORKDIR" in spec["runnables"][2]["script"]["text"]
+    assert spec["runnables"][3]["alwaysRun"] is True
+    compile((ROOT / "locityper" / "batch" / "genotype.py").read_text(), "lt-genotype-summary", "exec")
     assert spec["computeResource"]["cpuMilli"] == 2000
     csv_path = ROOT / "locityper" / "configs" / "batch.header.csv"
     mod = lt._load_submit_batch()

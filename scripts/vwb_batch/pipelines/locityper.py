@@ -74,7 +74,7 @@ def worker_path(stage: str) -> Path:
     if stage == "minicram":
         return batch / "make_minicram.py"
     if stage == "genotype":
-        return batch / "genotype.py"
+        return batch / "genotype.sh"
     raise ValueError(f"unknown stage {stage!r}")
 
 

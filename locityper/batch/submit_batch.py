@@ -128,6 +128,23 @@ DEFAULT_COMPUTE = {
 }
 
 
+def _summarize_script() -> str:
+    py = Path(__file__).with_name("genotype.py").read_text(encoding="utf-8")
+    return (
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "WORKDIR=/mnt/disks/lt\n"
+        'if [ -f "${WORKDIR}/task.env" ]; then\n'
+        "  # shellcheck disable=SC1091\n"
+        '  . "${WORKDIR}/task.env"\n'
+        "fi\n"
+        'export LT_WORKDIR="${WORKDIR}"\n'
+        "python3 - <<'PY'\n"
+        f"{py}"
+        "PY\n"
+    )
+
+
 def _worker_source(worker_path: Path) -> str:
     monitor = Path(__file__).resolve().parents[2] / "expansion_hunter" / "batch" / "resource_monitor.py"
     worker = worker_path.read_text(encoding="utf-8")
@@ -356,7 +373,11 @@ def build_genotype_job_from_rows(
     compute: dict | None = None,
 ) -> dict:
     del out_prefix
-    worker = _worker_source(worker_path)
+    if worker_path.suffix != ".sh":
+        raise SystemExit(
+            f"genotype worker must be genotype.sh (Locityper image has no python3), got {worker_path}"
+        )
+    shell = worker_path.read_text(encoding="utf-8")
     cr = _compute("genotype", compute)
     spec: dict = {
         "computeResource": cr,
@@ -370,11 +391,12 @@ def build_genotype_job_from_rows(
             {
                 "container": {
                     "imageUri": image,
-                    "entrypoint": "python3",
-                    "commands": ["-c", worker],
+                    "entrypoint": "/bin/bash",
+                    "commands": ["-c", shell],
                     "volumes": [f"{WORKDIR}:/work"],
                 }
             },
+            {"script": {"text": _summarize_script()}},
             {"script": {"text": UPLOAD_SCRIPT}, "alwaysRun": True},
         ],
     }

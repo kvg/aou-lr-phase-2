@@ -7,7 +7,10 @@ Same Nearline minicram → preproc/genotype path as
 
 dsub is **not** the path here (`submit_dsub.sh` remains as a leftover). Native
 Batch uses a Python minicram worker in print-reads `0.1.2` (no bash/`gcloud`
-in that image) and host `gcloud` I/O around the Locityper container.
+in that image) and host `gcloud` I/O around the Locityper container. That
+image has `locityper` + bash + GNU parallel, **not** `python3` (WDL Summarize
+uses `python:3.11-slim`). Genotype is `bash` in the container, then host
+`python3` writes `gts.filtered.csv`.
 
 The WGS CRAM stays a `gs://` env var (never localized). Minicram range-fetches
 CRAM containers for the BED loci plus Isaac’s chr17 background interval.
