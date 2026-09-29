@@ -68,10 +68,10 @@ def objects_ok(uris: list[str], listing: set[str] | None = None) -> bool:
 
 
 def poll_job(*, job_id: str, project: str, region: str) -> dict[str, Any]:
-    job = submit.describe_job(job_id=job_id, project=project, region=region)
+    job = submit.describe_job(job_id=job_id, project=project, region=region, quiet=True)
     status = job.get("status") or {}
     state = str(status.get("state") or "UNKNOWN")
-    tasks = submit.list_tasks(job_id=job_id, project=project, region=region)
+    tasks = submit.list_tasks(job_id=job_id, project=project, region=region, quiet=True)
     parsed = []
     for task in tasks:
         parsed.append(
@@ -79,7 +79,6 @@ def poll_job(*, job_id: str, project: str, region: str) -> dict[str, Any]:
                 "index": task_index(task),
                 "state": task_state(task),
                 "seconds": task_seconds(task),
-                "raw": task,
             }
         )
     parsed.sort(key=lambda row: row["index"])
