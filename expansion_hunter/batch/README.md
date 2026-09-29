@@ -47,6 +47,7 @@ Under `--out-prefix` (default `$OUTPUT_BUCKET_GS/batchRuns/expansion_hunter`):
 {sample_id}/{sample_id}.minicram.cram
 {sample_id}/{sample_id}.minicram.cram.crai
 {sample_id}/{sample_id}.data_transfer_stats.tsv
+{sample_id}/{sample_id}.minicram.worker.log
 {sample_id}/{sample_id}.EH.json
 {sample_id}/{sample_id}.EH.vcf
 logs/

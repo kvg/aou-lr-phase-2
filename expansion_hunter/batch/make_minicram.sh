@@ -4,6 +4,33 @@
 # The CRAI lives in the same requester-pays bucket; localizing it is what
 # failed MakeMinicram under both Cromwell and dsub.
 set -euo pipefail
+
+# dsub --logging never lands in GCS here (PET cannot read Cloud Logging).
+# Re-exec once, capturing stdout/stderr, then upload that file ourselves.
+upload_worker_log() {
+  local local_log="$1"
+  [[ -n "${WORKER_LOG_GCS:-}" && -f "${local_log}" ]] || return 0
+  python3 - "${local_log}" "${WORKER_LOG_GCS}" <<'PY'
+import sys
+from google.cloud import storage
+
+local, dest = sys.argv[1], sys.argv[2]
+if not dest.startswith("gs://"):
+    raise SystemExit(f"WORKER_LOG_GCS is not gs://: {dest}")
+bucket_name, blob_name = dest[5:].split("/", 1)
+storage.Client().bucket(bucket_name).blob(blob_name).upload_from_filename(local)
+print(f"uploaded worker log to {dest}", flush=True)
+PY
+}
+
+if [[ -z "${WORKER_LOG_INNER:-}" ]]; then
+  export WORKER_LOG_INNER=1
+  status=0
+  bash "$0" "$@" >"${PWD}/worker.log" 2>&1 || status=$?
+  upload_worker_log "${PWD}/worker.log" || true
+  exit "${status}"
+fi
+
 date
 
 : "${SAMPLE_ID:?}"
