@@ -24,6 +24,16 @@ def env(name: str) -> str:
     return value
 
 
+def apply_task_file() -> None:
+    path = Path("/work/task.json")
+    if not path.is_file():
+        return
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for key, value in data.items():
+        if key:
+            os.environ[key] = "" if value is None else str(value)
+
+
 def sex_flag(raw: str) -> str:
     key = raw.lower().replace(" ", "")
     if key in {"male", "m", "1"}:
@@ -69,6 +79,7 @@ def main() -> int:
     sys.stderr = Tee(sys.__stderr__, log_fh)
     status = 0
     try:
+        apply_task_file()
         sample_id = env("SAMPLE_ID")
         prefix = f"{sample_id}.EH"
         reads = work / "reads.cram"

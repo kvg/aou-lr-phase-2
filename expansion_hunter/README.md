@@ -17,7 +17,12 @@ app), so restage refs there. In that VWB Jupyter app:
    full catalogs; locates the v9 CRAM manifest. No Jellyfish.
 2. **Cloud Batch (preferred when Cromwell is spotty):**
    [`notebooks/rw/expansion_hunter_02_run_batch.ipynb`](../notebooks/rw/expansion_hunter_02_run_batch.ipynb)
-   — native `gcloud batch` (one print-reads container, no dsub). Details:
+   — one-sample smoke (`gcloud batch`, no dsub). Cohort run:
+   [`expansion_hunter_03_budget.ipynb`](../notebooks/rw/expansion_hunter_03_budget.ipynb)
+   (pilot + p90 keep list) then
+   [`expansion_hunter_04_dispatch.ipynb`](../notebooks/rw/expansion_hunter_04_dispatch.ipynb)
+   (shards / poll / retry). Library:
+   [`scripts/vwb_batch/`](../scripts/vwb_batch/). Details:
    [`batch/README.md`](batch/README.md).
 3. **Cromwell (still works, less consistent):**
    [`notebooks/rw/expansion_hunter_01_run.ipynb`](../notebooks/rw/expansion_hunter_01_run.ipynb)
@@ -57,7 +62,8 @@ mate pass (and any `OfftargetRegions`) so genotypes match a full-CRAM run.
    Artifact Registry). VPC-SC cannot pull the default tags.
 4. Run `expansion_hunter_00_prep_reference` on **this** VM (FASTA + catalogs;
    skips GCS objects that already exist). EH does not need Jellyfish.
-5. Open `expansion_hunter_02_run_batch` (Cloud Batch) **or**
+5. Open `expansion_hunter_02_run_batch` for a one-sample smoke, then `_03`
+   / `_04` for a budgeted cohort (Cloud Batch) **or**
    `expansion_hunter_01_run` (Cromwell). Paste the `gs://` URIs from the
    prep notebook. Set `PRINT_READS_DOCKER` / `EH_DOCKER` if you mirrored
    the images. For Cromwell, `RECREATE_WORKFLOW=True` once after a WDL

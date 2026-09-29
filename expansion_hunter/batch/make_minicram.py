@@ -8,6 +8,7 @@ catalog containers. Uploads minicram, crai, transfer stats, and this log.
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import subprocess
@@ -34,6 +35,31 @@ def env(name: str) -> str:
     if not value:
         raise SystemExit(f"{name} is empty")
     return value
+
+
+def apply_task_tsv() -> None:
+    uri = os.environ.get("TASKS_TSV", "").strip()
+    if not uri:
+        return
+    idx = int(os.environ.get("BATCH_TASK_INDEX", "0"))
+    project = (
+        os.environ.get("GCLOUD_PROJECT", "").strip()
+        or os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    )
+    if not project:
+        raise SystemExit("GCLOUD_PROJECT is empty (needed to load TASKS_TSV)")
+    work = Path("/work")
+    work.mkdir(parents=True, exist_ok=True)
+    dest = work / "tasks.tsv"
+    download(client(project), uri, dest, project)
+    with dest.open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    if idx < 0 or idx >= len(rows):
+        raise SystemExit(f"BATCH_TASK_INDEX {idx} out of range n={len(rows)}")
+    for key, value in rows[idx].items():
+        if key:
+            os.environ[key] = "" if value is None else str(value)
+    print(f"TASKS_TSV row {idx} SAMPLE_ID={os.environ.get('SAMPLE_ID')}", flush=True)
 
 
 def split_gs(uri: str) -> tuple[str, str]:
@@ -118,6 +144,7 @@ def main() -> int:
     work = Path("/work")
     work.mkdir(parents=True, exist_ok=True)
     os.chdir(work)
+    apply_task_tsv()
 
     sample_id = env("SAMPLE_ID")
     cram = env("CRAM")

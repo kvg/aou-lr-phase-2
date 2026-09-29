@@ -6,8 +6,10 @@ submitted with `gcloud batch` from a Verily Workbench Jupyter app. The WDL
 notebook (`expansion_hunter_01_run`) is unchanged.
 
 dsub is **not** the path here. Native Batch works: host GCS smoke, in-container
-`google.cloud.storage` (`eh-ctr-smoke-260929-034427`), and minicram
-(`eh-mini-260929-035922`).
+`google.cloud.storage` (`eh-ctr-smoke-260929-034427`), two-locus minicram
+(`eh-mini-260929-035922`), and the 711-locus degenerate panel on sample
+`1000000` (`eh-mini-260929-051752` ~8 min / 67.5 MiB, `eh-gt-260929-053643`
+~1 min).
 
 The WGS CRAM stays a `gs://` env var (never localized). Minicram downloads
 catalog, hg38, and the CRAI with the GCS client, then range-fetches CRAM
@@ -22,7 +24,14 @@ print-reads `0.1.2` (`gcloud`’s shebang is bash; slim returns exit 127).
 [`../../notebooks/rw/expansion_hunter_02_run_batch.ipynb`](../../notebooks/rw/expansion_hunter_02_run_batch.ipynb)
 (`SUBMIT_*` off until you flip one). `CATALOG_KIND = "degenerate"` is the
 711-locus production panel (bigger smoke on sample `1000000`). `"tiny"` is
-the two-locus path. Or:
+the two-locus path.
+
+Cohort runs use a GCS ledger (`scripts/vwb_batch/`):
+[`expansion_hunter_03_budget.ipynb`](../../notebooks/rw/expansion_hunter_03_budget.ipynb)
+then
+[`expansion_hunter_04_dispatch.ipynb`](../../notebooks/rw/expansion_hunter_04_dispatch.ipynb).
+Tasks read a GCS TSV (`TASKS_TSV` + `BATCH_TASK_INDEX`) so job JSON stays
+under 1 MiB at 100k samples. Or:
 
 ```bash
 ./submit_batch.sh --csv ../configs/batch.header.csv --stage minicram
