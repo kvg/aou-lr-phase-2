@@ -24,7 +24,7 @@ OUT_PREFIX="${EH_OUT_PREFIX:-gs://${GOOGLE_CLOUD_PROJECT:-aou-lr-phase2-resource
 if [[ -n "${OUTPUT_BUCKET_GS:-}" ]]; then
   OUT_PREFIX="${OUTPUT_BUCKET_GS%/}/batchRuns/expansion_hunter"
 fi
-PRINT_READS_DOCKER="${PRINT_READS_DOCKER:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1}"
+PRINT_READS_DOCKER="${PRINT_READS_DOCKER:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2}"
 EH_DOCKER="${EH_DOCKER:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-expansion-hunter:0.1.0}"
 WAIT=0
 TASKS_DIR="${SCRIPT_DIR}/.tasks"

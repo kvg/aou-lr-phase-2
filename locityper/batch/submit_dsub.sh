@@ -19,7 +19,7 @@ OUT_PREFIX="${LOCITYPER_OUT_PREFIX:-gs://${GOOGLE_CLOUD_PROJECT:-aou-lr-phase2-r
 if [[ -n "${OUTPUT_BUCKET_GS:-}" ]]; then
   OUT_PREFIX="${OUTPUT_BUCKET_GS%/}/batchRuns/locityper"
 fi
-PRINT_READS_DOCKER="${PRINT_READS_DOCKER:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1}"
+PRINT_READS_DOCKER="${PRINT_READS_DOCKER:-us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2}"
 LOCITYPER_DOCKER="${LOCITYPER_DOCKER:-eichlerlab/locityper:1.4.5.0}"
 WAIT=0
 TASKS_DIR="${SCRIPT_DIR}/.tasks"

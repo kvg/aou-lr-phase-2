@@ -46,7 +46,7 @@ workflow LocityperStream {
         Int minicram_n_preemptible = 0
 
         String locityper_docker = "eichlerlab/locityper:1.4.5.0"
-        String print_reads_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1"
+        String print_reads_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2"
         String util_docker = "python:3.11-slim"
     }
 

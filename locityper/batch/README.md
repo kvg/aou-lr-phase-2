@@ -19,7 +19,7 @@ On a VWB Jupyter terminal, run `dsub_activate` first ([VWB dsub
 guide](https://support.workbench.verily.com/docs/guides/workflows/dsub/)).
 dsub google-batch copies `--input`/`--logging` with `DSUB_CLOUD_SDK_IMAGE`
 (see [`vwb_dsub.sh`](../../scripts/vwb_dsub.sh)); that is the print_reads
-Broad AR tag (`0.1.1`, includes `gcloud`). VPC-SC cannot pull Google’s
+Broad AR tag (`0.1.2`, includes `gcloud`). VPC-SC cannot pull Google’s
 `gcr.io` / pkg.dev cloud-sdk images.
 
 ```bash

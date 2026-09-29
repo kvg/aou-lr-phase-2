@@ -3,6 +3,17 @@
 # CRAM and CRAI must be gs:// URIs (--env), not localized --input.
 set -euo pipefail
 
+vpcsc_restricted_hosts() {
+  local vip=199.36.153.4 h
+  for h in restricted.googleapis.com storage.googleapis.com oauth2.googleapis.com \
+           www.googleapis.com accounts.google.com iamcredentials.googleapis.com; do
+    grep -q "[[:space:]]${h}$" /etc/hosts 2>/dev/null \
+      || echo "${vip} ${h}" >> /etc/hosts 2>/dev/null \
+      || true
+  done
+}
+vpcsc_restricted_hosts
+
 upload_worker_log() {
   local local_log="$1"
   if [[ -z "${WORKER_LOG_GCS:-}" ]]; then
@@ -39,7 +50,7 @@ def metadata(path: str) -> bytes:
 
 token = json.loads(metadata("instance/service-accounts/default/token"))["access_token"]
 url = (
-    "https://storage.googleapis.com/upload/storage/v1/b/"
+    "https://storage.restricted.googleapis.com/upload/storage/v1/b/"
     f"{urllib.parse.quote(bucket, safe='')}/o?uploadType=media&name={blob_q}"
 )
 body = open(local, "rb").read()
@@ -52,6 +63,68 @@ except urllib.error.HTTPError as exc:
     sys.stderr.write(exc.read().decode("utf-8", "replace")[:4000] + "\n")
     raise
 print(f"uploaded worker log to {dest} ({len(body)} bytes)", flush=True)
+PY
+}
+
+# str-analysis downloads the CRAI with `gsutil -u PROJECT -m cp`. On failure it
+# imports hail and exits. Batch user containers often have no ADC file; an empty
+# GOOGLE_APPLICATION_CREDENTIALS also blocks GCE metadata fallback.
+gce_gcs_setup() {
+  local proj="$1"
+  unset GOOGLE_APPLICATION_CREDENTIALS || true
+  export CLOUDSDK_CORE_PROJECT="${proj}"
+  export GOOGLE_CLOUD_PROJECT="${proj}"
+  export PATH="/usr/lib/google-cloud-sdk/bin:${PATH}"
+
+  if ! command -v gsutil >/dev/null 2>&1; then
+    mkdir -p "${PWD}/.localbin"
+    cat > "${PWD}/.localbin/gsutil" <<'EOS'
+#!/bin/bash
+set -euo pipefail
+billing=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -u)
+      billing=(--billing-project "$2")
+      shift 2
+      ;;
+    -m)
+      shift
+      ;;
+    cp)
+      shift
+      exec gcloud storage cp "${billing[@]}" "$@"
+      ;;
+    ls)
+      shift
+      exec gcloud storage ls "${billing[@]}" "$@"
+      ;;
+    *)
+      echo "gsutil shim: unsupported: $*" >&2
+      exit 1
+      ;;
+  esac
+done
+echo "gsutil shim: missing cp/ls" >&2
+exit 1
+EOS
+    chmod +x "${PWD}/.localbin/gsutil"
+    export PATH="${PWD}/.localbin:${PATH}"
+    echo "installed gsutil shim at ${PWD}/.localbin/gsutil"
+  fi
+  echo "gsutil=$(command -v gsutil) gcloud=$(command -v gcloud || echo missing)"
+  python3 - "${proj}" <<'PY'
+import os, sys
+os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+proj = sys.argv[1]
+import google.auth
+creds, discovered = google.auth.default(
+    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+)
+print(f"ADC {type(creds).__name__} project={discovered or proj}")
+from google.cloud import storage
+storage.Client(project=proj, credentials=creds)
+print("storage.Client ok")
 PY
 }
 
@@ -107,6 +180,7 @@ run() {
     exit 1
   fi
   echo "requester-pays project: ${PROJ}"
+  gce_gcs_setup "${PROJ}"
 
   if [[ "${CRAM}" != gs://* || "${CRAI}" != gs://* ]]; then
     echo "CRAM and CRAI must be gs:// URIs (not localized files): CRAM=${CRAM} CRAI=${CRAI}" >&2

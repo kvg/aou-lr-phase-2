@@ -146,7 +146,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 | `locityper_db_tar_gz` | `tar czf` of a Locityper DB directory named `vcf_db`. Smoke: prep notebook `vcf_db.smoke.tar.gz` (toy 2-haplotype panel). Real runs need Isaac’s pangenome DB |
 | `technology` | Default `illumina` |
 | `gcloud_project` | Requester-pays billing project for the CRAM bucket; empty uses `$GOOGLE_CLOUD_PROJECT` |
-| `print_reads_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1` ([`build_docker.sh`](build_docker.sh)) |
+| `print_reads_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2` ([`build_docker.sh`](build_docker.sh)) |
 | `locityper_docker` | Default `eichlerlab/locityper:1.4.5.0` (needs `samtools`, `parallel`, `locityper`) |
 | `util_docker` | Default `python:3.11-slim` (split / tar / summarize) |
 

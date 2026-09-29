@@ -8,7 +8,8 @@ FROM python:3.11-slim-bookworm
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CLOUDSDK_CORE_DISABLE_PROMPTS=1
+    CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
+    BASH_ENV=/usr/local/etc/vpcsc-hosts.sh
 
 # Pin a commit that includes make_minicram_for_expansion_hunter (not on PyPI).
 ARG STR_ANALYSIS_GIT=https://github.com/broadinstitute/str-analysis.git
@@ -38,6 +39,11 @@ RUN apt-get update \
 RUN python3 -c "import str_analysis.print_reads; import str_analysis.make_minicram_for_expansion_hunter; import google.cloud.storage; import pysam" \
     && gcloud version \
     && command -v gcloud
+
+COPY docker/sitecustomize.py /usr/local/lib/python3.11/site-packages/sitecustomize.py
+COPY docker/vpcsc-hosts.sh /usr/local/etc/vpcsc-hosts.sh
+RUN chmod 644 /usr/local/etc/vpcsc-hosts.sh \
+    && python3 -c "import sitecustomize"
 
 WORKDIR /work
 CMD ["/bin/bash"]

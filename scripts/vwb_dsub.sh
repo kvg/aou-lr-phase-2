@@ -14,7 +14,7 @@
 # Same Broad AR tag as minicram --image: python3 + gcloud (dsub prepare /
 # localize / --logging) and str-analysis. Google's gcr.io / pkg.dev cloud-sdk
 # images are outside the AoU VPC-SC perimeter.
-DEFAULT_DSUB_CLOUD_SDK_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1"
+DEFAULT_DSUB_CLOUD_SDK_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2"
 
 vwb_dsub_require_env() {
   if [[ -z "${GOOGLE_CLOUD_PROJECT:-}" ]]; then

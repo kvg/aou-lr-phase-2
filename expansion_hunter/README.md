@@ -135,7 +135,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 | `catalog` | ExpansionHunter variant catalog JSON. Smoke: [`configs/smoke.catalog.json`](configs/smoke.catalog.json) |
 | `sex` | `male` / `female` (also `m`/`f`/`1`/`2`). Default `female` |
 | `gcloud_project` | Requester-pays billing project for the CRAM bucket; empty uses `$GOOGLE_CLOUD_PROJECT` |
-| `print_reads_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1` (same image as Locityper `MakeMinicram`) |
+| `print_reads_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2` (same image as Locityper `MakeMinicram`) |
 | `eh_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-expansion-hunter:0.1.0` ([`build_docker.sh`](build_docker.sh)) |
 
 VPC-SC workspaces often cannot pull Docker Hub or Broad AR. Mirror

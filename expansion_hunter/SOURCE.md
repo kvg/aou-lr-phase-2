@@ -22,6 +22,6 @@ per-sample adaptation:
   (`ast.literal_eval`) to real JSON. Smoke catalog is the first two loci.
 
 `MakeMinicram` reuses the Locityper print_reads image
-(`aou-locityper-print-reads:0.1.1`), which has `str-analysis` (including
+(`aou-locityper-print-reads:0.1.2`), which has `str-analysis` (including
 `make_minicram_for_expansion_hunter`) and `gcloud` for dsub. The EH
 image is a slim debian build of the bw2 fork + htslib 1.22.

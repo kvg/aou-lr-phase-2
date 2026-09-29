@@ -2,7 +2,7 @@
 # Build (and optionally push) the Locityper print_reads image.
 #
 # Defaults:
-#   image  us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.1
+#   image  us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2
 #
 # Usage:
 #   ./build_docker.sh
@@ -19,7 +19,7 @@ CONTEXT_DIR="${SCRIPT_DIR}"
 DEFAULT_PROJECT="broad-dsp-lrma"
 DEFAULT_REGION="us-central1"
 DEFAULT_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads"
-DEFAULT_TAG="0.1.1"
+DEFAULT_TAG="0.1.2"
 
 IMAGE="${IMAGE:-${DEFAULT_IMAGE}}"
 TAG="${TAG:-${DEFAULT_TAG}}"
