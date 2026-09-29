@@ -80,7 +80,9 @@ Smoke catalog (prep notebook upload):
 [`configs/smoke.catalog.json`](configs/smoke.catalog.json) — first two loci from
 the 711-locus panel. Full panel:
 [`configs/candidate_EH_Loci.GRCh38.json`](configs/candidate_EH_Loci.GRCh38.json).
-This catalog has **no** `OfftargetRegions`; minicram extract is ReferenceRegion
+Same 711 loci with IUPAC-degenerate motifs at 34 sites:
+[`configs/candidate_EH_Loci.GRCh38.degenerate.json`](configs/candidate_EH_Loci.GRCh38.degenerate.json).
+These catalogs have **no** `OfftargetRegions`; minicram extract is ReferenceRegion
 + mates only.
 
 Single job:
@@ -131,7 +133,7 @@ See [Create batch jobs](https://support.workbench.verily.com/docs/guides/workflo
 | `sample_id` | Output prefix |
 | `cram` / `crai` | Mapped WGS. Both are `localization_optional` (stay in Nearline). Minicram reads the CRAI from `gs://` with `--gcloud-project` |
 | `ref_fa` / `ref_fai` | Uncompressed FASTA + fai (AoU srWGS: GATK `Homo_sapiens_assembly38`) |
-| `catalog` | ExpansionHunter variant catalog JSON. Smoke: [`configs/smoke.catalog.json`](configs/smoke.catalog.json) |
+| `catalog` | ExpansionHunter variant catalog JSON. Smoke: [`configs/smoke.catalog.json`](configs/smoke.catalog.json). Full: [`configs/candidate_EH_Loci.GRCh38.json`](configs/candidate_EH_Loci.GRCh38.json) or the degenerate-motif copy |
 | `sex` | `male` / `female` (also `m`/`f`/`1`/`2`). Default `female` |
 | `gcloud_project` | Requester-pays billing project for the CRAM bucket; empty uses `$GOOGLE_CLOUD_PROJECT` |
 | `print_reads_docker` | Default `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2` (same image as Locityper `MakeMinicram`) |

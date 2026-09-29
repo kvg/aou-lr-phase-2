@@ -20,7 +20,9 @@ print-reads `0.1.2` (`gcloud`’s shebang is bash; slim returns exit 127).
 
 `PET_SA_EMAIL` and `GOOGLE_CLOUD_PROJECT` are set by the app. Prefer
 [`../../notebooks/rw/expansion_hunter_02_run_batch.ipynb`](../../notebooks/rw/expansion_hunter_02_run_batch.ipynb)
-(`SUBMIT_*` off until you flip one). Or:
+(`SUBMIT_*` off until you flip one). `CATALOG_KIND = "degenerate"` is the
+711-locus production panel (bigger smoke on sample `1000000`). `"tiny"` is
+the two-locus path. Or:
 
 ```bash
 ./submit_batch.sh --csv ../configs/batch.header.csv --stage minicram

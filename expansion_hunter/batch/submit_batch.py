@@ -152,6 +152,7 @@ def build_minicram_job(
     project: str,
     region: str,
     sa: str,
+    max_run_duration: str = "14400s",
 ) -> dict:
     worker = worker_path.read_text(encoding="utf-8")
     rows = minicram_rows(csv_path, out_prefix, project)
@@ -162,7 +163,7 @@ def build_minicram_job(
             "bootDiskMib": 51200,
         },
         "maxRetryCount": 0,
-        "maxRunDuration": "14400s",
+        "maxRunDuration": max_run_duration,
         "environment": {"variables": {}},
         "runnables": [
             {
@@ -188,6 +189,7 @@ def build_genotype_job(
     project: str,
     region: str,
     sa: str,
+    max_run_duration: str = "14400s",
 ) -> dict:
     worker = worker_path.read_text(encoding="utf-8")
     rows = genotype_rows(csv_path, out_prefix, project)
@@ -198,7 +200,7 @@ def build_genotype_job(
             "bootDiskMib": 51200,
         },
         "maxRetryCount": 0,
-        "maxRunDuration": "14400s",
+        "maxRunDuration": max_run_duration,
         "environment": {"variables": {}},
         "runnables": [
             {"script": {"text": DOWNLOAD_SCRIPT}},

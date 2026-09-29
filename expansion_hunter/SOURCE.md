@@ -20,6 +20,8 @@ per-sample adaptation:
   staged by the Locityper prep notebook). It is **not** baked into the image.
 - Catalog JSON in `configs/` was converted from Python dict literals
   (`ast.literal_eval`) to real JSON. Smoke catalog is the first two loci.
+  `candidate_EH_Loci.GRCh38.degenerate.json` is the same 711 loci with IUPAC
+  degenerate bases in 34 `LocusStructure` motifs.
 
 `MakeMinicram` reuses the Locityper print_reads image
 (`aou-locityper-print-reads:0.1.2`), which has `str-analysis` (including
