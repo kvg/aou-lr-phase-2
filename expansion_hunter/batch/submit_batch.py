@@ -5,6 +5,11 @@ Minicram: one print-reads container; CRAM stays gs://.
 Genotype: host gcloud downloads the minicram + fasta, EH container runs
 ExpansionHunter, host gcloud uploads JSON/VCF. The EH 0.1.0 image has no
 GCS client.
+
+Fused (production): one task per sample runs minicram then genotype in
+TASK_ROOT/t{BATCH_TASK_INDEX} on the host disk, so packed tasks never share
+files. The two-stage genotype job shares one work directory, so it is pinned
+to one task per VM.
 """
 
 from __future__ import annotations
@@ -96,7 +101,57 @@ ls -lh "${json}" "${vcf}" "${log}" "${WORKDIR}/resource_stats.tsv" 2>/dev/null |
 DEFAULT_COMPUTE = {
     "minicram": {"cpuMilli": 4000, "memoryMib": 16384, "bootDiskMib": 51200},
     "genotype": {"cpuMilli": 4000, "memoryMib": 8192, "bootDiskMib": 51200},
+    # Sep 29 pilot p90: minicram 592 MiB RSS, genotype 359 MiB, ~3.3 GiB disk per task.
+    "fused": {"cpuMilli": 1000, "memoryMib": 2048, "bootDiskMib": 20480},
 }
+
+TASK_ROOT = "/mnt/disks/eh"
+
+FUSED_PREP_SCRIPT = r"""#!/bin/bash
+set -eu
+D="${EH_TASK_ROOT}/t${BATCH_TASK_INDEX}"
+mkdir -p "${EH_TASK_ROOT}"
+chmod 777 "${EH_TASK_ROOT}"
+rm -rf "${D}"
+mkdir -p "${D}"
+chmod 777 "${D}"
+echo "task dir ${D}"
+df -h "${EH_TASK_ROOT}" || true
+"""
+
+# alwaysRun: uploads whatever genotype left, then frees the disk for the next task on this VM.
+FUSED_FINISH_SCRIPT = r"""#!/bin/bash
+set -u
+D="${EH_TASK_ROOT}/t${BATCH_TASK_INDEX}"
+if [ ! -f "${D}/task.env" ]; then
+  echo "no ${D}/task.env; minicram did not load its row"
+  rm -rf "${D}"
+  exit 0
+fi
+# shellcheck disable=SC1091
+. "${D}/task.env"
+status=0
+{
+  echo "host $(hostname) task ${BATCH_TASK_INDEX} sample ${SAMPLE_ID} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  ls -la "${D}"
+  df -h "${EH_TASK_ROOT}"
+} > "${D}/host.log" 2>&1 || true
+up() {
+  if [ -s "$1" ]; then
+    gcloud storage cp --billing-project="${GCLOUD_PROJECT}" "$1" "$2" || status=1
+  fi
+}
+up "${D}/${SAMPLE_ID}.EH.json" "${EH_JSON}"
+up "${D}/${SAMPLE_ID}.EH.vcf" "${EH_VCF}"
+up "${D}/genotype.worker.log" "${GT_WORKER_LOG_GCS}"
+up "${D}/genotype.resources.tsv" "${GT_RESOURCE_STATS}"
+up "${D}/host.log" "${HOST_LOG_GCS}"
+rm -rf "${D}"
+exit "${status}"
+"""
+
+# Spot preemption (50001) and lost VMs (50002) are retried by Batch; real failures are not.
+INFRA_EXIT_CODES = [50001, 50002]
 
 
 def _worker_source(worker_path: Path) -> str:
@@ -195,6 +250,29 @@ def genotype_rows_from_records(
     return rows
 
 
+def fused_rows_from_records(
+    records: list[dict[str, str]], out_prefix: str, project: str
+) -> list[dict[str, str]]:
+    """One row per sample with both the minicram and the genotype URIs."""
+    mini = minicram_rows_from_records(records, out_prefix, project)
+    rows: list[dict[str, str]] = []
+    for rec, row in zip(records, mini):
+        sid = rec["sample_id"]
+        row = dict(row)
+        row.update(
+            {
+                "SEX": rec.get("sex") or "female",
+                "EH_JSON": _gs(out_prefix, sid, f"{sid}.EH.json"),
+                "EH_VCF": _gs(out_prefix, sid, f"{sid}.EH.vcf"),
+                "GT_WORKER_LOG_GCS": _gs(out_prefix, sid, f"{sid}.EH.worker.log"),
+                "GT_RESOURCE_STATS": _gs(out_prefix, sid, f"{sid}.EH.resources.tsv"),
+                "HOST_LOG_GCS": _gs(out_prefix, sid, f"{sid}.host.log"),
+            }
+        )
+        rows.append(row)
+    return rows
+
+
 def minicram_rows(csv_path: Path, out_prefix: str, project: str) -> list[dict[str, str]]:
     with csv_path.open(newline="") as fh:
         records = list(csv.DictReader(fh))
@@ -238,10 +316,27 @@ def _attach_rows(
         group["taskEnvironments"] = [{"variables": row} for row in rows]
 
 
-def _job(group: dict, project: str, region: str, sa: str, labels: dict[str, str] | None = None) -> dict:
+def _job(
+    group: dict,
+    project: str,
+    region: str,
+    sa: str,
+    labels: dict[str, str] | None = None,
+    *,
+    spot: bool = False,
+    machine_type: str = "",
+) -> dict:
+    allocation = _allocation(project, region, sa)
+    policy: dict = {}
+    if spot:
+        policy["provisioningModel"] = "SPOT"
+    if machine_type:
+        policy["machineType"] = machine_type
+    if policy:
+        allocation["instances"] = [{"policy": policy}]
     job = {
         "taskGroups": [group],
-        "allocationPolicy": _allocation(project, region, sa),
+        "allocationPolicy": allocation,
         "logsPolicy": {"destination": "CLOUD_LOGGING"},
     }
     if labels:
@@ -321,9 +416,65 @@ def build_genotype_job_from_rows(
             {"script": {"text": UPLOAD_SCRIPT}, "alwaysRun": True},
         ],
     }
-    group: dict = {"taskSpec": spec}
+    # Every task uses the same /mnt/disks/eh files, so never pack two on one VM.
+    group: dict = {"taskSpec": spec, "taskCountPerNode": 1}
     _attach_rows(group, spec, rows, tasks_tsv_uri=tasks_tsv_uri, parallelism=parallelism)
     return _job(group, project, region, sa, labels=labels)
+
+
+def build_fused_job_from_rows(
+    *,
+    rows: list[dict[str, str]],
+    minicram_worker: Path,
+    genotype_worker: Path,
+    minicram_image: str,
+    eh_image: str,
+    project: str,
+    region: str,
+    sa: str,
+    tasks_tsv_uri: str,
+    max_run_duration: str = "10800s",
+    parallelism: int | None = None,
+    labels: dict[str, str] | None = None,
+    compute: dict | None = None,
+    spot: bool = False,
+    machine_type: str = "",
+    max_retry_count: int = 2,
+) -> dict:
+    """Minicram then genotype in one task. Rows come from fused_rows_from_records."""
+    volume = [f"{TASK_ROOT}:{TASK_ROOT}"]
+    spec: dict = {
+        "computeResource": _compute("fused", compute),
+        "maxRetryCount": int(max_retry_count),
+        "lifecyclePolicies": [
+            {"action": "RETRY_TASK", "actionCondition": {"exitCodes": INFRA_EXIT_CODES}}
+        ],
+        "maxRunDuration": max_run_duration,
+        "environment": {"variables": {"EH_TASK_ROOT": TASK_ROOT}},
+        "runnables": [
+            {"script": {"text": FUSED_PREP_SCRIPT}},
+            {
+                "container": {
+                    "imageUri": minicram_image,
+                    "entrypoint": "python3",
+                    "commands": ["-c", _worker_source(minicram_worker)],
+                    "volumes": volume,
+                }
+            },
+            {
+                "container": {
+                    "imageUri": eh_image,
+                    "entrypoint": "python3",
+                    "commands": ["-c", _worker_source(genotype_worker)],
+                    "volumes": volume,
+                }
+            },
+            {"script": {"text": FUSED_FINISH_SCRIPT}, "alwaysRun": True},
+        ],
+    }
+    group: dict = {"taskSpec": spec}
+    _attach_rows(group, spec, rows, tasks_tsv_uri=tasks_tsv_uri, parallelism=parallelism)
+    return _job(group, project, region, sa, labels=labels, spot=spot, machine_type=machine_type)
 
 
 def build_minicram_job(

@@ -26,22 +26,39 @@ print-reads `0.1.2` (`gcloud`’s shebang is bash; slim returns exit 127).
 711-locus production panel (bigger smoke on sample `1000000`). `"tiny"` is
 the two-locus path.
 
-Cohort runs use a GCS ledger (`scripts/vwb_batch/`):
-[`expansion_hunter_03_budget.ipynb`](../../notebooks/rw/expansion_hunter_03_budget.ipynb)
-then
+### Cohort runs
+
+[`expansion_hunter_03_setup.ipynb`](../../notebooks/rw/expansion_hunter_03_setup.ipynb)
+once, then
 [`expansion_hunter_05_submit.ipynb`](../../notebooks/rw/expansion_hunter_05_submit.ipynb)
-(Run All; first attempts before retries).
-[`expansion_hunter_04_dispatch.ipynb`](../../notebooks/rw/expansion_hunter_04_dispatch.ipynb)
-is the manual shard / retry notebook.
-Slide figure:
+(Run All, no edits) and
 [`expansion_hunter_06_progress.ipynb`](../../notebooks/rw/expansion_hunter_06_progress.ipynb).
+Logic lives in [`scripts/vwb_batch/campaign.py`](../../scripts/vwb_batch/campaign.py).
+
+- **One task per sample.** A host script makes `/mnt/disks/eh/t${BATCH_TASK_INDEX}`;
+  the print-reads container writes the minicram there (or downloads it if an
+  earlier attempt already uploaded it); the EH container genotypes it; an
+  `alwaysRun` host script uploads JSON/VCF/logs and deletes the directory.
+  Tasks packed two per VM never share files. (The Sep 29 two-stage genotype
+  jobs shared `/mnt/disks/eh` and failed 1,575 of 1,811 tasks; that job is now
+  pinned to `taskCountPerNode: 1`.)
+- **Spot VMs.** Batch retries preemption (exit 50001) and lost VMs (50002); any
+  other failure ends the task and counts as an attempt.
+- **Guards.** A 200-sample canary for every new code version (hash of the
+  worker scripts), a halt when more than 5% of recent first attempts fail, a
+  budget cap on estimated spend plus in-flight work, at most 10,000 samples in
+  flight, and at most 3 attempts per sample.
+- **Cost.** VMs are priced from task timestamps per VM plus 85 s startup and
+  Nearline at 1.34c per sample (`cost.job_cost_usd`), which matched the Sep 29
+  bill. Billed cost per job comes from the BigQuery billing export when
+  `billing_table` is set.
+- **Outputs** go to `batchRuns/expansion_hunter/v2/{sample}/`: minicram + crai,
+  transfer stats, `EH.json`, `EH.vcf`, and `minicram.worker.log`,
+  `EH.worker.log`, `host.log`, resource TSVs.
+
 Read-only status of smoke + ledger jobs:
 [`batch_monitor.ipynb`](../../notebooks/rw/batch_monitor.ipynb).
-Tasks read a GCS TSV (`TASKS_TSV` + `BATCH_TASK_INDEX`) so job JSON stays
-under 1 MiB at 100k samples. Pilot workers write peak RSS/CPU to
-`*.resources.tsv`; `_03` tunes `cpuMilli` / `memoryMib` / `bootDiskMib` into
-`run.json` for `_04`. Slide figures from the 711-locus smoke live in
-[`figures/`](figures/). Or:
+Slide figures from the 711-locus smoke live in [`figures/`](figures/). Or:
 
 ```bash
 ./submit_batch.sh --csv ../configs/batch.header.csv --stage minicram

@@ -18,12 +18,10 @@ app), so restage refs there. In that VWB Jupyter app:
 2. **Cloud Batch (preferred when Cromwell is spotty):**
    [`notebooks/rw/expansion_hunter_02_run_batch.ipynb`](../notebooks/rw/expansion_hunter_02_run_batch.ipynb)
    — one-sample smoke (`gcloud batch`, no dsub). Cohort run:
-   [`expansion_hunter_03_budget.ipynb`](../notebooks/rw/expansion_hunter_03_budget.ipynb)
-   (20-sample pilot + p90 keep list) then
+   [`expansion_hunter_03_setup.ipynb`](../notebooks/rw/expansion_hunter_03_setup.ipynb)
+   (once: sample file, budget) then
    [`expansion_hunter_05_submit.ipynb`](../notebooks/rw/expansion_hunter_05_submit.ipynb)
-   (Run All; first attempts before retries). Manual shard control remains in
-   [`expansion_hunter_04_dispatch.ipynb`](../notebooks/rw/expansion_hunter_04_dispatch.ipynb).
-   Slide figure:
+   (Run All; canary, waves, retries under a budget cap). Progress, cost and failure logs:
    [`expansion_hunter_06_progress.ipynb`](../notebooks/rw/expansion_hunter_06_progress.ipynb).
    Status of every Batch job:
    [`batch_monitor.ipynb`](../notebooks/rw/batch_monitor.ipynb) (read-only).
@@ -68,7 +66,7 @@ mate pass (and any `OfftargetRegions`) so genotypes match a full-CRAM run.
 4. Run `expansion_hunter_00_prep_reference` on **this** VM (FASTA + catalogs;
    skips GCS objects that already exist). EH does not need Jellyfish.
 5. Open `expansion_hunter_02_run_batch` for a one-sample smoke, then `_03`
-   / `_04` for a budgeted cohort (Cloud Batch) **or**
+   / `_05` for a budgeted cohort (Cloud Batch) **or**
    `expansion_hunter_01_run` (Cromwell). Paste the `gs://` URIs from the
    prep notebook. Set `PRINT_READS_DOCKER` / `EH_DOCKER` if you mirrored
    the images. For Cromwell, `RECREATE_WORKFLOW=True` once after a WDL

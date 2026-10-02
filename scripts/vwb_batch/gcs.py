@@ -70,3 +70,24 @@ def object_size(uri: str) -> int | None:
     meta = rows[0].get("metadata") or rows[0]
     size = meta.get("size")
     return int(size) if size is not None else None
+
+
+def upload_text_if_absent(uri: str, text: str) -> bool:
+    """Create uri only if it does not exist yet. False if someone else holds it."""
+    proc = subprocess.run(
+        ["gcloud", "storage", "cp", "--if-generation-match=0", "-", uri],
+        input=text,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode == 0:
+        return True
+    err = (proc.stderr or "").lower()
+    if "precondition" in err or "412" in err:
+        return False
+    raise RuntimeError(f"conditional upload to {uri} failed: {proc.stderr.strip()[:300]}")
+
+
+def delete(uri: str) -> None:
+    _run(["gcloud", "storage", "rm", uri], check=False)

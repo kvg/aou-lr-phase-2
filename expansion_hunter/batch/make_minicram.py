@@ -4,6 +4,13 @@
 Downloads catalog, hg38, and the CRAI with google.cloud.storage. Leaves the
 Nearline CRAM as gs:// so str-analysis IntervalReader range-fetches only the
 catalog containers. Uploads minicram, crai, transfer stats, and this log.
+
+With EH_TASK_ROOT set (the one-task minicram + genotype job), work happens in
+EH_TASK_ROOT/t{BATCH_TASK_INDEX} on the host disk, so two tasks packed on one
+VM never share files. The reference, catalog and minicram stay there for the
+genotype container, and task.json / task.env carry this task's row to the
+later runnables. If the minicram from an earlier attempt is already on GCS it
+is downloaded instead of re-read from Nearline.
 """
 
 from __future__ import annotations
@@ -43,13 +50,13 @@ def _start_monitor(work: Path):
     return mon
 
 
-def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str) -> Path | None:
+def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str, fused: bool = False) -> Path | None:
     if mon is None:
         return None
     stats = mon.stop()
     stats["sample_id"] = sample_id
     stats["stage"] = stage
-    path = work / "resource_stats.tsv"
+    path = work / (f"{stage}.resources.tsv" if fused else "resource_stats.tsv")
     try:
         write_resource_tsv(path, stats)
     except NameError:
@@ -62,6 +69,13 @@ def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str) -> Path | None
         flush=True,
     )
     return path
+
+
+def task_dir() -> Path:
+    root = os.environ.get("EH_TASK_ROOT", "").strip()
+    if not root:
+        return Path("/work")
+    return Path(root) / f"t{int(os.environ.get('BATCH_TASK_INDEX', '0'))}"
 
 
 def env(name: str) -> str:
@@ -82,7 +96,7 @@ def apply_task_tsv() -> None:
     )
     if not project:
         raise SystemExit("GCLOUD_PROJECT is empty (needed to load TASKS_TSV)")
-    work = Path("/work")
+    work = task_dir()
     work.mkdir(parents=True, exist_ok=True)
     dest = work / "tasks.tsv"
     download(client(project), uri, dest, project)
@@ -90,10 +104,20 @@ def apply_task_tsv() -> None:
         rows = list(csv.DictReader(fh, delimiter="\t"))
     if idx < 0 or idx >= len(rows):
         raise SystemExit(f"BATCH_TASK_INDEX {idx} out of range n={len(rows)}")
-    for key, value in rows[idx].items():
-        if key:
-            os.environ[key] = "" if value is None else str(value)
+    row = {k: ("" if v is None else str(v)) for k, v in rows[idx].items() if k}
+    for key, value in row.items():
+        os.environ[key] = value
     print(f"TASKS_TSV row {idx} SAMPLE_ID={os.environ.get('SAMPLE_ID')}", flush=True)
+    if os.environ.get("EH_TASK_ROOT", "").strip():
+        write_task_files(work, row)
+
+
+def write_task_files(work: Path, row: dict[str, str]) -> None:
+    """task.json for the genotype container, task.env for host scripts."""
+    (work / "task.json").write_text(json.dumps(row), encoding="utf-8")
+    with (work / "task.env").open("w", encoding="utf-8") as fh:
+        for key, value in row.items():
+            fh.write(f"export {key}={json.dumps(value)}\n")
 
 
 def split_gs(uri: str) -> tuple[str, str]:
@@ -137,6 +161,15 @@ def download(gcs: storage.Client, uri: str, dest: Path, project: str) -> None:
         raise SystemExit(f"empty download: {uri}")
 
 
+def blob_exists(gcs: storage.Client, uri: str, project: str) -> bool:
+    bucket_name, blob_name = split_gs(uri)
+    try:
+        return gcs.bucket(bucket_name, user_project=project).blob(blob_name).exists()
+    except Exception as exc:
+        print(f"exists check failed for {uri}: {exc}", flush=True)
+        return False
+
+
 def upload(gcs: storage.Client, src: Path, uri: str, project: str) -> None:
     bucket_name, blob_name = split_gs(uri)
     print(f"upload {src} -> {uri} ({src.stat().st_size} bytes)", flush=True)
@@ -175,7 +208,7 @@ def run_minicram(work: Path, *, cram: str, crai: Path, catalog: Path, ref: Path,
 
 def main() -> int:
     ensure_restricted_vip()
-    work = Path("/work")
+    work = task_dir()
     work.mkdir(parents=True, exist_ok=True)
     os.chdir(work)
     apply_task_tsv()
@@ -199,7 +232,9 @@ def main() -> int:
     if not cram.startswith("gs://") or not crai_uri.startswith("gs://"):
         raise SystemExit(f"CRAM and CRAI must stay gs:// (not localized): {cram} {crai_uri}")
 
-    log_path = work / "worker.log"
+    fused = bool(os.environ.get("EH_TASK_ROOT", "").strip())
+    reuse = os.environ.get("REUSE_MINICRAM", "1").strip() != "0"
+    log_path = work / ("minicram.worker.log" if fused else "worker.log")
     log_fh = log_path.open("w", encoding="utf-8")
 
     class Tee:
@@ -236,6 +271,14 @@ def main() -> int:
         json.load(catalog.open())
         download(gcs, ref_fa_uri, ref, project)
         download(gcs, ref_fai_uri, ref_fai, project)
+
+        if reuse and all(blob_exists(gcs, u, project) for u in (minicram_uri, minicrai_uri, stats_uri)):
+            print("minicram already on GCS; downloading it instead of reading the CRAM", flush=True)
+            download(gcs, minicram_uri, out_cram, project)
+            download(gcs, minicrai_uri, Path(str(out_cram) + ".crai"), project)
+            print("minicram done (reused)", flush=True)
+            return 0
+
         download(gcs, crai_uri, crai, project)
 
         last_error = None
@@ -284,7 +327,7 @@ def main() -> int:
     finally:
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
-        stats_path = _dump_monitor(monitor, work, sample_id=sample_id, stage="minicram")
+        stats_path = _dump_monitor(monitor, work, sample_id=sample_id, stage="minicram", fused=fused)
         log_fh.close()
         up = client(project)
         if stats_path is not None and resource_uri:

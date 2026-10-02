@@ -2,6 +2,12 @@
 
 Rates are us-central1 on-demand list prices used as planning numbers, not
 invoices. Prefer p90/p95 of completed pilot samples over the mean.
+
+The calibrated model (``job_cost_usd``) prices each VM from its tasks' start
+and end times plus a fixed startup allowance, which reproduced the Sep 29 2026
+EH bill (modeled / billed VM cost 1.000 over nine labeled shards). The older
+``sample_cost_usd`` helpers price every task as its own e2-standard-4 and
+overestimate about 1.6x; they stay for the pilot notebooks.
 """
 
 from __future__ import annotations
@@ -9,6 +15,9 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
+from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 # us-central1 on-demand, approximate. Batch maps cpuMilli/memoryMib onto a
@@ -199,4 +208,113 @@ def recommend_compute(
         "bootDiskMib": boot,
         "machine": machine_for(cpu_milli=cpu_milli, memory_mib=memory_mib),
         "default": default,
+    }
+
+
+# --- Calibrated model (Sep 29 2026 billing, us-central1 on-demand list prices) ---
+CORE_HOUR_USD = {"e2": 0.021813, "n2": 0.031611, "n1": 0.031611}
+GIB_HOUR_USD = {"e2": 0.002926, "n2": 0.004237, "n1": 0.004237}
+PD_BALANCED_GIB_MONTH_USD = 0.10
+HOURS_PER_BILLING_MONTH = 730
+# ASSUMPTION until a Spot run is billed: Spot VM price as a fraction of on-demand.
+SPOT_FRACTION = 0.35
+# Billed VM time no task timestamp covers (boot, image pull, teardown), fitted to billing.
+VM_STARTUP_S = 85.0
+# Nearline per minicram sample: retrieval 0.92 GiB ($0.0092), Class B reads ($0.0040),
+# other Cloud Storage ($0.0002). Billed to the bucket, so it cannot be split by job.
+NEARLINE_USD_PER_SAMPLE = 0.0134
+# Tasks shorter than this failed before reading the CRAM and are not charged Nearline.
+NEARLINE_MIN_RUN_S = 120.0
+# Planning cost per attempt before a run has its own numbers: Sep 29 on-demand 2.3c plus headroom.
+PRIOR_UNIT_USD = 0.025
+
+_SHAPE = re.compile(r"^(e2|n1|n2)-(standard|highcpu|highmem)-(\d+)$")
+_CUSTOM = re.compile(r"^(?:(e2|n1|n2)-)?custom-(\d+)-(\d+)$")
+_GIB_PER_VCPU = {"standard": 4.0, "highcpu": 1.0, "highmem": 8.0}
+
+
+def machine_shape(machine: str) -> tuple[int, float, str]:
+    """(vCPU, GiB, family) for a Compute Engine machine type. Unknown types price as e2-highcpu-2."""
+    m = _SHAPE.match(machine or "")
+    if m:
+        fam, kind, n = m.group(1), m.group(2), int(m.group(3))
+        gib = n * _GIB_PER_VCPU[kind]
+        if fam == "n1" and kind == "highcpu":
+            gib = n * 0.9
+        if fam == "n1" and kind == "highmem":
+            gib = n * 6.5
+        if fam == "n1" and kind == "standard":
+            gib = n * 3.75
+        return n, gib, fam
+    m = _CUSTOM.match(machine or "")
+    if m:
+        return int(m.group(2)), int(m.group(3)) / 1024.0, m.group(1) or "n1"
+    if machine == "e2-medium":
+        return 2, 4.0, "e2"
+    return 2, 2.0, "e2"
+
+
+def vm_hourly_usd(machine: str, *, spot: bool = False, boot_disk_gb: float = 53.0) -> float:
+    vcpu, gib, fam = machine_shape(machine)
+    rate = vcpu * CORE_HOUR_USD[fam] + gib * GIB_HOUR_USD[fam]
+    if spot:
+        rate *= SPOT_FRACTION
+    return rate + boot_disk_gb * PD_BALANCED_GIB_MONTH_USD / HOURS_PER_BILLING_MONTH
+
+
+def _ts(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip().replace("Z", "+00:00")
+    # Batch timestamps carry nanoseconds; fromisoformat takes at most microseconds.
+    text = re.sub(r"(\.\d{6})\d+", r"\1", text)
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def job_cost_usd(
+    tasks: list[dict[str, Any]],
+    *,
+    machine: str,
+    spot: bool,
+    boot_disk_gb: float = 53.0,
+    startup_s: float = VM_STARTUP_S,
+    nearline_usd_per_sample: float = NEARLINE_USD_PER_SAMPLE,
+    nearline_min_run_s: float = NEARLINE_MIN_RUN_S,
+) -> dict[str, float]:
+    """Estimate one finished job's cost from its tasks.
+
+    Each task needs ``start``, ``end`` (RFC 3339) and ``instance`` (VM id).
+    A VM is billed from its first task start to its last task end plus
+    ``startup_s``. Nearline is charged per task that ran long enough to read
+    the CRAM.
+    """
+    spans: dict[str, list[datetime]] = defaultdict(list)
+    n_ran = 0
+    n_nearline = 0
+    for task in tasks:
+        start, end = _ts(task.get("start")), _ts(task.get("end"))
+        if start is None or end is None:
+            continue
+        n_ran += 1
+        spans[str(task.get("instance") or f"solo-{id(task)}")].extend([start, end])
+        if (end - start).total_seconds() >= nearline_min_run_s:
+            n_nearline += 1
+    rate = vm_hourly_usd(machine, spot=spot, boot_disk_gb=boot_disk_gb)
+    vm_hours = sum(
+        (max(times) - min(times)).total_seconds() / 3600.0 + startup_s / 3600.0
+        for times in spans.values()
+    )
+    vm = vm_hours * rate
+    near = n_nearline * nearline_usd_per_sample
+    return {
+        "vm_usd": vm,
+        "nearline_usd": near,
+        "total_usd": vm + near,
+        "vm_hours": vm_hours,
+        "n_vms": float(len(spans)),
+        "n_ran": float(n_ran),
+        "n_nearline": float(n_nearline),
     }

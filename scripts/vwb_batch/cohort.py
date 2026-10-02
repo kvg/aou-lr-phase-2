@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import os
 import random
 from pathlib import Path
@@ -122,3 +123,82 @@ def shards(rows: list[dict[str, str]], size: int) -> list[tuple[int, list[dict[s
     for i in range(0, len(rows), size):
         out.append((len(out), rows[i : i + size]))
     return out
+
+
+SAMPLE_ID_COLUMNS = ("sample_id", "person_id", "research_id", "participant_id")
+CRAM_COLUMNS = ("cram", "cram_uri", "cram_path")
+CRAI_COLUMNS = ("crai", "cram_index_uri", "crai_uri", "crai_path", "cram_index")
+SEX_COLUMNS = ("sex", "sex_at_birth", "inferred_sex", "gender")
+
+
+def _pick(header: list[str], names: tuple[str, ...]) -> str | None:
+    lower = {h.strip().lower(): h for h in header}
+    for name in names:
+        if name in lower:
+            return lower[name]
+    return None
+
+
+def normalize_sex(raw: str) -> tuple[str, bool]:
+    """ExpansionHunter --sex value and whether raw was recognised. Unknown values become female."""
+    key = (raw or "").strip().lower().replace(" ", "").replace("_", "")
+    if key in {"male", "m", "1", "xy"}:
+        return "male", True
+    if key in {"female", "f", "2", "xx"}:
+        return "female", True
+    return "female", False
+
+
+def read_sample_table(text: str) -> tuple[list[dict[str, str]], dict[str, object]]:
+    """Parse a sample_id / CRAM / CRAI / sex table (CSV or TSV, flexible column names).
+
+    Returns (records, report). Records carry sample_id, cram, crai, sex (male or
+    female) and sex_raw. The report counts raw sex values, rows dropped and why,
+    and duplicate sample ids. Nothing is silently fixed except unknown sex.
+    """
+    first = text.splitlines()[0] if text else ""
+    delimiter = "\t" if first.count("\t") > first.count(",") else ","
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+    header = list(reader.fieldnames or [])
+    cols = {
+        "sample_id": _pick(header, SAMPLE_ID_COLUMNS),
+        "cram": _pick(header, CRAM_COLUMNS),
+        "crai": _pick(header, CRAI_COLUMNS),
+        "sex": _pick(header, SEX_COLUMNS),
+    }
+    missing = [k for k, v in cols.items() if v is None]
+    if missing:
+        raise ValueError(f"sample table is missing columns for {missing}; header is {header}")
+    records: list[dict[str, str]] = []
+    sex_raw: dict[str, int] = {}
+    dropped: dict[str, int] = {}
+    seen: set[str] = set()
+    dups: list[str] = []
+    for row in reader:
+        sid = (row.get(cols["sample_id"]) or "").strip()
+        cram = (row.get(cols["cram"]) or "").strip()
+        crai = (row.get(cols["crai"]) or "").strip()
+        raw = (row.get(cols["sex"]) or "").strip()
+        if not sid:
+            dropped["no sample id"] = dropped.get("no sample id", 0) + 1
+            continue
+        if not cram.startswith("gs://") or not crai.startswith("gs://"):
+            dropped["CRAM or CRAI not gs://"] = dropped.get("CRAM or CRAI not gs://", 0) + 1
+            continue
+        if sid in seen:
+            dups.append(sid)
+            continue
+        seen.add(sid)
+        sex, _ = normalize_sex(raw)
+        sex_raw[raw or "(blank)"] = sex_raw.get(raw or "(blank)", 0) + 1
+        records.append({"sample_id": sid, "cram": cram, "crai": crai, "sex": sex, "sex_raw": raw})
+    unrecognized = {k: v for k, v in sex_raw.items() if not normalize_sex("" if k == "(blank)" else k)[1]}
+    report = {
+        "columns": cols,
+        "n": len(records),
+        "sex_raw": dict(sorted(sex_raw.items(), key=lambda kv: -kv[1])),
+        "sex_unrecognized_as_female": unrecognized,
+        "dropped": dropped,
+        "duplicates": dups,
+    }
+    return records, report

@@ -4,6 +4,10 @@
 Inputs are already on /work (host runnable downloaded them). Writes
 {sample}.EH.json and {sample}.EH.vcf next to the minicram. Host runnable
 uploads those after this process exits.
+
+With EH_TASK_ROOT set (the one-task minicram + genotype job), inputs are in
+EH_TASK_ROOT/t{BATCH_TASK_INDEX}, left there by the minicram container, and
+the log is genotype.worker.log so it does not overwrite the minicram log.
 """
 
 from __future__ import annotations
@@ -37,13 +41,13 @@ def _start_monitor(work: Path):
     return mon
 
 
-def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str) -> Path | None:
+def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str, fused: bool = False) -> Path | None:
     if mon is None:
         return None
     stats = mon.stop()
     stats["sample_id"] = sample_id
     stats["stage"] = stage
-    path = work / "resource_stats.tsv"
+    path = work / (f"{stage}.resources.tsv" if fused else "resource_stats.tsv")
     try:
         write_resource_tsv(path, stats)
     except NameError:
@@ -58,8 +62,15 @@ def _dump_monitor(mon, work: Path, *, sample_id: str, stage: str) -> Path | None
     return path
 
 
-def apply_task_file() -> None:
-    path = Path("/work/task.json")
+def task_dir() -> Path:
+    root = os.environ.get("EH_TASK_ROOT", "").strip()
+    if not root:
+        return Path("/work")
+    return Path(root) / f"t{int(os.environ.get('BATCH_TASK_INDEX', '0'))}"
+
+
+def apply_task_file(work: Path) -> None:
+    path = work / "task.json"
     if not path.is_file():
         return
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -103,11 +114,33 @@ class Tee:
             stream.flush()
 
 
+def run_logged(cmd: list[str], *, cwd: Path) -> None:
+    """Run cmd with its stdout and stderr copied into the worker log."""
+    print("+", " ".join(cmd), flush=True)
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace"
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        sys.stdout.write(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, cmd)
+
+
+def first_file(*paths: Path) -> Path:
+    for path in paths:
+        if path.is_file():
+            return path
+    return paths[0]
+
+
 def main() -> int:
-    work = Path("/work")
+    work = task_dir()
+    fused = bool(os.environ.get("EH_TASK_ROOT", "").strip())
     work.mkdir(parents=True, exist_ok=True)
     os.chdir(work)
-    log_path = work / "worker.log"
+    log_path = work / ("genotype.worker.log" if fused else "worker.log")
     log_fh = log_path.open("w", encoding="utf-8")
     sys.stdout = Tee(sys.__stdout__, log_fh)
     sys.stderr = Tee(sys.__stderr__, log_fh)
@@ -115,12 +148,12 @@ def main() -> int:
     monitor = None
     sample_id = "unknown"
     try:
-        apply_task_file()
+        apply_task_file(work)
         sample_id = env("SAMPLE_ID")
         monitor = _start_monitor(work)
         prefix = f"{sample_id}.EH"
-        reads = work / "reads.cram"
-        reads_idx = work / "reads.cram.crai"
+        reads = first_file(work / f"{sample_id}.minicram.cram", work / "reads.cram")
+        reads_idx = first_file(work / f"{sample_id}.minicram.cram.crai", work / "reads.cram.crai")
         ref = work / "reference.fa"
         catalog = work / "catalog.json"
         for path in (reads, reads_idx, ref, work / "reference.fa.fai", catalog):
@@ -145,7 +178,7 @@ def main() -> int:
         if not eh_bin:
             raise SystemExit("ExpansionHunter is not on PATH")
         print(f"genotype start sample={sample_id} sex={sex} bin={eh_bin}", flush=True)
-        subprocess.run(["ExpansionHunter", "--version"], check=False)
+        run_logged(["ExpansionHunter", "--version"], cwd=work)
         print(f"catalog flag={cat_flag} analysis-mode={mode}", flush=True)
 
         cmd = [
@@ -166,8 +199,7 @@ def main() -> int:
             mode,
             *extra,
         ]
-        print("+", " ".join(cmd), flush=True)
-        subprocess.run(cmd, check=True, cwd=work)
+        run_logged(cmd, cwd=work)
 
         out_json = work / f"{prefix}.json"
         out_vcf = work / f"{prefix}.vcf"
@@ -179,11 +211,14 @@ def main() -> int:
         print(f"wrote {out_json} ({out_json.stat().st_size} bytes)", flush=True)
         print(f"wrote {out_vcf} ({out_vcf.stat().st_size} bytes)", flush=True)
         print("genotype done", flush=True)
-    except Exception:
+    except BaseException as exc:  # SystemExit from the input checks must reach the log too
         status = 1
-        traceback.print_exc()
+        if isinstance(exc, SystemExit):
+            print(f"ERROR: {exc}", flush=True)
+        else:
+            traceback.print_exc()
     finally:
-        _dump_monitor(monitor, work, sample_id=sample_id, stage="genotype")
+        _dump_monitor(monitor, work, sample_id=sample_id, stage="genotype", fused=fused)
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
         log_fh.close()

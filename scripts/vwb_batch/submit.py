@@ -46,9 +46,11 @@ def submit_job(
     job: dict[str, Any],
     project: str,
     region: str,
+    quiet: bool = False,
 ) -> str:
     size = assert_job_json_ok(job)
-    print(f"job JSON {size} bytes, id={job_id}", flush=True)
+    if not quiet:
+        print(f"job JSON {size} bytes, id={job_id}", flush=True)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
         json.dump(job, fh, indent=2)
         fh.write("\n")
@@ -64,7 +66,8 @@ def submit_job(
                 f"--location={region}",
                 f"--project={project}",
                 f"--config={cfg}",
-            ]
+            ],
+            quiet=quiet,
         )
     finally:
         cfg.unlink(missing_ok=True)

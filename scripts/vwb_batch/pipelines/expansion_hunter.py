@@ -1,7 +1,12 @@
-"""ExpansionHunter native Batch pipeline (minicram → genotype)."""
+"""ExpansionHunter native Batch pipeline (minicram → genotype).
+
+Production runs use the fused stage: one task per sample runs both steps.
+The two-stage minicram / genotype jobs remain for the smoke and pilot notebooks.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -9,6 +14,7 @@ from typing import Any
 
 NAME = "expansion_hunter"
 STAGES = ("minicram", "genotype")
+FUSED = "fused"
 
 PRINT_READS_DOCKER = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-locityper-print-reads:0.1.2"
 EH_DOCKER = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-expansion-hunter:0.1.0"
@@ -21,14 +27,18 @@ def _repo_root() -> Path:
 def _load_submit_batch():
     path = _repo_root() / "expansion_hunter" / "batch" / "submit_batch.py"
     name = "eh_submit_batch"
-    if name in sys.modules:
-        return sys.modules[name]
+    cached = sys.modules.get(name)
+    mtime = path.stat().st_mtime
+    if cached is not None and getattr(cached, "_loaded_mtime", None) == mtime:
+        return cached
+    # Reload after a git pull so job JSON always matches code_version().
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise FileNotFoundError(path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
+    mod._loaded_mtime = mtime
     return mod
 
 
@@ -48,7 +58,39 @@ def expected_objects(sample_id: str, stage: str, out_prefix: str) -> list[str]:
             _gs(out_prefix, sample_id, f"{sample_id}.EH.json"),
             _gs(out_prefix, sample_id, f"{sample_id}.EH.vcf"),
         ]
+    if stage == FUSED:
+        return expected_objects(sample_id, "minicram", out_prefix) + expected_objects(
+            sample_id, "genotype", out_prefix
+        )
     raise ValueError(f"unknown stage {stage!r}")
+
+
+def log_uris(sample_id: str, out_prefix: str) -> dict[str, str]:
+    """Where a fused task leaves its logs, for failure triage."""
+    return {
+        "minicram": _gs(out_prefix, sample_id, f"{sample_id}.minicram.worker.log"),
+        "genotype": _gs(out_prefix, sample_id, f"{sample_id}.EH.worker.log"),
+        "host": _gs(out_prefix, sample_id, f"{sample_id}.host.log"),
+    }
+
+
+def code_files() -> list[Path]:
+    batch = _repo_root() / "expansion_hunter" / "batch"
+    return [
+        batch / "make_minicram.py",
+        batch / "genotype.py",
+        batch / "resource_monitor.py",
+        batch / "submit_batch.py",
+    ]
+
+
+def code_version() -> str:
+    """Short hash of the code that runs on the VMs. A change restarts the canary."""
+    h = hashlib.sha256()
+    for path in code_files():
+        h.update(path.name.encode())
+        h.update(path.read_bytes())
+    return h.hexdigest()[:10]
 
 
 def predecessor(stage: str) -> str | None:
@@ -98,7 +140,45 @@ def env_rows(
         return eh.minicram_rows_from_records(records, out_prefix, project)
     if stage == "genotype":
         return eh.genotype_rows_from_records(records, out_prefix, project)
+    if stage == FUSED:
+        return eh.fused_rows_from_records(records, out_prefix, project)
     raise ValueError(f"unknown stage {stage!r}")
+
+
+def build_fused_job(
+    *,
+    rows: list[dict[str, str]],
+    tasks_tsv_uri: str,
+    project: str,
+    region: str,
+    sa: str,
+    labels: dict[str, str],
+    print_reads_image: str = PRINT_READS_DOCKER,
+    eh_image: str = EH_DOCKER,
+    parallelism: int | None = None,
+    compute: dict | None = None,
+    spot: bool = True,
+    machine_type: str = "",
+    max_run_duration: str = "10800s",
+) -> dict[str, Any]:
+    eh = _load_submit_batch()
+    return eh.build_fused_job_from_rows(
+        rows=rows,
+        minicram_worker=worker_path("minicram"),
+        genotype_worker=worker_path("genotype"),
+        minicram_image=print_reads_image,
+        eh_image=eh_image,
+        project=project,
+        region=region,
+        sa=sa,
+        tasks_tsv_uri=tasks_tsv_uri,
+        parallelism=parallelism,
+        labels=labels,
+        compute=compute,
+        spot=spot,
+        machine_type=machine_type,
+        max_run_duration=max_run_duration,
+    )
 
 
 def build_job(
@@ -137,3 +217,29 @@ def build_job(
     if stage == "genotype":
         return eh.build_genotype_job_from_rows(**common)
     raise ValueError(f"unknown stage {stage!r}")
+
+
+def campaign_builders(cfg, *, project: str, sa: str):
+    """(build_rows, build_job) for campaign.tick from the run's Settings."""
+
+    def build_rows(records: list[dict[str, str]]) -> list[dict[str, str]]:
+        return env_rows(records, stage=FUSED, out_prefix=cfg.out_prefix, project=project)
+
+    def build_job(*, rows, tasks_tsv_uri, labels, parallelism) -> dict[str, Any]:
+        return build_fused_job(
+            rows=rows,
+            tasks_tsv_uri=tasks_tsv_uri,
+            project=project,
+            region=cfg.region,
+            sa=sa,
+            labels=labels,
+            print_reads_image=cfg.print_reads_image or PRINT_READS_DOCKER,
+            eh_image=cfg.eh_image or EH_DOCKER,
+            parallelism=parallelism,
+            compute=cfg.compute,
+            spot=cfg.spot,
+            machine_type=cfg.machine_type,
+            max_run_duration=cfg.max_run_duration,
+        )
+
+    return build_rows, build_job

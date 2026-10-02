@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from vwb_batch import alloc, cohort, cost, monitor, plots, submit, wave  # noqa: E402
+from vwb_batch import alloc, campaign, cohort, cost, monitor, plots, submit, wave  # noqa: E402
 from vwb_batch.pipelines import expansion_hunter as eh  # noqa: E402
 from vwb_batch.pipelines import locityper as lt  # noqa: E402
 
@@ -410,6 +410,289 @@ def test_progress_figure() -> None:
     print("progress figure ok")
 
 
+def test_fused_job_json() -> None:
+    recs = _records(1000)
+    rows = eh.env_rows(recs, stage="fused", out_prefix="gs://out/v2", project="proj")
+    assert rows[0]["EH_VCF"] == "gs://out/v2/s000000/s000000.EH.vcf"
+    assert rows[0]["MINICRAM"].endswith("s000000.minicram.cram")
+    job = eh.build_fused_job(
+        rows=rows,
+        tasks_tsv_uri="gs://ledger/tasks/w001/j.tsv",
+        project="proj",
+        region="us-central1",
+        sa="pet@proj.iam.gserviceaccount.com",
+        labels={"run-id": "r"},
+        parallelism=1000,
+        spot=True,
+    )
+    size = submit.assert_job_json_ok(job)
+    group = job["taskGroups"][0]
+    spec = group["taskSpec"]
+    assert group["taskCount"] == 1000 and "taskEnvironments" not in group
+    assert "taskCountPerNode" not in group  # packing is safe: per-task directories
+    assert spec["environment"]["variables"]["EH_TASK_ROOT"] == "/mnt/disks/eh"
+    assert spec["environment"]["variables"]["TASKS_TSV"] == "gs://ledger/tasks/w001/j.tsv"
+    run = spec["runnables"]
+    assert [("script" in r, "container" in r) for r in run] == [(True, False), (False, True), (False, True), (True, False)]
+    assert run[-1].get("alwaysRun") is True
+    assert all(r["container"]["volumes"] == ["/mnt/disks/eh:/mnt/disks/eh"] for r in run[1:3])
+    for r in (run[0], run[-1]):
+        assert 't${BATCH_TASK_INDEX}' in r["script"]["text"]
+    assert spec["lifecyclePolicies"][0]["actionCondition"]["exitCodes"] == [50001, 50002]
+    assert spec["maxRetryCount"] == 2
+    assert job["allocationPolicy"]["instances"] == [{"policy": {"provisioningModel": "SPOT"}}]
+    assert spec["computeResource"] == {"cpuMilli": 1000, "memoryMib": 2048, "bootDiskMib": 20480}
+    for r in run[1:3]:
+        compile(r["container"]["commands"][1], "<worker>", "exec")
+    legacy = eh.build_job(
+        stage="genotype",
+        rows=eh.env_rows(_records(2), stage="genotype", out_prefix="gs://o", project="p"),
+        tasks_tsv_uri="gs://l/t.tsv",
+        out_prefix="gs://o",
+        project="p",
+        region="us-central1",
+        sa="sa",
+        image="img",
+        parallelism=2,
+        labels={},
+    )
+    assert legacy["taskGroups"][0]["taskCountPerNode"] == 1
+    assert len(eh.code_version()) == 10
+    print("fused job ok", size, "bytes")
+
+
+def _job(job_id, sids, *, kind="wave", wave=1, cv="v1", states=None, running=False, counts=None, cost_usd=0.0):
+    entry = {
+        "job_id": job_id,
+        "wave": wave,
+        "kind": kind,
+        "code_version": cv,
+        "submitted_at": f"2026-10-03T00:{wave:02d}:00Z",
+        "sample_ids": list(sids),
+        "state": "RUNNING" if running else "SUCCEEDED",
+    }
+    if not running:
+        entry["task_states"] = list(states or ["SUCCEEDED"] * len(sids))
+        entry["cost"] = {"vm_usd": cost_usd, "nearline_usd": 0.0, "n_ran": float(len(sids))}
+    else:
+        entry["counts"] = counts or {"RUNNING": len(sids)}
+    return entry
+
+
+def test_campaign_plan() -> None:
+    ids = [f"s{i:06d}" for i in range(30_000)]
+    cfg = campaign.Settings(out_prefix="gs://o", budget_usd=3000, wave_size=10_000, canary_n=200, job_size=1000)
+
+    def state(*jobs):
+        return {"jobs": {j["job_id"]: j for j in jobs}}
+
+    p = campaign.plan(cfg, ids, state(), code_version="v1")
+    assert p.action == "submit" and p.kind == "canary" and p.sample_ids == ids[:200], p.explain()
+
+    canary_running = _job("c", ids[:200], kind="canary", running=True)
+    p = campaign.plan(cfg, ids, state(canary_running), code_version="v1")
+    assert p.action == "wait" and "canary" in p.reason
+
+    bad = ["FAILED"] * 30 + ["SUCCEEDED"] * 170
+    p = campaign.plan(cfg, ids, state(_job("c", ids[:200], kind="canary", states=bad)), code_version="v1")
+    assert p.action == "halt" and "15%" in p.reason, p.reason
+
+    # A code change restarts the canary even after a bad one.
+    p = campaign.plan(cfg, ids, state(_job("c", ids[:200], kind="canary", states=bad)), code_version="v2")
+    assert p.action == "submit" and p.kind == "canary"
+    assert p.sample_ids[:30] == ids[200:230], "first attempts go before retries"
+
+    lost_canary = _job("c", ids[:200], kind="canary", states=[""] * 200)
+    p = campaign.plan(cfg, ids, state(lost_canary), code_version="v1")
+    assert p.action == "submit" and p.kind == "canary" and "never ran" in p.reason, p.explain()
+
+    canary_ok = _job("c", ids[:200], kind="canary", cost_usd=4.0)
+    p = campaign.plan(cfg, ids, state(canary_ok), code_version="v1")
+    assert p.action == "submit" and p.kind == "wave" and len(p.sample_ids) == 10_000
+    assert p.sample_ids[0] == ids[200]
+
+    w1 = _job("w1", ids[200:6200], wave=2, running=True)
+    p = campaign.plan(cfg, ids, state(canary_ok, w1), code_version="v1")
+    assert p.action == "wait" and "6,000" in p.reason
+
+    w1 = _job("w1", ids[200:4200], wave=2, running=True)
+    p = campaign.plan(cfg, ids, state(canary_ok, w1), code_version="v1")
+    assert p.action == "submit" and len(p.sample_ids) == 6_000 and p.sample_ids[0] == ids[4200]
+
+    # Running jobs with too many failures stop the next wave.
+    w1 = _job("w1", ids[200:4200], wave=2, running=True, counts={"FAILED": 300, "SUCCEEDED": 700, "RUNNING": 3000})
+    p = campaign.plan(cfg, ids, state(canary_ok, w1), code_version="v1")
+    assert p.action == "halt", p.explain()
+
+    # Budget caps the wave: $3000 - $4 spent - 0 in flight = 119,840 at $0.025, so try a small budget.
+    small = campaign.Settings(out_prefix="gs://o", budget_usd=104.0, wave_size=10_000, canary_n=200)
+    p = campaign.plan(small, ids, state(canary_ok), code_version="v1")
+    assert p.action == "submit" and len(p.sample_ids) == 4000 and "budget" in p.reason, p.explain()
+    tiny = campaign.Settings(out_prefix="gs://o", budget_usd=4.0, wave_size=10_000, canary_n=200)
+    p = campaign.plan(tiny, ids, state(canary_ok), code_version="v1")
+    assert p.action == "halt" and p.reason.startswith("budget")
+
+    # Retries only once every sample has had a first attempt; give up after max_attempts.
+    few = ids[:300]
+    st = [ "FAILED" if i < 10 else "SUCCEEDED" for i in range(100)]
+    done = state(
+        _job("c", few[:200], kind="canary"),
+        _job("w1", few[200:], wave=2, states=st),
+    )
+    p = campaign.plan(cfg, few, done, code_version="v1")
+    assert p.action == "submit" and p.kind == "retry" and p.sample_ids == few[200:210]
+    r1 = _job("r1", few[200:210], kind="retry", wave=3, states=["FAILED"] * 10)
+    r2 = _job("r2", few[200:210], kind="retry", wave=4, states=["FAILED"] * 9 + ["SUCCEEDED"])
+    p = campaign.plan(cfg, few, state(*done["jobs"].values(), r1, r2), code_version="v1")
+    assert p.action == "finished" and "9 gave up" in p.reason, p.explain()
+
+    # Tasks that never ran (cancelled or lost job) go back to not_started without using an attempt.
+    lost = _job("w1", few[200:], wave=2, states=[""] * 100)
+    lost["state"] = "LOST"
+    states = campaign.sample_states(few, state(_job("c", few[:200], kind="canary"), lost), max_attempts=3)
+    assert states[few[250]].status == "not_started" and states[few[250]].attempts == 0
+    print("campaign plan ok")
+
+
+def test_job_cost_model() -> None:
+    tasks = [
+        {"status": {"state": "SUCCEEDED", "statusEvents": [
+            {"taskState": "RUNNING", "eventTime": "2026-09-29T07:44:03.505511122Z",
+             "description": "Task state is updated from ASSIGNED to RUNNING on zones/us-central1-a/instances/111"},
+            {"taskState": "SUCCEEDED", "eventTime": "2026-09-29T07:54:03.505511122Z",
+             "description": "Task state is updated from RUNNING to SUCCEEDED on zones/us-central1-a/instances/111"},
+        ]}, "name": "projects/p/locations/l/jobs/j/taskGroups/group0/tasks/0"},
+        {"status": {"state": "FAILED", "statusEvents": [
+            {"taskState": "RUNNING", "eventTime": "2026-09-29T07:44:03Z",
+             "description": "Task state is updated from ASSIGNED to RUNNING on zones/us-central1-a/instances/111"},
+            {"taskState": "FAILED", "eventTime": "2026-09-29T07:44:13Z",
+             "description": "Task state is updated from RUNNING to FAILED on zones/us-central1-a/instances/111"},
+        ]}, "name": "projects/p/locations/l/jobs/j/taskGroups/group0/tasks/1"},
+    ]
+    parsed = [campaign.parse_task(t) for t in tasks]
+    assert parsed[0]["instance"] == "111" and parsed[1]["index"] == 1 and parsed[1]["state"] == "FAILED"
+    c = cost.job_cost_usd(parsed, machine="e2-highcpu-2", spot=False)
+    assert c["n_vms"] == 1 and c["n_ran"] == 2 and c["n_nearline"] == 1
+    rate = cost.vm_hourly_usd("e2-highcpu-2")
+    assert abs(c["vm_usd"] - (600.505511 + cost.VM_STARTUP_S) / 3600 * rate) < 1e-9
+    spot = cost.job_cost_usd(parsed, machine="e2-highcpu-2", spot=True)
+    assert spot["vm_usd"] < c["vm_usd"]
+    assert cost.machine_shape("e2-highcpu-2") == (2, 2.0, "e2")
+    assert cost.machine_shape("n2-standard-4") == (4, 16.0, "n2")
+    print("job cost ok", round(c["total_usd"], 4))
+
+
+def test_campaign_tick_end_to_end() -> None:
+    """tick() against in-memory GCS and Batch: canary, wave, failures, recovery."""
+    from vwb_batch import gcs as gcs_mod, registry
+
+    store: dict[str, str] = {}
+    batch: dict[str, dict] = {}
+    saved = {
+        name: getattr(gcs_mod, name)
+        for name in ("exists", "cat", "upload_text", "upload_text_if_absent", "delete")
+    }
+    saved_submit = (submit.list_jobs, submit.list_tasks, submit.submit_job)
+
+    def upload_if_absent(uri, text):
+        if uri in store:
+            return False
+        store[uri] = text
+        return True
+
+    def fake_submit(*, job_id, job, project, region, quiet=False):
+        assert job_id not in batch
+        batch[job_id] = {"job": job, "state": "QUEUED", "n": job["taskGroups"][0]["taskCount"], "fail": set()}
+        return job_id
+
+    def fake_list_jobs(*, project, region, filter_expr=""):
+        out = []
+        for job_id, b in batch.items():
+            n_fail = len(b["fail"]) if b["state"] in ("SUCCEEDED", "FAILED") else 0
+            out.append({
+                "name": f"projects/p/locations/r/jobs/{job_id}",
+                "labels": b["job"]["labels"],
+                "createTime": "2026-10-03T00:00:00.000Z",
+                "taskGroups": b["job"]["taskGroups"],
+                "status": {
+                    "state": b["state"],
+                    "taskGroups": {"group0": {
+                        "counts": {"SUCCEEDED": str(b["n"] - n_fail), "FAILED": str(n_fail)},
+                        "instances": [{"machineType": "e2-highcpu-2", "provisioningModel": "SPOT", "taskPack": "2",
+                                       "bootDisk": {"sizeGb": "53"}}],
+                    }},
+                },
+            })
+        return out
+
+    def fake_list_tasks(*, job_id, project, region, quiet=False):
+        b = batch[job_id]
+        rows = []
+        for i in range(b["n"]):
+            st = "FAILED" if i in b["fail"] else "SUCCEEDED"
+            inst = f"vm{i // 2}"
+            rows.append({"name": f"x/tasks/{i}", "status": {"state": st, "statusEvents": [
+                {"taskState": "RUNNING", "eventTime": "2026-10-03T01:00:00Z", "description": f"on zones/z/instances/{inst}"},
+                {"taskState": st, "eventTime": "2026-10-03T01:13:00Z", "description": f"on zones/z/instances/{inst}"},
+            ]}})
+        return rows
+
+    gcs_mod.exists = lambda uri: uri in store
+    gcs_mod.cat = lambda uri: store[uri]
+    gcs_mod.upload_text = lambda uri, text: store.__setitem__(uri, text)
+    gcs_mod.upload_text_if_absent = upload_if_absent
+    gcs_mod.delete = lambda uri: store.pop(uri, None)
+    submit.list_jobs, submit.list_tasks, submit.submit_job = fake_list_jobs, fake_list_tasks, fake_submit
+    try:
+        paths = registry.run_paths(output_bucket="gs://b", pipeline="expansion_hunter", run_id="eh-test")
+        cfg = campaign.Settings(out_prefix="gs://b/out", budget_usd=3000, wave_size=1000, canary_n=20, job_size=300,
+                                catalog="gs://b/cat.json", ref_fa="gs://b/ref.fa", ref_fai="gs://b/ref.fa.fai")
+        registry.write_run_json(paths, {"kind": "campaign", "campaign": cfg.to_dict()})
+        campaign.write_samples(paths, _records(2000))
+        makers = lambda c: eh.campaign_builders(c, project="proj", sa="sa@x")
+        run = lambda: campaign.tick(paths, project="proj", code_version="cv1", pipeline_short="eh",
+                                    make_builders=makers, log=lambda m: None)
+
+        plan1, sub1, _, _ = run()
+        assert plan1.kind == "canary" and len(sub1) == 1 and batch[sub1[0]]["n"] == 20
+        assert campaign.lock_uri(paths) not in store, "lock released"
+        plan2, sub2, _, _ = run()
+        assert plan2.action == "wait" and not sub2
+
+        batch[sub1[0]].update(state="SUCCEEDED", fail={3})  # 1/20 = 5%, not above the limit
+        plan3, sub3, state, _ = run()
+        assert plan3.kind == "wave" and len(sub3) == 4, (plan3.explain(), sub3)  # 1000 samples in 300-task jobs
+        canary = state["jobs"][sub1[0]]
+        assert canary["cost"]["n_vms"] == 10 and canary["cost"]["vm_usd"] > 0
+        assert campaign.task_detail_uri(paths, sub1[0]) in store
+
+        # Lose the jobs.json entry for one job: sync recovers it from Batch labels + TASKS_TSV.
+        st = json.loads(store[campaign.jobs_uri(paths)])
+        lost_id = sub3[0]
+        lost_samples = st["jobs"].pop(lost_id)["sample_ids"]
+        store[campaign.jobs_uri(paths)] = json.dumps(st)
+        for j in sub3:
+            batch[j].update(state="SUCCEEDED", fail=set(range(0, 300, 10)) if j == sub3[1] else set())
+        plan4, sub4, state, _ = run()
+        assert state["jobs"][lost_id]["sample_ids"] == lost_samples
+        assert plan4.kind == "wave" and len(plan4.sample_ids) == 980, plan4.explain()
+
+        # Stale lock from a dead notebook is broken; a fresh one blocks.
+        store[campaign.lock_uri(paths)] = json.dumps({"holder": "old", "ts": 0})
+        run()
+        store[campaign.lock_uri(paths)] = json.dumps({"holder": "other", "ts": __import__("time").time()})
+        try:
+            run()
+            raise AssertionError("expected LockHeld")
+        except campaign.LockHeld:
+            pass
+    finally:
+        for name, fn in saved.items():
+            setattr(gcs_mod, name, fn)
+        submit.list_jobs, submit.list_tasks, submit.submit_job = saved_submit
+    print("campaign tick ok")
+
+
 def main() -> None:
     test_cost()
     test_job_json_tsv()
@@ -421,6 +704,10 @@ def main() -> None:
     test_monitor_summary()
     test_wave_prefers_first_attempts()
     test_progress_figure()
+    test_fused_job_json()
+    test_campaign_plan()
+    test_job_cost_model()
+    test_campaign_tick_end_to_end()
     print("all ok")
 
 
