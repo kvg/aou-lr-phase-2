@@ -114,8 +114,9 @@ Do not overload `aou_lr_chrom` with this.
 1. Import [`configs/lai_exp.tsv`](configs/lai_exp.tsv) (chr22 paths already filled
    from `aou_lr_chrom`). Creates table `flare_lai_exp`.
 2. Set column types: `em` / `update_p` / `exclude_controls` / `inherit_*` /
-   `probs` / `allow_unrepresented_pops` / `gen_by_pop_allow_default` → boolean;
-   `gen` / `min_maf` → number; `min_mac` / `seed` → number;
+   `probs` / `allow_unrepresented_pops` / `gen_by_pop_allow_default` /
+   `flare2_em` → boolean; `gen` / `min_maf` → number; `min_mac` / `seed` /
+   `flare2_nanc` → number;
    VCF/map/`ref_panel`/`template_model`/`exclude_regions`/`include_sites` → file;
    `pop_models` → array of file (`[]` on most rows).
 3. Re-import [`wdl/FlareByPopulation.wdl`](wdl/FlareByPopulation.wdl).
@@ -136,8 +137,8 @@ full contig (`region` empty) with paths from `aou_lr_chrom`
 (via `flare_03_stage_site_filters.ipynb`). HiFi↔srWGS concordance `include_sites`
 ladder step is deferred (no `chr20_filter_concordance` row for now). Call-QC
 `include_sites` (GQ/DP/RNC) is Part 7 — stage with `flare_build_call_qc_sites.py`
-then fill `chr22_filter_call_qc` / `chr20_filter_call_qc`. FLARE2 rows need the
-WDL two-pass mode (Part 6) before launch.
+then fill `chr22_filter_call_qc` / `chr20_filter_call_qc`. FLARE2 rows use the
+FLARE2 mode below (`flare2_nanc` column).
 
 | Row id | Intent |
 |---|---|
@@ -149,9 +150,8 @@ WDL two-pass mode (Part 6) before launch.
 | `em_all_pops` | Negative control |
 | `pin_all_pops_gen_by_pop` | All pops; pin AFR:8 AMR:12 others:8 (flat µ) |
 | `pin_all_pops_em_mu` | **Discard prior conclusions** (old `out_model` glob picked rewritten input). Re-run only after model I/O fix |
-| `flare2_amr_nanc2` / `flare2_amr_nanc3` | **Blocked until FLARE2 WDL**; AMR clustering pilot |
-| `flare2_mid_nanc2` | **Blocked until FLARE2 WDL**; MID poorly-matched panel pilot |
-| `flare2_afr_nanc2` | **Blocked until FLARE2 WDL**; AFR control (expect little gain) |
+| `flare2_amr_nanc2` / `flare2_amr_nanc3` / `flare2_mid_nanc2` / `flare2_afr_nanc2` | **Superseded**: per-population FLARE2 training gives inconsistent labels; do not launch |
+| `sel_chr20_flare2_nanc5` / `sel_chr20_flare2_nanc6` | Selection v2: whole cohort, full chr20, FLARE2 trained once (EM on) |
 | `chr20_flat_props_pin_t` | Full chr20; FLARE defaults + pinned T; `probs=true` |
 | `chr20_em_props_defaults` | Full chr20; `props_by_pop` from EM; default weights/µ |
 | `chr20_em_props_inherit_weights` | Full chr20; EM props + inherit panel weights |
@@ -256,6 +256,8 @@ python3 scripts/test_flare_switch_qc.py
 python3 scripts/test_flare_site_stats.py
 python3 scripts/test_flare_build_call_qc_sites.py
 python3 scripts/test_flare_lai_association_metrics.py
+python3 scripts/test_flare_selection_v2.py
+python3 scripts/test_flare2_build_model.py   # FLARE2_CREATE_MODEL_SCRIPT=… also runs upstream clustering
 ```
 
 Synthetic full-format model fixtures live under
@@ -266,21 +268,72 @@ allow). Expected switch rate uses `(T/100) * (1 - Σ p²)`; see
 Site-restriction addendum (Parts 4–5), FLARE2 (Part 6), call-QC GQ/DP/RNC
 (Part 7), and **association-facing recipe selection (Part 8)** — see
 [`flare_lai_fix_instructions.md`](flare_lai_fix_instructions.md).
+Session catch-up / next steps:
+[`HANDOFF_part8_recipe_selection.md`](HANDOFF_part8_recipe_selection.md).
 
-**Scoring rule (Part 8):** switch / tract metrics are diagnostics only.
-Recipes must clear allele–ancestry concordance **and** pedigree Mendelian
-gates; among survivors, Tractor null-λ (closest to 1) decides the winner
-(`scripts/flare_score_allele_ancestry.py`,
-`scripts/flare_score_mendelian_lai.py`,
-`scripts/flare_lai_null_lambda.py`; notebook `flare_02` Part 8).
+## FLARE2 mode (Part 6)
 
-Null-λ phenotypes are **directly simulated**
-(`L = β·q + γ_GC + u_family + ε`, thresholded to an anchor case rate) — not
-shuffled. Run `flare_lai_null_lambda.py preflight` first: (1) check that fixed
-global ancestry `q` is not absorbed by the null PC set (drop PCs for this
-pilot if multivariate R² is too high); (2) require a non-trivial anchor
-phenotype log-OR before locking β_mid. Score at lo/mid/hi β; trust a winner
-only if ranking is stable across magnitudes.
+Set `flare2_nanc` (> 0) to run FLARE2 (Browning, Temple & Browning 2025):
+
+1. `Flare2TrainKeepList` draws up to `flare2_train_per_pop` samples from every
+   population shard (seeded) into one training list.
+2. `Flare2PanelProbs` runs FLARE with `panel-probs=true` on that subset.
+3. `Flare2BuildModel` runs upstream `create_model_file.py` through
+   `scripts/flare2_build_model.py`. The wrapper seeds the Gaussian mixture,
+   renames clusters by their dominant reference panel (`anc0_afr`, `anc1_amr`,
+   …), puts them in a fixed order, and fails if the upstream lag-1
+   autocorrelation is below `flare2_min_autocorr` (default 0.25), which
+   indicates too many ancestries.
+4. Every shard runs FLARE with that model as `template_model`, `update-p=true`,
+   and EM on (`flare2_em`, the upstream recipe).
+
+One shared model gives every shard, and through `flare2_model`, every
+chromosome the same ancestry labels. FELIX needs that. Per-population FLARE2
+training (the old `flare2_amr_*` rows) gives each shard its own arbitrary
+labels; those rows are superseded.
+
+The popout FLARE image predates `panel-probs`, so FLARE2 mode uses
+`aou-flare2:0.6.0-87573be` (`flare/docker/Dockerfile.flare2`: flare.jar built
+at a pinned upstream commit, plus scikit-learn). Build with
+`./build_docker.sh --flare2`. Stage `scripts/flare2_build_model.py` with the
+other scripts.
+
+Train once on chr20 (selection row `sel_chr20_flare2_nanc*`), then apply to
+other chromosomes with
+[`configs/flare2.apply.inputs.json.example`](configs/flare2.apply.inputs.json.example)
+(`flare2_model` = the training run's `flare2_model_out`). Keep `inherit_*`
+true on FLARE2 rows; resetting panel weights would throw away the clustered P
+matrix.
+
+Outputs: `flare2_model_out`, `flare2_model_summary` (autocorrelations,
+dominant-panel labels), `flare2_labels`, `flare2_train_samples`.
+
+## Recipe selection v2 (Part 8)
+
+Switch / tract metrics are diagnostics only. Selection v2 (2026-10-02)
+replaces the gates → Tractor null-λ rule, which compared recipes on different
+sample sets and only measured calibration. It is time-boxed:
+
+- **Candidates** (`selection_set = v2` in `lai_exp.tsv`): whole cohort, full
+  chr20. `chr20_flat_props_pin_t` (best original-FLARE pin, already run) and
+  `sel_chr20_flare2_nanc5` / `sel_chr20_flare2_nanc6`. No context mask: it
+  removes markers where repeat SVs sit.
+- **One sample list**: the intersection of samples painted by every candidate.
+- **Negative controls**: each candidate's ancestry tracks permuted within
+  population (`scripts/flare_make_negative_control.py`). A metric that does not
+  beat the control cannot rank.
+- **Gate**: allele–ancestry `mean_ll` must beat the candidate's own control
+  (optional absolute `min_mean_ll` in `eval_gates.json`). FLARE2 cluster
+  ancestries map to panel allele frequencies through the trained model's P
+  matrix (`flare_score_allele_ancestry.py --model`).
+- **Rank**: Mendelian violations per informative locus across Phase-2 trios
+  on whole chr20, with trio-bootstrap CIs. Overlapping CIs mean a tie, decided
+  by hand.
+
+Code: `scripts/flare_lai_exp.py` (`select_recipe`), notebook `flare_02` Part 8
+→ `selection_v2/selection_decision.json`. Null-λ
+(`scripts/flare_lai_null_lambda.py`) is kept for reference but no longer
+decides anything; the FELIX chr22 pilot covers calibration.
 
 Stage filtered-site helpers (`flare_site_stats.py`,
 `flare_build_indel_flanks.py`, `flare_build_call_qc_sites.py`) and panel

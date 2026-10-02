@@ -9,6 +9,7 @@
 #   ./build_docker.sh --local
 #   ./build_docker.sh --local --push
 #   ./build_docker.sh --tag 1.24
+#   ./build_docker.sh --flare2       # FLARE 0.6 + FLARE2 clustering image (aou-flare2)
 
 set -euo pipefail
 
@@ -20,9 +21,13 @@ DEFAULT_PROJECT="broad-dsp-lrma"
 DEFAULT_REGION="us-central1"
 DEFAULT_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare-bcftools"
 DEFAULT_TAG="1.24"
+FLARE2_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare2"
+FLARE2_TAG="0.6.0-87573be"
+DOCKERFILE_NAME="Dockerfile"
+FLARE2=0
 
-IMAGE="${IMAGE:-${DEFAULT_IMAGE}}"
-TAG="${TAG:-${DEFAULT_TAG}}"
+IMAGE="${IMAGE:-}"
+TAG="${TAG:-}"
 PROJECT="${PROJECT:-${DEFAULT_PROJECT}}"
 REGION="${REGION:-${DEFAULT_REGION}}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-highcpu-8}"
@@ -43,6 +48,7 @@ Defaults:
   image    ${DEFAULT_IMAGE}:${DEFAULT_TAG}
 
 Options:
+  --flare2             Build docker/Dockerfile.flare2 (${FLARE2_IMAGE}:${FLARE2_TAG})
   --local              Build with local docker (default: Google Cloud Build)
   --push               After --local build, docker push IMAGE:TAG
   --cloudbuild         Force Cloud Build (default)
@@ -61,6 +67,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local) MODE="local"; shift ;;
+    --flare2) FLARE2=1; shift ;;
     --cloudbuild) MODE="cloudbuild"; shift ;;
     --push) DO_PUSH=1; shift ;;
     --image) IMAGE="$2"; shift 2 ;;
@@ -76,6 +83,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "${FLARE2}" -eq 1 ]]; then
+  DOCKERFILE_NAME="Dockerfile.flare2"
+  IMAGE="${IMAGE:-${FLARE2_IMAGE}}"
+  TAG="${TAG:-${FLARE2_TAG}}"
+else
+  IMAGE="${IMAGE:-${DEFAULT_IMAGE}}"
+  TAG="${TAG:-${DEFAULT_TAG}}"
+fi
 FULL_IMAGE="${IMAGE}:${TAG}"
 
 run() {
@@ -88,8 +103,8 @@ run() {
   fi
 }
 
-if [[ ! -f "${DOCKER_DIR}/Dockerfile" ]]; then
-  echo "Dockerfile not found at ${DOCKER_DIR}/Dockerfile" >&2
+if [[ ! -f "${DOCKER_DIR}/${DOCKERFILE_NAME}" ]]; then
+  echo "Dockerfile not found at ${DOCKER_DIR}/${DOCKERFILE_NAME}" >&2
   exit 1
 fi
 
@@ -97,7 +112,7 @@ echo "Mode:        ${MODE}"
 echo "Project:     ${PROJECT}"
 echo "Image:       ${FULL_IMAGE}"
 echo "Context:     ${CONTEXT_DIR}"
-echo "Dockerfile:  ${DOCKER_DIR}/Dockerfile"
+echo "Dockerfile:  ${DOCKER_DIR}/${DOCKERFILE_NAME}"
 
 case "${MODE}" in
   local)
@@ -107,7 +122,7 @@ case "${MODE}" in
     fi
     run docker build \
       --platform linux/amd64 \
-      -f "${DOCKER_DIR}/Dockerfile" \
+      -f "${DOCKER_DIR}/${DOCKERFILE_NAME}" \
       -t "${FULL_IMAGE}" \
       "${CONTEXT_DIR}"
     if [[ "${DO_PUSH}" -eq 1 ]]; then
@@ -127,13 +142,17 @@ case "${MODE}" in
     run gcloud builds submit \
       "${CONTEXT_DIR}" \
       --config="${DOCKER_DIR}/cloudbuild.yaml" \
-      --substitutions="_IMAGE=${IMAGE},_TAG=${TAG}" \
+      --substitutions="_IMAGE=${IMAGE},_TAG=${TAG},_DOCKERFILE=docker/${DOCKERFILE_NAME}" \
       --timeout="${TIMEOUT}" \
       --machine-type="${MACHINE_TYPE}" \
       --disk-size="${DISK_SIZE_GB}" \
       --project="${PROJECT}"
     echo "Cloud Build finished. Image: ${FULL_IMAGE}"
-    echo "Point FlareByPopulation.bcftools_docker at ${FULL_IMAGE}."
+    if [[ "${FLARE2}" -eq 1 ]]; then
+      echo "Point FlareByPopulation.flare2_docker at ${FULL_IMAGE}."
+    else
+      echo "Point FlareByPopulation.bcftools_docker at ${FULL_IMAGE}."
+    fi
     ;;
 
   *)

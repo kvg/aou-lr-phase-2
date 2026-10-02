@@ -125,6 +125,13 @@ mismatch is wrong and the cause is phasing or the panel.
 
 ## Part 6: FLARE2 (clustering for poorly-matched panels)
 
+> **Status 2026-10-02: implemented, with one change.** FLARE2 is the planned
+> production LAI engine for the whole cohort. Training is pooled (one model
+> for every shard and chromosome), not per population: upstream cluster labels
+> are arbitrary per run, and FELIX needs one label set. The per-population
+> rows below are superseded by `sel_chr20_flare2_nanc*`. See
+> `flare/README.md` → "FLARE2 mode".
+
 FLARE2 ([Browning et al. 2025](https://doi.org/10.1101/2025.10.13.681993);
 PLOS Genetics) is **not** a new LAI engine. It is a three-step recipe on
 FLARE 0.6 that learns a copying matrix \(P\) when ancestries and reference
@@ -219,6 +226,13 @@ Phased `gt_vcf` may lack GQ/DP; the BED must come from the unphased joint VCF.
 ---
 
 ## Part 8: association-facing recipe evaluation (two-stage)
+
+> **Status 2026-10-02: superseded by selection v2** (`flare/README.md` →
+> "Recipe selection v2"). Reasons: recipes were scored on different sample
+> sets; the Mendelian gate never ran (pedigree / map paths were missing and the
+> code skipped silently); null-λ measures calibration only and was built
+> around Tractor. Parts 8.1–8.3 (panel, concordance, Mendelian scorers) are
+> reused; 8.4 null-λ is no longer part of the decision.
 
 Switch / tract metrics (Parts 3–5, 7) are **diagnostics only**. Recipe choice
 for Tractor / FELIX uses a two-stage association-facing rule:

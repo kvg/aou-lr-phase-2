@@ -9,6 +9,12 @@ allele under the panel AF for the inferred ancestry.
 Primary gate metric: ``mean_ll`` (mean per-haplotype log-likelihood).
 Secondary: ``mean_brier`` (mean (1 - p_correct)^2).
 
+Ancestry index → panel AF comes from the anc VCF ``##ANCESTRY=<name=idx,...>``
+header (names must be panel names, as in FLARE runs on the gnomAD panel). For
+FLARE2 cluster ancestries (``anc0_afr`` …) pass ``--model``: each ancestry's
+expected AF is its copying-probability mixture over panels,
+``AF_i = sum_j P[i][j] * AF_j``.
+
 Example::
 
     python3 scripts/flare_score_allele_ancestry.py \\
@@ -34,6 +40,65 @@ from typing import Any, Iterable, Optional, Sequence
 ANCESTRY = {0: "eas", 1: "amr", 2: "eur", 3: "afr", 4: "sas"}
 ANCESTRY_TO_INT = {v: k for k, v in ANCESTRY.items()}
 PANELS = ("eas", "amr", "eur", "afr", "sas")
+
+
+AncWeights = dict[int, dict[str, float]]
+
+
+def default_anc_weights() -> AncWeights:
+    return {i: {name: 1.0} for i, name in ANCESTRY.items()}
+
+
+def parse_ancestry_header(header_text: str) -> Optional[dict[int, str]]:
+    """``##ANCESTRY=<eas=0,amr=1,...>`` → {0: "eas", 1: "amr", ...}."""
+    for line in header_text.splitlines():
+        if line.startswith("##ANCESTRY=<") and line.rstrip().endswith(">"):
+            body = line.strip()[len("##ANCESTRY=<"):-1]
+            out: dict[int, str] = {}
+            for part in body.split(","):
+                name, _, idx = part.partition("=")
+                out[int(idx)] = name.strip()
+            return out
+    return None
+
+
+def anc_weights_from_header(header_text: str) -> AncWeights:
+    names = parse_ancestry_header(header_text)
+    if names is None:
+        return default_anc_weights()
+    unknown = sorted(n for n in names.values() if n.lower() not in PANELS)
+    if unknown:
+        raise SystemExit(
+            f"anc VCF ancestries {unknown} are not panel names {PANELS}; "
+            "pass --model (FLARE2 cluster ancestries)"
+        )
+    return {i: {n.lower(): 1.0} for i, n in names.items()}
+
+
+def anc_weights_from_model(model_path: Path) -> AncWeights:
+    from flare_model import parse_model
+
+    m = parse_model(model_path)
+    panels = [x.lower() for x in m.panels]
+    missing = sorted(set(panels) - set(PANELS))
+    if missing:
+        raise SystemExit(f"model panels {missing} have no af_* column in the marker panel")
+    return {
+        i: {panels[j]: w for j, w in enumerate(row) if w > 0}
+        for i, row in enumerate(m.panel_weights)
+    }
+
+
+def mixture_af(weights: dict[str, float], afs: dict[str, float]) -> float:
+    """Copying-weighted AF; panels with missing AF are dropped and weights renormalized."""
+    num = den = 0.0
+    for name, w in weights.items():
+        af = afs.get(name, float("nan"))
+        if math.isnan(af):
+            continue
+        num += w * af
+        den += w
+    return num / den if den > 0 else float("nan")
 
 
 def load_panel(path: Path) -> list[dict[str, Any]]:
@@ -131,14 +196,15 @@ def score_haplotype(
     allele: int,
     anc: Optional[int],
     afs: dict[str, float],
+    anc_weights: Optional[AncWeights] = None,
 ) -> tuple[float, float, bool]:
     """Return (ll, brier, scored)."""
     if anc is None or allele not in (0, 1):
         return float("nan"), float("nan"), False
-    label = ANCESTRY.get(anc)
-    if label is None:
+    weights = (anc_weights or default_anc_weights()).get(anc)
+    if weights is None:
         return float("nan"), float("nan"), False
-    af = afs.get(label, float("nan"))
+    af = mixture_af(weights, afs)
     ll = allele_loglik(allele, af)
     br = allele_brier(allele, af)
     if math.isnan(ll):
@@ -383,6 +449,7 @@ def score_recipe(
     gt_by_pos: dict[tuple[str, int], list[Optional[tuple[int, int]]]],
     n_samples: int,
     n_lai_markers: int,
+    anc_weights: Optional[AncWeights] = None,
 ) -> dict[str, Any]:
     sum_ll = 0.0
     sum_brier = 0.0
@@ -411,7 +478,7 @@ def score_recipe(
                 continue
             an1, an2 = site_anc[s_i] if s_i < len(site_anc) else (None, None)
             for allele, anc in ((al[0], an1), (al[1], an2)):
-                ll, br, ok = score_haplotype(allele, anc, m["afs"])
+                ll, br, ok = score_haplotype(allele, anc, m["afs"], anc_weights)
                 if not ok:
                     continue
                 sum_ll += ll
@@ -456,6 +523,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--gt-vcf", required=True, help="Unfiltered phased genotypes")
     p.add_argument("--panel", required=True, type=Path, help="markers.tsv from Part 1")
     p.add_argument("--samples", type=Path, default=None, help="Optional keep-list")
+    p.add_argument(
+        "--model",
+        type=Path,
+        default=None,
+        help="FLARE .model whose P matrix maps cluster ancestries to panel AFs (FLARE2)",
+    )
     p.add_argument("--region", default="", help="Optional chr:start-end")
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--experiment", default="", help="Optional recipe id for JSON")
@@ -470,6 +543,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     panel = load_panel(args.panel)
     if not panel:
         raise SystemExit(f"empty panel: {args.panel}")
+
+    if args.model is not None:
+        anc_weights = anc_weights_from_model(args.model)
+        anc_source = f"model:{args.model}"
+    else:
+        header = subprocess.run(
+            ["bcftools", "view", "-h", args.anc_vcf], check=True, capture_output=True, text=True
+        ).stdout
+        anc_weights = anc_weights_from_header(header)
+        anc_source = "vcf_header" if parse_ancestry_header(header) else "default_index_map"
 
     keep = load_sample_list(args.samples)
     anc_samps = vcf_samples(args.anc_vcf)
@@ -502,7 +585,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         gt_by_pos=gt_by_pos,
         n_samples=len(shared),
         n_lai_markers=n_lai,
+        anc_weights=anc_weights,
     )
+    summary["ancestry_mapping"] = anc_source
+    summary["samples_file"] = str(args.samples) if args.samples else ""
     summary["experiment"] = args.experiment
     summary["panel"] = str(args.panel)
     summary["anc_vcf"] = args.anc_vcf

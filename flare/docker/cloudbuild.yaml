@@ -1,10 +1,11 @@
-# Cloud Build config for flare/docker/Dockerfile
+# Cloud Build config for flare/docker/Dockerfile (or Dockerfile.flare2 via _DOCKERFILE)
 # Invoked from flare/ via:
 #   gcloud builds submit . --config=docker/cloudbuild.yaml --substitutions=_IMAGE=...,_TAG=...
 
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare-bcftools
   _TAG: "1.24"
+  _DOCKERFILE: docker/Dockerfile
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -21,7 +22,7 @@ steps:
       - --platform
       - linux/amd64
       - -f
-      - docker/Dockerfile
+      - ${_DOCKERFILE}
       - -t
       - ${_IMAGE}:${_TAG}
       - .

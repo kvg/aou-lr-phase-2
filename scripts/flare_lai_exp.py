@@ -350,10 +350,11 @@ def enrich_association_scores(
     mendel_json: dict[str, Any] | Path | str | None = None,
     lambda_json: dict[str, Any] | Path | str | None = None,
 ) -> dict[str, Any]:
-    """Attach Part 2–4 association-facing scores to a compare row.
+    """Attach association-facing scores to a compare row.
 
-    Screens (allele / Mendelian) are gates; null-λ is decisive. Switch/tract
-    metrics remain diagnostics only.
+    Selection v2 (``select_recipe``): allele concordance is a gate, Mendelian
+    violation rate ranks. Null-λ fields are carried as diagnostics only.
+    Switch/tract metrics remain diagnostics.
     """
 
     def _load(obj: dict[str, Any] | Path | str | None) -> dict[str, Any]:
@@ -392,6 +393,14 @@ def enrich_association_scores(
                 "expected_crossovers_per_trio": mendel.get("expected_crossovers_per_trio"),
             }
         )
+        ci = trio_bootstrap_violation_ci(mendel.get("trios") or [])
+        if ci:
+            out.update(
+                {
+                    "violations_ci_low": ci["ci_low"],
+                    "violations_ci_high": ci["ci_high"],
+                }
+            )
     if lam:
         out.update(
             {
@@ -404,6 +413,164 @@ def enrich_association_scores(
             }
         )
     return out
+
+
+def trio_bootstrap_violation_ci(
+    trios: list[dict[str, Any]],
+    *,
+    n_boot: int = 2000,
+    alpha: float = 0.05,
+    seed: int = 1,
+) -> dict[str, float]:
+    """Percentile CI for pooled violations / informative loci, resampling trios.
+
+    Trios (not loci) are the independent unit: loci within a trio share tracts.
+    """
+    import random
+
+    pairs = [
+        (float(t.get("n_hard_violations") or 0), float(t.get("n_informative") or 0))
+        for t in trios
+    ]
+    pairs = [(v, n) for v, n in pairs if n > 0]
+    if len(pairs) < 2:
+        return {}
+    rng = random.Random(seed)
+    rates = []
+    for _ in range(n_boot):
+        draw = [pairs[rng.randrange(len(pairs))] for _ in pairs]
+        den = sum(n for _, n in draw)
+        rates.append(sum(v for v, _ in draw) / den)
+    rates.sort()
+    lo = rates[int((alpha / 2) * (n_boot - 1))]
+    hi = rates[int((1 - alpha / 2) * (n_boot - 1))]
+    return {"ci_low": lo, "ci_high": hi, "n_trios": float(len(pairs))}
+
+
+def _num(val: Any) -> Optional[float]:
+    try:
+        x = float(val)
+    except (TypeError, ValueError):
+        return None
+    return None if x != x else x
+
+
+def select_recipe(
+    rows: list[dict[str, Any]],
+    *,
+    negative_controls: dict[str, str],
+    gates: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Selection v2: pick a production LAI recipe (time-boxed rule).
+
+    ``rows`` are enriched score rows for candidates **and** their negative
+    controls, all scored on one sample list and one region.
+    ``negative_controls`` maps candidate experiment → its within-population
+    permuted control (``flare_make_negative_control.py``).
+
+    1. Metric check: a metric is usable only if every candidate beats its own
+       control on it (higher ``mean_ll``, lower Mendelian violation rate).
+       If the Mendelian metric fails this, no winner is declared.
+    2. Gates (fail closed on missing values): beat own control on both metrics;
+       optional ``min_mean_ll`` / ``max_violations_per_informative_locus``.
+    3. Rank survivors by violation rate. Candidates whose trio-bootstrap CI
+       overlaps the best one's are reported as ``tied``; ties go to the human
+       (tie-break suggestion: smaller |excess_recomb_over_expected|).
+    """
+    gates = {k: v for k, v in (gates or {}).items() if not str(k).startswith("_") and v is not None}
+    by_id = {str(r.get("experiment")): r for r in rows}
+    checks: list[dict[str, Any]] = []
+    survivors: list[dict[str, Any]] = []
+    eliminated: list[dict[str, Any]] = []
+    mendel_separates = True
+    ll_separates = True
+    for cand, ctl in negative_controls.items():
+        r = by_id.get(cand)
+        c = by_id.get(ctl)
+        if r is None:
+            continue
+        reasons: list[str] = []
+        v_r = _num(r.get("violations_per_informative_locus"))
+        v_c = _num(c.get("violations_per_informative_locus")) if c else None
+        ll_r = _num(r.get("mean_ll"))
+        ll_c = _num(c.get("mean_ll")) if c else None
+        if c is None:
+            reasons.append("negative_control_missing")
+        if v_r is None:
+            reasons.append("mendelian_missing")
+        if ll_r is None:
+            reasons.append("mean_ll_missing")
+        sep_v = v_r is not None and v_c is not None and v_r < v_c
+        sep_ll = ll_r is not None and ll_c is not None and ll_r > ll_c
+        if c is not None and v_r is not None and v_c is not None and not sep_v:
+            reasons.append("mendelian_not_better_than_control")
+            mendel_separates = False
+        if c is not None and ll_r is not None and ll_c is not None and not sep_ll:
+            reasons.append("mean_ll_not_better_than_control")
+            ll_separates = False
+        min_ll = gates.get("min_mean_ll")
+        if min_ll is not None and ll_r is not None and ll_r < float(min_ll):
+            reasons.append("mean_ll_below_gate")
+        max_v = gates.get("max_violations_per_informative_locus")
+        if max_v is not None and v_r is not None and v_r > float(max_v):
+            reasons.append("mendelian_above_gate")
+        checks.append(
+            {
+                "experiment": cand,
+                "negative_control": ctl,
+                "violations": v_r,
+                "violations_control": v_c,
+                "mean_ll": ll_r,
+                "mean_ll_control": ll_c,
+            }
+        )
+        (eliminated if reasons else survivors).append({**r, "gate_fail": reasons})
+
+    decision: dict[str, Any] = {
+        "rule": "selection_v2",
+        "metric_checks": checks,
+        "mendelian_separates_controls": mendel_separates,
+        "mean_ll_separates_controls": ll_separates,
+        "gates": gates,
+        "survivors": [r["experiment"] for r in survivors],
+        "eliminated": {r["experiment"]: r["gate_fail"] for r in eliminated},
+        "winner": None,
+        "tied": [],
+        "status": "",
+    }
+    if not mendel_separates:
+        decision["status"] = "metric_invalid_mendelian_does_not_beat_controls"
+        return decision
+    if not survivors:
+        decision["status"] = "no_survivors"
+        return decision
+    ranked = sorted(survivors, key=lambda r: _num(r.get("violations_per_informative_locus")))
+    best = ranked[0]
+    best_hi = _num(best.get("violations_ci_high"))
+    tied = []
+    for r in ranked[1:]:
+        lo = _num(r.get("violations_ci_low"))
+        if best_hi is None or lo is None or lo <= best_hi:
+            tied.append(r["experiment"])
+    decision["ranking"] = [
+        {
+            "experiment": r["experiment"],
+            "violations_per_informative_locus": _num(r.get("violations_per_informative_locus")),
+            "ci": [_num(r.get("violations_ci_low")), _num(r.get("violations_ci_high"))],
+            "excess_recomb_over_expected": _num(r.get("excess_recomb_over_expected")),
+            "mean_ll": _num(r.get("mean_ll")),
+        }
+        for r in ranked
+    ]
+    decision["tied"] = tied
+    if tied:
+        decision["status"] = "tie_human_decision"
+        decision["winner"] = None
+        decision["best_point_estimate"] = best["experiment"]
+    else:
+        decision["status"] = "winner"
+        decision["winner"] = best["experiment"]
+    return decision
 
 
 def apply_eval_gates(

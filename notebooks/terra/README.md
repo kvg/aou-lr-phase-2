@@ -86,7 +86,8 @@ FLARE annotation QC:
 |---|---|
 | `00_sync_repo.ipynb` | **Start here:** clone/pull repo on the Terra VM; stage scripts, notebooks, WDLs; upsert tables via FISS |
 | `flare_01_switch_gq_dp.ipynb` | Ancestry-switch GQ/DP QC, plus old vs new FLARE switch rates / tract lengths |
-| `flare_02_lai_exp_compare.ipynb` | Firecloud-fetch `flare_lai_exp` method grid; switch-QC finished rows as they complete |
+| `flare_02_lai_exp_compare.ipynb` | Firecloud-fetch `flare_lai_exp` method grid; switch-QC diagnostics; Part 8 recipe selection v2 (FLARE2 vs FLARE pin, negative controls, Mendelian ranking) |
+| `felix_01_pilot_gate.ipynb` | FELIX chr22 pilot M1 gate: fetch FELIX + Tractor-Mix limited/full results, run `compare_felix_tractor_calibration.py` |
 | `flare_03_stage_site_filters.ipynb` | Stage Part 4 context mask + Part 7 call-QC `include_sites` (+ optional concordance) |
 
 Per-population FLARE (own T per `population`): `flare/wdl/FlareByPopulation.wdl`. See `flare/README.md`.

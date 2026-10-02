@@ -35,6 +35,13 @@ version 1.0
 #
 # Fixed seed=12345 ⇒ identical outputs show determinism, not independent
 # corroboration across "replicate" submissions.
+#
+# FLARE2 mode (Part 6; flare2_nanc > 0 or flare2_model set): train ONE
+# clustered model on a pooled, population-stratified cohort subsample
+# (panel-probs=true → create_model_file.py via scripts/flare2_build_model.py),
+# then pass it as template_model to every shard with EM on. One shared model
+# keeps ancestry labels identical across shards; reuse the trained
+# flare2_model output on other chromosomes so labels match genome-wide.
 
 workflow FlareByPopulation {
   input {
@@ -96,6 +103,25 @@ workflow FlareByPopulation {
     # revisit with a dedicated panel / remap later.
     Boolean allow_unrepresented_pops = true
     Int seed = 12345
+
+    # Part 6 FLARE2. >0 trains a clustered model with this many ancestries.
+    Int flare2_nanc = 0
+    # Pre-trained FLARE2 model (a prior run's flare2_model output). Skips
+    # training; use on apply chromosomes so labels match the training run.
+    File? flare2_model
+    # scripts/flare2_build_model.py (required when training).
+    File? flare2_build_script
+    # Training subsample: up to this many samples per population shard.
+    Int flare2_train_per_pop = 300
+    Float flare2_panel_cm = 0.5
+    # Fail training when upstream min lag-1 autocorrelation is below this.
+    Float flare2_min_autocorr = 0.25
+    # Upstream FLARE2 step 3 runs EM (T, µ, and P with update_p) on the
+    # clustered model. false pins T from gen / gen_by_pop instead.
+    Boolean flare2_em = true
+    String flare2_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare2:0.6.0-87573be"
+    Int flare2_panel_cpu = 16
+    Int flare2_panel_memory_gb = 64
 
     # Part 4 site restriction — applied identically to target and reference.
     Boolean biallelic_snvs_only = false
@@ -227,6 +253,72 @@ workflow FlareByPopulation {
   }
   File flare_ref_vcf = select_first([CutRefRegion.vcf, ref_vcf])
 
+  Boolean flare2_mode = flare2_nanc > 0 || defined(flare2_model)
+  Boolean flare2_train = flare2_nanc > 0 && !defined(flare2_model)
+
+  if (flare2_train) {
+    call Flare2TrainKeepList {
+      input:
+        keep_lists = SplitSamples.keep_lists,
+        per_pop = flare2_train_per_pop,
+        seed = seed,
+        docker = bcftools_docker,
+        preemptible = preemptible
+    }
+    call SubsetOnePopulation as SubsetFlare2Train {
+      input:
+        gt_vcf = gt_vcf,
+        gt_vcf_index = gt_vcf_index,
+        keep_list = Flare2TrainKeepList.keep_list,
+        region = region,
+        biallelic_snvs_only = biallelic_snvs_only,
+        include_sites = include_sites,
+        exclude_regions = PrepExcludeRegions.effective_exclude,
+        site_filter_digest = HashSiteFilters.digest,
+        min_sites_per_mb = min_sites_per_mb,
+        target_min_maf = target_min_maf,
+        target_hwe_pval = target_hwe_pval,
+        gcs_project = gcs_project,
+        docker = bcftools_docker,
+        cpu = subset_cpu,
+        memory_gb = subset_memory_gb,
+        disk_gb_floor = subset_disk_gb_floor,
+        disk_gb_multiplier = subset_disk_gb_multiplier,
+        stream_attempts = subset_stream_attempts,
+        preemptible = subset_preemptible,
+        max_retries = max_retries
+    }
+    call Flare2PanelProbs {
+      input:
+        ref_vcf = flare_ref_vcf,
+        ref_panel = ref_panel,
+        gt_vcf = SubsetFlare2Train.subset_vcf,
+        map_file = map_file,
+        output_prefix = output_prefix,
+        panel_cm = flare2_panel_cm,
+        min_maf = min_maf,
+        min_mac = min_mac,
+        seed = seed,
+        cpu = flare2_panel_cpu,
+        memory_gb = flare2_panel_memory_gb,
+        docker = flare2_docker,
+        preemptible = flare_preemptible
+    }
+    call Flare2BuildModel {
+      input:
+        panels = Flare2PanelProbs.panels,
+        nanc = flare2_nanc,
+        seed = seed,
+        min_autocorr = flare2_min_autocorr,
+        build_script = select_first([flare2_build_script]),
+        flare_model_script = flare_model_script,
+        output_prefix = output_prefix,
+        docker = flare2_docker,
+        preemptible = preemptible
+    }
+  }
+  File? flare2_template = if flare2_train then Flare2BuildModel.model else flare2_model
+
   scatter (keep_list in SplitSamples.keep_lists) {
     call SubsetOnePopulation {
       input:
@@ -258,9 +350,11 @@ workflow FlareByPopulation {
         gt_vcf = SubsetOnePopulation.subset_vcf,
         map_file = map_file,
         output_prefix = output_prefix,
-        em = em,
+        em = if flare2_mode then flare2_em else em,
+        em_with_model = flare2_mode && flare2_em,
+        forbid_pop_model = flare2_mode,
         pop_models = pop_models,
-        template_model = template_model,
+        template_model = if flare2_mode then flare2_template else template_model,
         props_by_pop = props_by_pop,
         inherit_props = inherit_props,
         inherit_panel_weights = inherit_panel_weights,
@@ -282,7 +376,7 @@ workflow FlareByPopulation {
         disk_size_gb_override = flare_disk_gb_override,
         disk_type = flare_disk_type,
         preemptible = flare_preemptible,
-        docker_image = flare_docker
+        docker_image = if flare2_mode then flare2_docker else flare_docker
     }
   }
 
@@ -336,6 +430,11 @@ workflow FlareByPopulation {
     File validation_log = ValidateFlareInputs.log
     File site_filter_digest = HashSiteFilters.digest_file
     File effective_exclude = PrepExcludeRegions.effective_exclude
+    File? flare2_model_out = flare2_template
+    File? flare2_model_summary = Flare2BuildModel.summary_json
+    File? flare2_labels = Flare2BuildModel.labels_tsv
+    File? flare2_panels_log = Flare2PanelProbs.log
+    File? flare2_train_samples = Flare2TrainKeepList.manifest
   }
 
   meta {
@@ -349,6 +448,9 @@ workflow FlareByPopulation {
     flare_model_script: "scripts/flare_model.py — parse/write .model blocks and assemble per-shard inputs under in_model/."
     flare_memory_override: "Optional Cromwell memory string (e.g. \"96 GB\"). Pair with flare_xmx_gb_override so -Xmx tracks the VM."
     flare_xmx_gb_override: "Optional -Xmx in GB for flare.jar. Defaults to probs-aware auto sizing from subset gt size."
+    flare2_nanc: "FLARE2: number of clustered ancestries to train (0 = off). Trains once on a pooled stratified subsample, then every shard uses the model as template_model."
+    flare2_model: "FLARE2: pre-trained model from a prior run (flare2_model_out). Skips training; keeps ancestry labels identical across chromosomes."
+    flare2_em: "FLARE2 step 3: EM with the clustered model (upstream recipe). false pins T from gen/gen_by_pop; props then stay uniform."
   }
 }
 
@@ -1475,6 +1577,10 @@ task flare_task {
     String output_prefix
 
     Boolean em = true
+    # Keep em as given even when a model= is supplied (FLARE2 step 3).
+    Boolean em_with_model = false
+    # Fail if a pop_models entry matches this shard (FLARE2 uses one shared model).
+    Boolean forbid_pop_model = false
     Array[File] pop_models = []
     File? template_model
     String props_by_pop = ""
@@ -1607,6 +1713,10 @@ if got is not None:
 PY
     )" || exit 1
 
+    if [[ -n "${POP_MODEL}" && "~{forbid_pop_model}" == "true" ]]; then
+      echo "FLARE2 mode uses one shared model; drop pop_models (matched ${POP_MODEL})" >&2
+      exit 1
+    fi
     POP_MODEL_ARGS=()
     if [[ -n "${POP_MODEL}" ]]; then
       POP_MODEL_ARGS=(--pop-model "${POP_MODEL}")
@@ -1632,8 +1742,10 @@ PY
     MODEL=""
     if [[ -s "${IN_MODEL}" ]]; then
       MODEL="$(realpath "${IN_MODEL}")"
-      # Matching / rewritten model always pins parameters.
-      EM_FLAG="false"
+      # Matching / rewritten model pins parameters, except FLARE2 step 3.
+      if [[ "~{em_with_model}" != "true" ]]; then
+        EM_FLAG="false"
+      fi
     else
       # Empty build-input output ⇒ omit model=; honor workflow em.
       printf 'NONE\n' > "${SENTINEL}"
@@ -1918,6 +2030,168 @@ PY
     docker: docker
     cpu: cpu
     memory: "16 GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
+# FLARE2 training subsample: up to per_pop samples from every population keep
+# list, pooled into one keep list. Basename FLARE2TRAIN so SubsetOnePopulation
+# names the shard FLARE2TRAIN.vcf.gz.
+task Flare2TrainKeepList {
+  input {
+    Array[File] keep_lists
+    Int per_pop
+    Int seed
+    String docker
+    Int preemptible
+  }
+
+  command <<<
+    set -euo pipefail
+    mkdir -p train
+    python3 - <<'PY'
+import random
+from pathlib import Path
+
+paths = """~{sep="\n" keep_lists}""".strip().splitlines()
+rng = random.Random(~{seed})
+picked = []
+for path in sorted(p.strip() for p in paths if p.strip()):
+    pop = Path(path).name.removesuffix(".samples.txt")
+    ids = [ln.strip() for ln in Path(path).read_text().splitlines() if ln.strip()]
+    take = sorted(rng.sample(ids, min(~{per_pop}, len(ids))))
+    picked.extend((s, pop) for s in take)
+    print(f"{pop}: {len(take)}/{len(ids)}", flush=True)
+if not picked:
+    raise SystemExit("no samples for FLARE2 training")
+Path("train/FLARE2TRAIN.samples.txt").write_text("".join(f"{s}\n" for s, _ in picked))
+Path("train/manifest.tsv").write_text(
+    "sample\tpopulation\n" + "".join(f"{s}\t{p}\n" for s, p in picked)
+)
+print(f"FLARE2 training samples: {len(picked)}", flush=True)
+PY
+  >>>
+
+  output {
+    File keep_list = "train/FLARE2TRAIN.samples.txt"
+    File manifest = "train/manifest.tsv"
+  }
+
+  runtime {
+    docker: docker
+    cpu: 1
+    memory: "2 GB"
+    disks: "local-disk 10 HDD"
+    preemptible: preemptible
+  }
+}
+
+# FLARE2 step 1: ancestry-agnostic copying probabilities per reference panel.
+# panel-probs=true writes <out>.panels instead of anc VCF / model outputs.
+task Flare2PanelProbs {
+  input {
+    File ref_vcf
+    File ref_panel
+    File gt_vcf
+    File map_file
+    String output_prefix
+    Float panel_cm = 0.5
+    Float min_maf = 0.005
+    Int min_mac = 50
+    Int seed = 12345
+    Int cpu = 16
+    Int memory_gb = 64
+    String docker
+    Int preemptible = 0
+  }
+
+  Int xmx_gb = floor(memory_gb * 0.85)
+  Int disk_gb = ceil(size(ref_vcf, "GB") + size(gt_vcf, "GB") * 3.0) + 50
+
+  command <<<
+    set -euo pipefail
+    PREFIX="~{output_prefix}.flare2_train"
+    java -Xmx~{xmx_gb}g -jar /opt/flare/flare.jar \
+      ref=~{ref_vcf} \
+      ref-panel=~{ref_panel} \
+      gt=~{gt_vcf} \
+      map=~{map_file} \
+      out="${PREFIX}" \
+      panel-probs=true \
+      panel-cm=~{panel_cm} \
+      nthreads=~{cpu} \
+      min-maf=~{min_maf} \
+      min-mac=~{min_mac} \
+      seed=~{seed}
+    if [[ ! -s "${PREFIX}.panels" ]]; then
+      echo "FLARE did not write ${PREFIX}.panels (jar without panel-probs?)" >&2
+      exit 1
+    fi
+    head -3 "${PREFIX}.panels" >&2
+    ls -lh "${PREFIX}".* >&2
+  >>>
+
+  output {
+    File panels = "~{output_prefix}.flare2_train.panels"
+    File log = "~{output_prefix}.flare2_train.log"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
+# FLARE2 step 2: cluster copying probabilities into nanc ancestries with stable
+# labels (scripts/flare2_build_model.py around upstream create_model_file.py).
+task Flare2BuildModel {
+  input {
+    File panels
+    Int nanc
+    Int seed
+    Float min_autocorr
+    File build_script
+    # Co-localize so ``from flare_model import ...`` resolves.
+    File flare_model_script
+    String output_prefix
+    String docker
+    Int preemptible
+  }
+
+  Int disk_gb = ceil(size(panels, "GB") * 2.0) + 20
+
+  command <<<
+    set -euo pipefail
+    mkdir -p _scripts
+    cp -L "~{build_script}" _scripts/flare2_build_model.py
+    cp -L "~{flare_model_script}" _scripts/flare_model.py
+    PREFIX="~{output_prefix}.flare2_nanc~{nanc}"
+    python3 _scripts/flare2_build_model.py \
+      --create-model-script /opt/flare2/create_model_file.py \
+      --panels "~{panels}" \
+      --nanc ~{nanc} \
+      --seed ~{seed} \
+      --min-autocorr ~{min_autocorr} \
+      --out-prefix "${PREFIX}"
+    cat "${PREFIX}.labels.tsv" >&2
+    cat "${PREFIX}.model" >&2
+  >>>
+
+  output {
+    File model = "~{output_prefix}.flare2_nanc~{nanc}.model"
+    File upstream_model = "~{output_prefix}.flare2_nanc~{nanc}.upstream.model"
+    File summary_json = "~{output_prefix}.flare2_nanc~{nanc}.summary.json"
+    File labels_tsv = "~{output_prefix}.flare2_nanc~{nanc}.labels.tsv"
+  }
+
+  runtime {
+    docker: docker
+    cpu: 4
+    memory: "32 GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
   }

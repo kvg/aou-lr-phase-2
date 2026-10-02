@@ -4,9 +4,22 @@ Coordination doc for humans and agents working on LAI-informed GWAS in
 `aou-lr-phase-2`. Operational how-to lives in [`README.md`](README.md);
 evaluation gates in [`eval/README.md`](eval/README.md).
 
-**Do not fork FELIX.** Consume `lhu1/felix:latest` via our `felix-pilot` image.
+Consume `lhu1/felix:latest` via our `felix-pilot` image. A FELIX fork is
+**allowed if needed** (decided 2026-10-02) but is the last option for repeat
+SVs; see [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md).
 **Do not put FELIX code back under `tractor_mix/`.** Shared Rust crates stay in
 `tractor_mix/` because Tractor-Mix / SAIGE still use them.
+
+## Decisions (2026-10-02)
+
+| Decision | Choice |
+|---|---|
+| LAI engine | **FLARE2** (clustered model trained once, applied to every shard and chromosome) unless selection v2 shows the original-FLARE pin is better |
+| Association engine | **FELIX** (replaces Tractor-Mix) |
+| Cohort | **Whole cohort** for LAI-informed tests (all populations, including MID) |
+| Phasing | SNVs + SVs physically phased with HiPhase, then statistically phased with SHAPEIT4 (same haplotypes) |
+| Repeat SVs | Length dosage × ancestry through FELIX's own tests with SPA. Try FELIX's VCF dosage input first (no fork), then SPA in our Rust scorer, then a fork ([`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md)) |
+| Recipe selection | Time-boxed selection v2 on chr20 (`flare/README.md` Part 8); no Tractor null-λ |
 
 ---
 
@@ -17,8 +30,11 @@ Replace Tractor-Mix as the primary LAI association engine for:
 1. **SNV / indel / unique-sequence SVs** — FELIXla pack + FELIX Step 2
    (`--is_admixed=TRUE`), joint p-value `P_cct_admixed_c`.
 2. **Repeat-mediated SVs** — annotate `RU_TEST` in the joint VCF →
-   `extract-tracts-flare` copy-number × ancestry dosages →
-   `tractor-mix-score --mode felix` on the **same** FELIX null export.
+   repeat-length deviation × ancestry dosages → FELIX step 2 (SPA) on the
+   **same** FELIX null. Design and engine choice:
+   [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md). The current path
+   (`extract-tracts-flare` → `tractor-mix-score --mode felix`) has no SPA and
+   codes absolute copy number; treat its outputs as provisional.
 
 Same cohort / covariates / GRM markers as the existing Tractor-Mix + SAIGE 2×2
 calibration under `tractor_mix_pilot/`.
@@ -37,7 +53,7 @@ Joint phased VCF (GT + AN1/AN2 + SVs)
 
 ---
 
-## Status (2026-09)
+## Status (2026-10)
 
 | Milestone | Code | Terra / data gate |
 |-----------|------|-------------------|
@@ -46,6 +62,8 @@ Joint phased VCF (GT + AN1/AN2 + SVs)
 | **M3** RU annotator + extract dosage encodings | Done | Fixture tests pass; not run on AoU joint VCF |
 | **M4** Encoding comparison + simulator | Done (scripts) | Simulator smoke OK; genome-wide encoding compare needs Terra |
 | **M5** `FelixGenome.wdl` (autosomes + optional RU branch) | Done | Not submitted |
+| **M0** LAI recipe (selection v2: FLARE2 vs FLARE pin, chr20) | FLARE2 WDL mode + scorers done | Build `aou-flare2` image; run `sel_chr20_*` rows; flare_02 Part 8 |
+| **M6** Repeat-SV scorer with SPA | Design only | Option A spike (FELIX VCF dosage input) |
 
 Image: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0`
 (built FROM `lhu1/felix:latest` + PLINK2 + bcftools + Rust CLIs + staged scripts).
@@ -56,7 +74,10 @@ Local smoke summary: [`eval/overnight_local_smoke.log`](eval/overnight_local_smo
 
 ## Immediate next work (Terra)
 
-These are the blocking items before claiming M1 / publishing results.
+These are the blocking items before claiming M1 / publishing results. M1 does
+not wait for M0: it compares FELIX with Tractor-Mix on the LAI the Tractor-Mix
+pilot already used. Both pilot configs now scan the same FLARE-marker VCF as
+that pilot, so the 2×2 compares like with like.
 
 1. **Stage scripts** to the workspace bucket:
    ```bash
@@ -77,7 +98,11 @@ These are the blocking items before claiming M1 / publishing results.
      --out-dir eval/chr22_felix_tractor_gate
    ```
    Pass: λGC ≈ 1 on null phenotypes; `comparability_flags.tsv` status `OK`.
-5. Only after M1: genome-wide `FelixGenome.wdl`, then optional RU_TEST branch.
+   Notebook: `notebooks/terra/felix_01_pilot_gate.ipynb`.
+5. M1b: rerun FELIX on the full long-read callset (`phase_vcf` + `flare_vcf`).
+6. After M0 + M1: genome-wide FLARE2 apply (`flare/configs/flare2.apply.inputs.json.example`),
+   then `FelixGenome.wdl`. Set `num_ancs` to the FLARE2 model's `nanc`.
+7. M6 per [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md) before turning on the RU branch.
 
 ---
 
@@ -85,23 +110,22 @@ These are the blocking items before claiming M1 / publishing results.
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| FELIX source | Published image only | No compile / fork; ZhouLabGenetics stays upstream |
+| FELIX source | Published image; fork allowed if needed | Prefer FELIX's own inputs (FELIXla, admixed dosage VCF) over code changes; FELIX is GPL-3.0 |
 | GRM | SAIGE mtx via `build_saige_plink_and_grm.sh` | Same as SaigePilot; FELIX Step 1 with `--useSparseGRMtoFitNULL=TRUE` |
 | Primary p-column | `P_cct_admixed_c` | FELIX admixed Cauchy combination (conditional columns mirror unconditional for now) |
 | Unique SVs | FELIXla 0/1 split-biallelic | Same path as SNV/indel |
-| Repeat SVs | Separate dosage scorer | Length-additive biology; compare vs collapse/split |
-| Scorer | Extend `tractor-mix-score`, not SAIGE C++ | f64 dosages, hom/het/CCT, quantitative; SPA out of scope for v1 |
+| Repeat SVs | Length dosage through FELIX tests with SPA | Length-additive biology; compare vs collapse/split; see `SV_SCORER_DESIGN.md` |
+| Scorer | FELIX VCF dosage input first; Rust scorer + SPA as fallback | SPA is required for low-prevalence binary traits across the phenome |
 | Layout | Top-level `felix/` | Separated from `tractor_mix/` before any Terra runs |
 | Scripts on GCS | `gs://BUCKET/felix/scripts/` for FELIX; `gs://BUCKET/scripts/` for shared | Stage via `stage_felix_scripts.sh` / `stage_tractor_scripts.sh` |
 
 ### Out of scope (v1)
 
-- FELIXla native copy-number format
-- TRACTOR dosage-VCF through FELIX Step 2
-- New LAI / re-running FLARE
-- Rust SPA (normal approx only; SPA-retest hits later if λGC inflates)
-- Forking ZhouLabGenetics/FELIX
+- FELIXla native copy-number format (only if options A and B in `SV_SCORER_DESIGN.md` fail)
 - Backward-compat symlinks under `tractor_mix/`
+
+(Re-running LAI, admixed dosage-VCF input to FELIX step 2, and SPA for repeat
+SVs moved into scope on 2026-10-02.)
 
 ### Related work (RU dosage motivation)
 
@@ -189,7 +213,7 @@ Before editing:
 
 - [ ] Read this file + `README.md` for the surface you touch
 - [ ] Prefer config / script / WDL changes in `felix/` over `tractor_mix/`
-- [ ] Do not compile FELIX; bump `felix-pilot` tag if Docker deps change
+- [ ] Prefer FELIX's existing inputs over a fork; bump `felix-pilot` tag if Docker deps change
 - [ ] Stage path: FELIX scripts → `felix/scripts/` on GCS, not repo-root `scripts/`
 
 Before claiming M1 done:
@@ -200,6 +224,7 @@ Before claiming M1 done:
 
 Before claiming M4 / RU genome done:
 
+- [ ] Repeat dosage coded relative to `CN_REF` and scored with SPA (M6)
 - [ ] FelixGenome RU branch produces three encoding TSVs per phenotype/chrom
 - [ ] `compare_repeat_encodings.py` + simulator type I / power tables reviewed
 - [ ] Positive-control loci (HTT, FMR1, FXN, C9ORF72, RFC1) checked if present
