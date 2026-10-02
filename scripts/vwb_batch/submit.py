@@ -118,6 +118,7 @@ def list_jobs(*, project: str, region: str, filter_expr: str = "") -> list[dict[
 
 
 def list_tasks(*, job_id: str, project: str, region: str, quiet: bool = False) -> list[dict[str, Any]]:
+    """Every task of a job. Jobs over 500 tasks page; gcloud can fail on the second page."""
     proc = _run(
         [
             "gcloud",
@@ -127,6 +128,7 @@ def list_tasks(*, job_id: str, project: str, region: str, quiet: bool = False) -
             f"--job={job_id}",
             f"--location={region}",
             f"--project={project}",
+            f"--page-size={TASKS_PAGE_SIZE}",
             "--format=json",
         ],
         check=False,
@@ -134,8 +136,40 @@ def list_tasks(*, job_id: str, project: str, region: str, quiet: bool = False) -
     )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
+        if "page size" in err.lower() or "pagesize" in err.lower():
+            return list_tasks_rest(job_id=job_id, project=project, region=region)
         raise RuntimeError(f"tasks list {job_id} failed: {err}")
     data = json.loads(proc.stdout or "[]")
     if isinstance(data, dict):
         return data.get("tasks") or []
     return data
+
+
+TASKS_PAGE_SIZE = 500
+
+
+def list_tasks_rest(*, job_id: str, project: str, region: str) -> list[dict[str, Any]]:
+    """Page through tasks with the Batch REST API, using the gcloud access token."""
+    import urllib.parse
+    import urllib.request
+
+    token = _run(["gcloud", "auth", "print-access-token"], quiet=True).stdout.strip()
+    base = (
+        f"https://batch.googleapis.com/v1/projects/{project}/locations/{region}"
+        f"/jobs/{job_id}/taskGroups/group0/tasks"
+    )
+    tasks: list[dict[str, Any]] = []
+    page_token = ""
+    while True:
+        query = {"pageSize": str(TASKS_PAGE_SIZE)}
+        if page_token:
+            query["pageToken"] = page_token
+        req = urllib.request.Request(
+            f"{base}?{urllib.parse.urlencode(query)}", headers={"Authorization": f"Bearer {token}"}
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = json.loads(resp.read().decode("utf-8") or "{}")
+        tasks.extend(body.get("tasks") or [])
+        page_token = body.get("nextPageToken") or ""
+        if not page_token:
+            return tasks

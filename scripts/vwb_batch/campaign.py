@@ -321,7 +321,15 @@ def sync(
         entry.update(_instance_info(live_job))
         if entry["state"] not in TERMINAL:
             continue
-        tasks = [parse_task(t) for t in submit.list_tasks(job_id=job_id, project=project, region=region, quiet=True)]
+        try:
+            raw = submit.list_tasks(job_id=job_id, project=project, region=region, quiet=True)
+        except Exception as exc:  # one job must not block the run; it is retried next pass
+            log(f"could not list tasks for {job_id}; counting it as running until next pass: {str(exc)[:300]}")
+            continue
+        tasks = [parse_task(t) for t in raw]
+        if len(tasks) < len(entry["sample_ids"]):
+            log(f"{job_id}: Batch listed {len(tasks)} of {len(entry['sample_ids'])} tasks; retrying next pass")
+            continue
         by_index = {t["index"]: t for t in tasks}
         entry["task_states"] = [str((by_index.get(i) or {}).get("state") or "") for i in range(len(entry["sample_ids"]))]
         spot = (entry.get("provisioning") or "").upper() == "SPOT"
