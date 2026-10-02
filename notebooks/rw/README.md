@@ -5,7 +5,8 @@ reliable. Prefer native Cloud Batch (`gcloud batch`) from the EH notebooks when
 Cromwell is spotty; Cromwell `wb workflow` remains in the `_01` notebooks.
 `_02` is the one-sample smoke; `_03` / `_04` are the production ledger.
 [`batch_monitor.ipynb`](batch_monitor.ipynb) lists every native Batch job
-(read-only). Locityper `_02` / `_03` / `_04` use native Batch like EH.
+(read-only). ExpansionHunter `_05` queues the next cohort wave and `_06`
+draws a slide figure. Locityper `_02` / `_03` / `_04` use native Batch like EH.
 
 Companion CLIs live in [`../../scripts/`](../../scripts/). Batch production
 helpers: [`../../scripts/vwb_batch/`](../../scripts/vwb_batch/). Jobs use the
@@ -23,4 +24,6 @@ workspace PET SA and private VPC.
 | [`expansion_hunter_02_run_batch.ipynb`](expansion_hunter_02_run_batch.ipynb) | Native Cloud Batch **smoke**: one sample, minicram then ExpansionHunter (no dsub) |
 | [`expansion_hunter_03_budget.ipynb`](expansion_hunter_03_budget.ipynb) | Pilot 20 samples, p90/p95 cost, write `keep.csv` to the GCS run ledger |
 | [`expansion_hunter_04_dispatch.ipynb`](expansion_hunter_04_dispatch.ipynb) | Read keep list, shard, poll, retry missing/failed (native Batch, no DAG) |
+| [`expansion_hunter_05_submit.ipynb`](expansion_hunter_05_submit.ipynb) | Run All: queue first attempts, then retries, for the EH keep list |
+| [`expansion_hunter_06_progress.ipynb`](expansion_hunter_06_progress.ipynb) | Read-only EH progress figure (PNG/PDF) for a slide |
 | [`batch_monitor.ipynb`](batch_monitor.ipynb) | Read-only status of all native Batch jobs + GCS run ledgers |

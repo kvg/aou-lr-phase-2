@@ -20,8 +20,12 @@ app), so restage refs there. In that VWB Jupyter app:
    — one-sample smoke (`gcloud batch`, no dsub). Cohort run:
    [`expansion_hunter_03_budget.ipynb`](../notebooks/rw/expansion_hunter_03_budget.ipynb)
    (20-sample pilot + p90 keep list) then
-   [`expansion_hunter_04_dispatch.ipynb`](../notebooks/rw/expansion_hunter_04_dispatch.ipynb)
-   (shards / poll / retry). Status of every Batch job:
+   [`expansion_hunter_05_submit.ipynb`](../notebooks/rw/expansion_hunter_05_submit.ipynb)
+   (Run All; first attempts before retries). Manual shard control remains in
+   [`expansion_hunter_04_dispatch.ipynb`](../notebooks/rw/expansion_hunter_04_dispatch.ipynb).
+   Slide figure:
+   [`expansion_hunter_06_progress.ipynb`](../notebooks/rw/expansion_hunter_06_progress.ipynb).
+   Status of every Batch job:
    [`batch_monitor.ipynb`](../notebooks/rw/batch_monitor.ipynb) (read-only).
    Library: [`scripts/vwb_batch/`](../scripts/vwb_batch/). Details:
    [`batch/README.md`](batch/README.md).

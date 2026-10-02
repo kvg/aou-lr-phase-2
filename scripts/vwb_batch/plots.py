@@ -56,6 +56,14 @@ BLUE = "#2F5D8A"
 ORANGE = "#C46B2D"
 GRAY = "#6B7280"
 GREEN = "#3D6B4F"
+RED = "#A33B32"
+
+_PROGRESS_SEGMENTS = (
+    ("done", "Done", GREEN),
+    ("running", "Running", BLUE),
+    ("failed", "Failed", RED),
+    ("not_started", "Not started", GRAY),
+)
 
 
 def save_fig(fig, out_dir: Path, stem: str) -> list[Path]:
@@ -268,6 +276,84 @@ def plot_pilot(
         plt.close(fig)
 
     return written
+
+
+def plot_cohort_progress(
+    out_dir: Path,
+    *,
+    run_id: str,
+    catalog: str,
+    counts: dict[str, dict[str, int]],
+    fully_done: int,
+    keep_n: int,
+    inflight_vcpu: int,
+    e2_quota: int,
+    n_active_jobs: int,
+    updated_at: str,
+) -> list[Path]:
+    """16:9 ExpansionHunter progress figure for a slide.
+
+    ``counts`` maps stage name (``minicram``, ``genotype``) to
+    done / running / failed / not_started sample counts. The figure is left
+    open so a notebook can display it.
+    """
+    plt = _plt()
+    _style(plt)
+    fig, ax = plt.subplots(figsize=(13.33, 7.5))
+    stages = ("minicram", "genotype")
+    y = [1, 0]
+    left = [0, 0]
+    total = max(int(keep_n), 1)
+    for key, label, color in _PROGRESS_SEGMENTS:
+        widths = [int((counts.get(stage) or {}).get(key) or 0) for stage in stages]
+        ax.barh(y, widths, left=left, height=0.52, color=color, label=label)
+        for yi, width, start in zip(y, widths, left):
+            if width >= total * 0.06:
+                ax.text(
+                    start + width / 2,
+                    yi,
+                    f"{width:,}",
+                    ha="center",
+                    va="center",
+                    color="white",
+                    fontsize=12,
+                )
+        left = [a + b for a, b in zip(left, widths)]
+    ax.set_yticks(y)
+    ax.set_yticklabels(["Minicram", "Genotype"])
+    ax.set_xlim(0, total)
+    ax.set_xlabel("Samples")
+    ax.tick_params(axis="y", length=0)
+    ax.legend(ncol=4, loc="lower center", bbox_to_anchor=(0.5, 1.02), fontsize=11)
+    fig.text(0.12, 0.93, f"ExpansionHunter    {run_id}", fontsize=20, ha="left", va="center")
+    fig.text(
+        0.12,
+        0.875,
+        f"{catalog}    ·    {keep_n:,} samples    ·    {updated_at}",
+        fontsize=12,
+        color=GRAY,
+        ha="left",
+        va="center",
+    )
+    fig.text(
+        0.12,
+        0.07,
+        f"Fully genotyped    {fully_done:,}  /  {keep_n:,}",
+        fontsize=18,
+        ha="left",
+        va="center",
+    )
+    fig.text(
+        0.12,
+        0.03,
+        f"{n_active_jobs:,} jobs in flight    ·    {inflight_vcpu:,}  /  {e2_quota:,} E2 vCPU",
+        fontsize=12,
+        color=GRAY,
+        ha="left",
+        va="center",
+    )
+    fig.subplots_adjust(left=0.14, right=0.96, top=0.78, bottom=0.20)
+    return save_fig(fig, out_dir, f"eh_progress_{run_id}")
 
 
 def main() -> None:

@@ -29,7 +29,12 @@ the two-locus path.
 Cohort runs use a GCS ledger (`scripts/vwb_batch/`):
 [`expansion_hunter_03_budget.ipynb`](../../notebooks/rw/expansion_hunter_03_budget.ipynb)
 then
-[`expansion_hunter_04_dispatch.ipynb`](../../notebooks/rw/expansion_hunter_04_dispatch.ipynb).
+[`expansion_hunter_05_submit.ipynb`](../../notebooks/rw/expansion_hunter_05_submit.ipynb)
+(Run All; first attempts before retries).
+[`expansion_hunter_04_dispatch.ipynb`](../../notebooks/rw/expansion_hunter_04_dispatch.ipynb)
+is the manual shard / retry notebook.
+Slide figure:
+[`expansion_hunter_06_progress.ipynb`](../../notebooks/rw/expansion_hunter_06_progress.ipynb).
 Read-only status of smoke + ledger jobs:
 [`batch_monitor.ipynb`](../../notebooks/rw/batch_monitor.ipynb).
 Tasks read a GCS TSV (`TASKS_TSV` + `BATCH_TASK_INDEX`) so job JSON stays

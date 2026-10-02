@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from vwb_batch import alloc, cohort, cost, monitor, submit  # noqa: E402
+from vwb_batch import alloc, cohort, cost, monitor, plots, submit, wave  # noqa: E402
 from vwb_batch.pipelines import expansion_hunter as eh  # noqa: E402
 from vwb_batch.pipelines import locityper as lt  # noqa: E402
 
@@ -320,6 +320,96 @@ def test_monitor_summary() -> None:
     print("monitor ok", row["inflight_vcpu"], "vCPU")
 
 
+def test_wave_prefers_first_attempts() -> None:
+    ids = ["new", "stranded", "failed", "running", "done", "missing"]
+    events = [
+        {
+            "event": "job_submitted",
+            "stage": "minicram",
+            "job_id": "job-a",
+            "sample_ids": ["stranded", "failed"],
+        },
+        {
+            "event": "job_submitted",
+            "stage": "minicram",
+            "job_id": "job-b",
+            "sample_ids": ["running", "done"],
+        },
+        {
+            "event": "job_submitted",
+            "stage": "minicram",
+            "job_id": "job-c",
+            "sample_ids": ["missing"],
+        },
+    ]
+    polls = {
+        "job-a": {
+            "state": "FAILED",
+            "tasks": [
+                {"index": 0, "state": "PENDING"},
+                {"index": 1, "state": "FAILED"},
+            ],
+        },
+        "job-b": {
+            "state": "RUNNING",
+            "tasks": [
+                {"index": 0, "state": "RUNNING"},
+                {"index": 1, "state": "SUCCEEDED"},
+            ],
+        },
+        "job-c": {
+            "state": "SUCCEEDED",
+            "tasks": [{"index": 0, "state": "SUCCEEDED"}],
+        },
+    }
+    cats = wave.classify_stage(
+        ids,
+        submissions=wave.latest_submissions(events, "minicram"),
+        polls=polls,
+        done_ids={"done"},
+    )
+    assert cats["new"] == "not_started"
+    assert cats["stranded"] == "not_started"
+    assert cats["failed"] == "failed"
+    assert cats["running"] == "running"
+    assert cats["done"] == "done"
+    assert cats["missing"] == "failed"
+    assert wave.choose_to_submit(ids, cats) == ["new", "stranded"]
+    rest = wave.choose_to_submit(["failed", "missing", "done"], cats)
+    assert rest == ["failed", "missing"]
+    assert wave.count_categories(cats)["not_started"] == 2
+    print("wave ok", wave.count_categories(cats))
+
+
+def test_progress_figure() -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("progress figure skipped (no matplotlib)")
+        return
+    counts = {
+        "minicram": {"done": 20, "running": 800, "failed": 3, "not_started": 1012},
+        "genotype": {"done": 20, "running": 0, "failed": 0, "not_started": 1815},
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = plots.plot_cohort_progress(
+            Path(tmp),
+            run_id="eh-test",
+            catalog="candidate_EH_Loci.GRCh38.degenerate.json",
+            counts=counts,
+            fully_done=20,
+            keep_n=1835,
+            inflight_vcpu=800,
+            e2_quota=2400,
+            n_active_jobs=4,
+            updated_at="2026-09-29T00:00:00Z",
+        )
+        assert len(paths) == 2
+        assert all(p.is_file() and p.stat().st_size > 0 for p in paths)
+    plt.close("all")
+    print("progress figure ok")
+
+
 def main() -> None:
     test_cost()
     test_job_json_tsv()
@@ -329,6 +419,8 @@ def main() -> None:
     test_worker_source_compiles()
     test_locityper_job_json()
     test_monitor_summary()
+    test_wave_prefers_first_attempts()
+    test_progress_figure()
     print("all ok")
 
 
