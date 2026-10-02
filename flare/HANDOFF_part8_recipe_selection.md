@@ -103,8 +103,8 @@ The two tracks below can run in parallel.
    Tractor-Mix pilot), then `felix_01_pilot_gate.ipynb`. Pass = λGC ≈ 1 on null
    phenotypes and comparability `OK`.
 2. M1b: rerun FELIX with the full long-read callset (`phase_vcf` + `flare_vcf`).
-3. M6: the repeat-SV spike in `SV_SCORER_DESIGN.md` §7 (fix the dosage baseline;
-   test FELIX's admixed dosage-VCF input).
+3. M6: patch FELIX's allele-count filter for dosage loci, then the dosage-VCF
+   writer and WDL wiring (`SV_SCORER_DESIGN.md` §7). The local spike is done.
 
 ---
 
@@ -129,9 +129,10 @@ The two tracks below can run in parallel.
 
 ## 7. Known open items
 
-- `extract-tracts-flare` codes repeat dosage as absolute copy number, so the
-  per-ancestry repeat tests mostly measure local-ancestry dosage. The fix is
-  specified in `SV_SCORER_DESIGN.md`; not changed yet.
+- Repeat SVs: `extract-tracts-flare` now codes repeat dosage relative to REF by
+  default (`--ru-baseline ref`). The FELIX dosage-VCF spike passed locally but
+  FELIX drops ancestry tests whose summed dosage is negative; next step is a
+  small FELIX patch (`felix/SV_SCORER_DESIGN.md` §3).
 - FLARE2 `flare2_em=true` re-estimates T per shard. Earlier per-population EM
   runs drifted to high T. Check `models.tsv` `t_gen` for the FLARE2 rows before
   trusting them.

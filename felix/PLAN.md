@@ -18,7 +18,7 @@ SVs; see [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md).
 | Association engine | **FELIX** (replaces Tractor-Mix) |
 | Cohort | **Whole cohort** for LAI-informed tests (all populations, including MID) |
 | Phasing | SNVs + SVs physically phased with HiPhase, then statistically phased with SHAPEIT4 (same haplotypes) |
-| Repeat SVs | Length dosage × ancestry through FELIX's own tests with SPA. Try FELIX's VCF dosage input first (no fork), then SPA in our Rust scorer, then a fork ([`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md)) |
+| Repeat SVs | Length dosage × ancestry through FELIX's own tests with SPA, via FELIX's admixed dosage-VCF input plus a small patch to its allele-count filter; SPA in our Rust scorer is the fallback ([`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md)) |
 | Recipe selection | Time-boxed selection v2 on chr20 (`flare/README.md` Part 8); no Tractor null-λ |
 
 ---
@@ -31,10 +31,10 @@ Replace Tractor-Mix as the primary LAI association engine for:
    (`--is_admixed=TRUE`), joint p-value `P_cct_admixed_c`.
 2. **Repeat-mediated SVs** — annotate `RU_TEST` in the joint VCF →
    repeat-length deviation × ancestry dosages → FELIX step 2 (SPA) on the
-   **same** FELIX null. Design and engine choice:
-   [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md). The current path
-   (`extract-tracts-flare` → `tractor-mix-score --mode felix`) has no SPA and
-   codes absolute copy number; treat its outputs as provisional.
+   **same** FELIX null, through FELIX's admixed dosage-VCF input. Design, spike
+   results and engine choice: [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md). The
+   current WDL path (`extract-tracts-flare` → `tractor-mix-score --mode felix`)
+   has no SPA; treat its outputs as provisional.
 
 Same cohort / covariates / GRM markers as the existing Tractor-Mix + SAIGE 2×2
 calibration under `tractor_mix_pilot/`.
@@ -63,7 +63,7 @@ Joint phased VCF (GT + AN1/AN2 + SVs)
 | **M4** Encoding comparison + simulator | Done (scripts) | Simulator smoke OK; genome-wide encoding compare needs Terra |
 | **M5** `FelixGenome.wdl` (autosomes + optional RU branch) | Done | Not submitted |
 | **M0** LAI recipe (selection v2: FLARE2 vs FLARE pin, chr20) | FLARE2 WDL mode + scorers done | Build `aou-flare2` image; run `sel_chr20_*` rows; flare_02 Part 8 |
-| **M6** Repeat-SV scorer with SPA | Design only | Option A spike (FELIX VCF dosage input) |
+| **M6** Repeat-SV scorer with SPA | REF-relative dosage done (`extract-tracts-flare --ru-baseline ref`); Option A spike passed locally (exact SNV equivalence, scale invariance, calibrated SPA) | FELIX drops ancestry tests with negative summed dosage; next = patch FELIX's allele-count filter (see design note §3) |
 
 Image: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0`
 (built FROM `lhu1/felix:latest` + PLINK2 + bcftools + Rust CLIs + staged scripts).

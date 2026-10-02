@@ -57,10 +57,15 @@ Outputs (prefix = VCF basename without `.vcf` / `.vcf.gz`):
 - `{prefix}.split.anc{i}.dosage.txt[.gz]` — one 0/1 row per ALT of each `RU_TEST` site (`ID:1`, `ID:2`, …)
 - `dosage_sample_order.txt` in the output directory
 
-Sites with INFO `RU_TEST` use repeat-unit copy-number dosage: `C = CN_REF` on the
-REF haplotype, or `C = CN_REF + sign(SVTYPE)×RU[a]` on ALT `a` (`sign` is −1 for
-DEL and +1 for INS/DUP). Missing `CN_REF` is extra-units-vs-REF (`CN_REF=0`).
-`dosage[anc] += C`. Multi-allelic VNTR-like records stay one locus in the main
+Sites with INFO `RU_TEST` use repeat-unit dosage. Each haplotype has copy number
+`C = CN_REF` on REF, or `C = CN_REF + sign(SVTYPE)×RU[a]` on ALT `a` (`sign` is −1
+for DEL and +1 for INS/DUP). Missing `CN_REF` means `CN_REF=0`.
+
+- `--ru-baseline ref` (default): `dosage[anc] += C − CN_REF`, so REF haplotypes
+  add 0, like an SNV's REF allele. Values can be negative (contractions).
+- `--ru-baseline absolute` (legacy): `dosage[anc] += C`. Per-ancestry dosage
+  then includes `CN_REF × hapcount`, so per-ancestry tests mostly measure local
+  ancestry. Kept for comparison only; see `felix/SV_SCORER_DESIGN.md`. Multi-allelic VNTR-like records stay one locus in the main
 dosage file. Non-`RU_TEST` sites keep the classic biallelic allele-`1` 0/1/2
 dosage. Comparison encodings are written from the same haplotypes in one pass.
 

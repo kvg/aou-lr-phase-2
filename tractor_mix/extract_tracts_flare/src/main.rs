@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
-use extract_tracts_flare::{extract_tracts_flare, ExtractConfig};
+use extract_tracts_flare::{extract_tracts_flare, ExtractConfig, RuBaseline};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -38,6 +38,17 @@ struct Cli {
     /// Reserved for future parallel parsing; extract is currently single-threaded
     #[arg(long, default_value_t = 1)]
     threads: usize,
+
+    /// RU_TEST dosage coding: `ref` = repeat units relative to REF (REF = 0);
+    /// `absolute` = legacy absolute copy number (CN_REF ± RU)
+    #[arg(long, value_enum, default_value_t = RuBaselineArg::Ref)]
+    ru_baseline: RuBaselineArg,
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+enum RuBaselineArg {
+    Ref,
+    Absolute,
 }
 
 fn main() -> ExitCode {
@@ -50,6 +61,10 @@ fn main() -> ExitCode {
         compress_output: cli.compress_output,
         samples: cli.samples,
         threads: cli.threads,
+        ru_baseline: match cli.ru_baseline {
+            RuBaselineArg::Ref => RuBaseline::Ref,
+            RuBaselineArg::Absolute => RuBaseline::Absolute,
+        },
     };
     match extract_tracts_flare(&cfg) {
         Ok(()) => ExitCode::SUCCESS,

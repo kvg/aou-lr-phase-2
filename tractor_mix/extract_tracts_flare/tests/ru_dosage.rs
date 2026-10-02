@@ -49,23 +49,51 @@ fn parse_dosage(path: &PathBuf) -> (Vec<String>, HashMap<String, Vec<i64>>) {
     (header, rows)
 }
 
+fn run_extract(out: &PathBuf, extra: &[&str]) {
+    let mut args = vec![
+        "--vcf".to_string(),
+        testdata("ru_dosage.vcf").to_str().unwrap().to_string(),
+        "--num-ancs".to_string(),
+        "3".to_string(),
+        "--output-dir".to_string(),
+        out.to_str().unwrap().to_string(),
+    ];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    let status = Command::new(rust_bin()).args(&args).status().unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn ru_dosage_ref_baseline_is_default() {
+    let tmp = TempDir::new().unwrap();
+    let out = tmp.path().join("out");
+    fs::create_dir(&out).unwrap();
+    run_extract(&out, &[]);
+    let (_, a0) = parse_dosage(&out.join("ru_dosage.anc0.dosage.txt"));
+    let (_, a1) = parse_dosage(&out.join("ru_dosage.anc1.dosage.txt"));
+    let (_, a2) = parse_dosage(&out.join("ru_dosage.anc2.dosage.txt"));
+
+    // SNVs are unchanged.
+    assert_eq!(a1["snv1"], vec![1, 0, 2]);
+    // REF haplotypes contribute 0; ALT contributes ±RU (absolute minus CN_REF).
+    assert_eq!(a0["vntr_ins"], vec![0, 6, 0]);
+    assert_eq!(a1["vntr_ins"], vec![3, 0, 0]);
+    assert_eq!(a0["vntr_del"], vec![0, 0, -5]);
+    assert_eq!(a1["vntr_del"], vec![-5, 0, -5]);
+    assert_eq!(a2["vntr_del"], vec![0, 0, 0]);
+    assert_eq!(a0["vntr_multi"], vec![1, 0, 0]);
+    assert_eq!(a1["vntr_multi"], vec![3, 1, 0]);
+    // No CN_REF: identical under both codings.
+    assert_eq!(a0["rel_ins"], vec![1, 0, 0]);
+    assert_eq!(a1["rel_ins"], vec![0, 2, 0]);
+}
+
 #[test]
 fn ru_dosage_c_times_ancestry_and_comparison_encodings() {
     let tmp = TempDir::new().unwrap();
     let out = tmp.path().join("out");
     fs::create_dir(&out).unwrap();
-    let status = Command::new(rust_bin())
-        .args([
-            "--vcf",
-            testdata("ru_dosage.vcf").to_str().unwrap(),
-            "--num-ancs",
-            "3",
-            "--output-dir",
-            out.to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
-    assert!(status.success());
+    run_extract(&out, &["--ru-baseline", "absolute"]);
 
     let (_, a0) = parse_dosage(&out.join("ru_dosage.anc0.dosage.txt"));
     let (_, a1) = parse_dosage(&out.join("ru_dosage.anc1.dosage.txt"));

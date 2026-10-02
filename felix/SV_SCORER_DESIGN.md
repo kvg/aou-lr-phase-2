@@ -1,6 +1,6 @@
 # Design note: ancestry-aware association for repeat-mediated SVs
 
-Status: **proposal, not implemented** (2026-10-02). Owner: Kiran Garimella.
+Status: **proposal; Option A spike run locally 2026-10-02 (§3.1)**. Owner: Kiran Garimella.
 Related docs: [`PLAN.md`](PLAN.md) (milestones), [`eval/README.md`](eval/README.md)
 (calibration gates).
 
@@ -74,38 +74,51 @@ from the same haplotypes):
 
 ## 3. Engine options
 
-### Option A — FELIX's VCF dosage input (recommended first; no fork)
+### Option A — FELIX's VCF dosage input
 
 FELIX step 2 has a second admixed input path besides FELIXla: a VCF with
 per-ancestry FORMAT fields (`genoType == "vcf"` in `SAIGE.Admixed`,
 `R/SAIGE_SPATest_Tractor.R`). From FELIX `src/Main.cpp`, it reads:
 
+- `DS{k}`: the ancestry-k dosage (FORMAT, Float)
 - `ANC{k}`: the number of ancestry-k haplotypes per sample (0/1/2), used as the
   per-ancestry denominator
-- `DS{k}`: the ancestry-k dosage
-- `DSALL`: the total dosage (the shared-effect test)
 
-This is the Tractor dosage-VCF layout. The SAIGE VCF reader takes `DS` as a
-float, so a repeat-length dosage can go through the same SPA tests as SNVs with
-no FELIX code changes.
+This is the Tractor dosage-VCF layout (FELIX's own fixture:
+`tools/felixla/testdata/tiny.tractor_dosage.vcf`). The path is not documented
+in the FELIX README, so we tested it (§3.1).
 
 Scaling: score tests do not change under a linear rescaling of the dosage
-(covariates include an intercept). To stay inside dosage-range checks, write
-`DS{k} = Σ_{h: a_h=k} x_h / s` with one scale `s` per locus (for example
-`max |x_h|`), so `|DS{k}| ≤ ANC{k} ≤ 2`. Report effect sizes per repeat unit by
-multiplying `BETA` back by `1/s`.
+(covariates include an intercept). Write `DS{k} = Σ_{h: a_h=k} x_h / s` with one
+scale `s` per locus (for example `max |x_h|`), so `|DS{k}| ≤ ANC{k} ≤ 2`.
+Report effect sizes per repeat unit by multiplying `BETA` back by `1/s`.
 
-Unknowns the spike must answer:
+**Never shift the coding** (for example "shortest allele = 0"). A per-haplotype
+shift `c` adds `c × ANC{k}` to `DS{k}`, which puts the local-ancestry offset
+back into every per-ancestry test (the problem in §1). Only the shared-effect
+test is unaffected.
 
-1. Does the VCF admixed path accept negative or non-integer `DS{k}`
-   (contractions give `x_h < 0`)? If not, shift so the shortest observed allele
-   is 0 (an affine change, so p-values are unchanged).
-2. Allele frequency and minor-allele count are computed as `Σ DS{k} / Σ ANC{k}`.
-   With scaled lengths, MAC no longer counts carriers. Check how this affects the
-   MAC filters and the choice of variance ratio. We may need a carrier-count
-   filter outside FELIX.
-3. Speed of the VCF reader. Repeat loci are about 10⁴–10⁵ genome-wide, so a
-   slower reader is acceptable.
+#### 3.1 Spike results (local, felix-pilot:0.1.0, 2026-10-02)
+
+Synthetic cohort: 2,000 samples, 2 ancestries, binary traits at 10% and 2%
+prevalence and a quantitative trait, null fitted once per trait (FELIX step 1).
+Scripts and outputs: `scratch/m6spike/` (git-ignored).
+
+| Check | Result |
+|---|---|
+| A-1: 300 SNVs (incl. rare) through FELIXla vs the dosage VCF | **Identical** p-values in every test column, all three traits |
+| A-2: repeat dosages at scale `s` vs `2s` | Identical p-values (≤ 8×10⁻⁵ in −log₁₀ p, print precision); `BETA` doubles as expected |
+| Negative and non-integer `DS{k}` | Read correctly |
+| SPA on continuous dosages | Applied (`Is.SPA = TRUE` where the score is large), same rule as SNVs |
+| Shifted coding vs REF-relative | Per-ancestry, het and CCT p-values change by up to 1.2 in −log₁₀ p (confirms "never shift") |
+| **Allele-count filter** | FELIX computes `AC = Σ DS{k}` and `MAC = min(AC, Σ ANC{k} − AC)` and requires `MAC ≥ minMAC`, with `minMAC ≥ 0.5` enforced. An ancestry whose summed repeat dosage is negative (contraction-heavy) or near its haplotype count is **dropped**. Here 6 of 40 loci lost an ancestry test, and the shared-effect p-value at those loci changed as well (it is computed over the kept ancestries). |
+| Null calibration, 2,000 repeat loci, binary 2% and 10% prevalence and quantitative | Calibrated for every test that ran: λ 0.95–1.09; type I error 0.047–0.054 at 0.05, 0.007–0.010 at 0.01, ≤ 0.0022 at 0.001. SPA applied at about 4% of loci for binary traits. |
+| Dropped tests in that run | 55 of 2,000 loci gave no output; 270 / 278 per-ancestry tests dropped, 254 of the 270 because the summed dosage was negative. Contractions are common in this simulation, so real rates may be lower. |
+
+**Conclusion:** FELIX's dosage-VCF path reproduces its FELIXla tests exactly and
+gives repeat dosages the same SPA, but its allele-count filter assumes 0–2
+genotype dosages. Without a change, contraction-heavy loci silently lose
+ancestry tests.
 
 ### Option B — add SPA to our Rust scorer
 
@@ -125,8 +138,24 @@ Extend the packed format with a per-haplotype float plane for flagged loci.
 FELIX is GPL-3.0, so a fork is fine to maintain but harder to explain and to
 keep in sync. Choose this only if A and B both fail.
 
-**Decision gate:** run the Option A spike first. If A passes the equivalence
-check below, use it. Otherwise build B.
+### Recommendation after the spike
+
+**Option A with a one-function FELIX patch.** In the admixed VCF path, replace
+the allele-count filter for dosage loci with a carrier-count filter (number of
+ancestry-k haplotypes with `x_h ≠ 0`), and keep everything else (SPA,
+variance rescaling, CCT) unchanged. Because the SNV equivalence is exact, the
+statistics are FELIX's own; the patch only stops valid loci being dropped. It
+is easy to explain ("FELIX's dosage input, with the genotype-count filter
+replaced by a carrier-count filter for repeat loci").
+
+- Until the patch exists, Option A can run unpatched with each locus oriented so
+  ancestry sums are positive where possible (multiply the locus by −1: p-values
+  unchanged, `BETA` flips). This helps little: in the simulation only 51 of 584
+  affected loci had all ancestry sums of one sign. Report every locus where an
+  ancestry was dropped and treat those results as incomplete.
+- Option B (SPA in the Rust scorer) remains the fallback if the FELIX patch
+  cannot be maintained.
+- Option C (float dosages in FELIXla) is not needed.
 
 ## 4. Data flow
 
@@ -137,7 +166,7 @@ joint phased VCF (HiPhase → SHAPEIT4; SNVs + SVs on the same haplotypes)
    ├─ propagate_flare_ancestry  → AN1/AN2 at every SV site (FLARE2 production recipe)
    │
    └─ write_admixed_dosage_vcf  (new; Rust extract or Python)
-         per sample: ANC1..K, DS1..K, DSALL for RU_TEST loci
+         per sample: DS1..K, ANC1..K for RU_TEST loci (REF-relative, scaled, oriented)
          │
          └─ FELIX step2 --vcfFile … --is_admixed=TRUE --number_of_ancestry=K
                same null (step-1 .rda + variance ratio) as the SNV run
@@ -165,8 +194,8 @@ into the summary at all).
 
 | Step | Check | Pass |
 |---|---|---|
-| A-1 equivalence | Write SNVs (0/1) as an admixed dosage VCF and run FELIX's VCF path vs the FELIXla path on the same chr22 sites | identical p-values up to rounding |
-| A-2 scaling | Same repeat loci with two different scales `s` | identical p-values |
+| A-1 equivalence | Write SNVs (0/1) as an admixed dosage VCF and run FELIX's VCF path vs the FELIXla path on the same sites | identical p-values (passed on synthetic data; repeat on real chr22) |
+| A-2 scaling | Same repeat loci with two different scales `s` | identical p-values (passed on synthetic data) |
 | Null calibration | λGC per encoding on null and low-prevalence binary phenotypes (`compare_repeat_encodings.py`), compared with the SNV λGC from the same null | λGC ≈ 1; no excess at low case counts |
 | Simulation | `simulate_repeat_dosage.py` architectures (length-additive, single allele, threshold) | type I error at α; dosage beats split/collapse under length-additive |
 | Admixture-mapping check | primary vs ancestry-centered encoding at top loci | disagreements listed, not hidden |
@@ -177,14 +206,17 @@ Do not headline "more hits" for any encoding without matched λGC
 
 ## 7. Work items
 
-1. Fix the `x_h` baseline in `extract-tracts-flare` (code relative to `CN_REF`)
-   and add the ancestry-centered encoding. Keep the old absolute mode behind a
-   flag for comparison.
-2. Option A spike: a small writer for the admixed dosage VCF, then run FELIX
-   step 2 on the chr22 repeat loci and run checks A-1 and A-2.
-3. Depending on the spike: wire A into `FelixGenome.wdl`, or implement SPA in the
-   Rust scorer (B) with a parity test against FELIX on SNVs.
-4. Run the upstream checks in section 5 on chr22, then genome-wide.
+1. ~~Fix the `x_h` baseline in `extract-tracts-flare`~~ Done: `--ru-baseline ref`
+   is the default (REF = 0); `absolute` keeps the old coding. The
+   ancestry-centered encoding is still to do (in the dosage-VCF writer).
+2. ~~Option A spike~~ Done locally on synthetic data (§3.1).
+3. Patch FELIX's allele-count filter for dosage loci (small fork of the
+   admixed VCF path) and rerun the spike to confirm no loci are dropped and
+   SNV results are unchanged.
+4. Write the admixed dosage-VCF writer (`DS{k}`, `ANC{k}` from the joint
+   `GT:AN1:AN2` VCF; REF-relative, scaled, oriented) and wire it into
+   `FelixGenome.wdl` in place of the `tractor-mix-score` RU branch.
+5. Run the upstream checks in section 5 on chr22, then genome-wide.
 
 ## 8. Open questions
 

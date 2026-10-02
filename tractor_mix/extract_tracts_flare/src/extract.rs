@@ -11,7 +11,8 @@ use crate::parse::{
     split_tabs, strip_ascii_ws, strip_hash_space, trim_crlf, write_ancestry_gt,
 };
 use crate::ru::{
-    count_alts, haplotype_c, nth_alt, parse_ru_site, push_number, split_locus_id, RuSite,
+    count_alts, haplotype_value, nth_alt, parse_ru_site, push_number, split_locus_id, RuBaseline,
+    RuSite,
 };
 
 const READ_BUF: usize = 1 << 20;
@@ -26,6 +27,8 @@ pub struct ExtractConfig {
     pub samples: Option<PathBuf>,
     /// Accepted for CLI compatibility; the extract loop is currently single-threaded.
     pub threads: usize,
+    /// Coding of `RU_TEST` repeat dosage (REF-relative by default).
+    pub ru_baseline: RuBaseline,
 }
 
 pub fn extract_tracts_flare(cfg: &ExtractConfig) -> Result<()> {
@@ -484,6 +487,7 @@ fn apply_ru_haplotype(
     ancestry_tok: &[u8],
     num_ancs: usize,
     site: &RuSite,
+    baseline: RuBaseline,
     n_alts: usize,
     ru_dos: &mut [f64],
     hap: &mut [u8],
@@ -500,7 +504,7 @@ fn apply_ru_haplotype(
     let Some(allele) = parse_nonneg_int(allele_tok) else {
         return;
     };
-    ru_dos[j] += haplotype_c(allele, site);
+    ru_dos[j] += haplotype_value(allele, site, baseline);
     if allele >= 1 && allele <= n_alts {
         collapse[j] = collapse[j].saturating_add(1);
         split[allele - 1][j] = split[allele - 1][j].saturating_add(1);
@@ -593,6 +597,7 @@ fn process_ru_line(
             call_a,
             cfg.num_ancs,
             site,
+            cfg.ru_baseline,
             n_alts,
             ru_dos,
             counts_hap,
@@ -604,6 +609,7 @@ fn process_ru_line(
             call_b,
             cfg.num_ancs,
             site,
+            cfg.ru_baseline,
             n_alts,
             ru_dos,
             counts_hap,
