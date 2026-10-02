@@ -23,6 +23,7 @@ Final table size after fills: **17,519** rows (17,226 AoU + **293** controls),
 | `lr_PC*` / `has_lr_pcs` | Global long-read PCs from the DeepVariant joint callset. |
 | `lr_pop_PC*` / `has_lr_pop_pcs` | Within-population long-read PCs. |
 | `PC*` / `pop_PC*` | Short-read PCs (unchanged by these fills). |
+| `anc_PC1`–`anc_PC16` / `has_anc_pcs` | Ancestry-export PCs from `anc_df.csv.gz` (same values as circulated `merged_all_df.csv.gz`). Added by `scripts/merge_anc_pcs_into_covariates.py` in covariates v7. Does not replace `PC*` or `lr_PC*`. |
 | `is_reference_control` | `True` for HPRC/HGSVC3/GIAB `HG*`/`NA*` rows. |
 
 ---

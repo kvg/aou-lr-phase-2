@@ -174,7 +174,16 @@ python3 scripts/apply_lr_soft_field_fills.py \
    `has_lr_pcs` gaps with the same rules (`lr_pop_population` → `population`,
    `inferred_sex` XX/XY → Female/Male). Does not overwrite sentinels like
    `PMI: Skip`.
-7. Run `notebooks/terra/tractor_03_cov_summarize.ipynb` → inline QC plus
+7. Release `covariates.v7.csv.gz` with the ancestry-export PCs kept beside the
+   full-training scores (`anc_PC1`–`anc_PC16`, from `anc_df.csv.gz`; the same
+   numbers as the circulated `merged_all_df.csv.gz` metadata). Does not replace
+   `PC1`–`PC32`:
+
+```bash
+python3 scripts/merge_anc_pcs_into_covariates.py
+```
+
+8. Run `notebooks/terra/tractor_03_cov_summarize.ipynb` → inline QC plus
    `summaries/{figures,tables,manuscript}/` (gitignored). Small crosstab cells
    (`n < 20`) are redacted in exports.
 

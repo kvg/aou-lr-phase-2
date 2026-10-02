@@ -16,6 +16,7 @@ scratch/
 thing.tsv
 covariates.v2.csv.gz
 covariates.v6.csv.gz
+covariates.v7.csv.gz
 
 # Local CDRv9 / covariate source exports (large / private; do not commit)
 tractor_mix/resources/
