@@ -295,7 +295,9 @@ labels; those rows are superseded.
 The popout FLARE image predates `panel-probs`, so FLARE2 mode uses
 `aou-flare2:0.6.0-87573be` (`flare/docker/Dockerfile.flare2`: flare.jar built
 at a pinned upstream commit, plus scikit-learn). Build with
-`./build_docker.sh --flare2`. Stage `scripts/flare2_build_model.py` with the
+`./build_docker.sh --flare2`. Pushed 2026-10-02 (Cloud Build
+`df844897-bf74-4860-a2c4-8e6ec01ad622`), digest
+`sha256:8f5b5b68ccbf8e019d7b572e2eb859170458afc244c20edab0450bee4eb313a3`. Stage `scripts/flare2_build_model.py` with the
 other scripts.
 
 Train once on chr20 (selection row `sel_chr20_flare2_nanc*`), then apply to
