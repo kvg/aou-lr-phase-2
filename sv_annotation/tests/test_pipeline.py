@@ -166,8 +166,10 @@ def test_pipeline_integrate_and_counts(work: Path):
     assert lines["insertions_sd"][2] == "0; 0"
     assert lines["insertions_sr"][2].startswith("1;")
     assert lines["insertions_cmrg"][2] == "0; 0"
-    assert lines["deletions_context_pct"][2] == "0.0 / 100.0 / 0.0 / 0.0 / 100.0"
-    assert lines["insertions_context_pct"][2] == "0.0 / 0.0 / 0.0 / 100.0 / 0.0"
+    assert lines["deletions_context_pct_ge50"][2] == "0.0 / 100.0 / 0.0 / 0.0 / 100.0"
+    assert lines["deletions_context_pct_ge20"][2] == "0.0 / 100.0 / 0.0 / 0.0 / 100.0"
+    assert lines["insertions_context_pct_ge50"][2] == "0.0 / 0.0 / 0.0 / 100.0 / 0.0"
+    assert lines["insertions_context_pct_ge20"][2] == "0.0 / 0.0 / 0.0 / 100.0 / 0.0"
     assert lines["duplications"][2].startswith("1;")
     assert lines["inversions"][2].startswith("1;")
 
@@ -211,6 +213,21 @@ def test_pipeline_integrate_and_counts(work: Path):
     assert (work / "multi.discovery.tsv").read_text() == disc.read_text()
     assert (work / "multi.discovery.region.tsv").exists()
     assert (work / "multi.discovery.cadd.tsv").exists()
+
+
+def test_context_pct_uses_each_size_bin():
+    sys.path.insert(0, str(SCRIPTS))
+    from manuscript_site_counts import pct_series
+
+    phase = {
+        "available": True,
+        "resolved_ge50": {"DEL": 100},
+        "resolved_ge20": {"DEL": 200},
+        "context_ge50": {"DEL": {"us": 50, "rm": 50, "sd": 0, "sr": 0, "cmrg": 10}},
+        "context_ge20": {"DEL": {"us": 50, "rm": 150, "sd": 0, "sr": 0, "cmrg": 10}},
+    }
+    assert pct_series(phase, "DEL", "ge50") == "50.0 / 50.0 / 0.0 / 0.0 / 10.0"
+    assert pct_series(phase, "DEL", "ge20") == "25.0 / 75.0 / 0.0 / 0.0 / 5.0"
 
 
 def test_cadd_bins():

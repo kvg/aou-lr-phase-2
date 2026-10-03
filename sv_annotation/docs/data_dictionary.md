@@ -15,8 +15,8 @@
 | ac, an, af | Cohort allele count/number/frequency; no-calls excluded |
 | n_carriers | Samples with ≥1 alt allele called |
 | freq_class | singleton / polymorphic / major / shared |
-| region_class | repetitive if overlapping rmsk∪simpleRepeat∪genomicSuperDups (US = non_repetitive) |
-| hit_* | Per-track overlap flags (`hit_rmsk` / RM, `hit_simpleRepeat` / SR, `hit_genomicSuperDups` / SD, `hit_cmrg` / CMRG) |
+| region_class | Exclusive context class: `US`, `RM`, `SD`, or `SR` (SR overrides SD overrides RM). Breakpoint rule; body coverage >50% for DEL/DUP/CNV longer than 5 kb |
+| hit_* | Evidence before the priority collapse (`hit_rmsk`, `hit_simpleRepeat`, `hit_genomicSuperDups` can co-occur). `hit_cmrg` is reference-span overlap and is not part of `region_class` |
 | cadd_sv_phred | CADD-SV PHRED (empty if unscored) |
 | cadd_sv_bin | low / mid / high / unscored (`large` partition and DUP/INV > 1 Mb are left unscored) |
 | size_bin_ge20, size_bin_ge50 | Absolute length thresholds |
@@ -26,7 +26,7 @@
 
 | Column | Meaning |
 |--------|---------|
-| metric | deletions / deletions_{us,rm,sd,sr,cmrg} / deletions_context_pct / duplications / insertions / insertions_{us,rm,sd,sr,cmrg} / insertions_context_pct / inversions / breakends / large_events_gt10kb. Parent class row is ALL; `*_context_pct` is US/RM/SD/SR/CMRG as percent of ≥50 bp sites (do not sum to 100). |
+| metric | deletions / deletions_{us,rm,sd,sr,cmrg} / deletions_context_pct_{ge50,ge20} / duplications / insertions / insertions_{us,rm,sd,sr,cmrg} / insertions_context_pct_{ge50,ge20} / inversions / breakends / large_events_gt10kb. Parent class row is ALL. `*_context_pct_ge50` and `*_context_pct_ge20` are US/RM/SD/SR/CMRG as percents of sites at that size cutoff. US+RM+SD+SR = 100 within the row; CMRG is independent. |
 | phase*_display | `ge50; ge20` for resolved classes, or `—` if unavailable |
 | phase*_ge50 / ge20 | Numeric counts (empty when unavailable) |
 

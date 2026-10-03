@@ -20,25 +20,16 @@ METRICS = (
     ("insertions", "INS"),
     ("inversions", "INV"),
 )
-# GIAB-style sequence-context strata for DEL/INS (parent class row is ALL).
-# US is the complement of RM∪SD∪SR; RM/SD/SR may overlap; CMRG is independent.
+# Exclusive sequence-context strata for DEL/INS (parent class row is ALL).
+# US/RM/SD/SR partition the class. CMRG is an independent extra flag.
 CONTEXT_CLASSES = ("DEL", "INS")
 STRATA = ("us", "rm", "sd", "sr", "cmrg")
+_EXCLUSIVE = {"US": "us", "RM": "rm", "SD": "sd", "SR": "sr"}
 
 
 def site_strata(site: dict) -> tuple[str, ...]:
-    rm = bool(site.get("hit_rmsk"))
-    sd = bool(site.get("hit_genomicSuperDups"))
-    sr = bool(site.get("hit_simpleRepeat"))
-    labels = []
-    if not (rm or sd or sr):
-        labels.append("us")
-    if rm:
-        labels.append("rm")
-    if sd:
-        labels.append("sd")
-    if sr:
-        labels.append("sr")
+    label = _EXCLUSIVE.get(str(site.get("region_class") or "").strip().upper())
+    labels = [label] if label else []
     if site.get("hit_cmrg"):
         labels.append("cmrg")
     return tuple(labels)
@@ -121,14 +112,19 @@ def display_pair(ge50, ge20, available: bool) -> str:
     return f"{ge50}; {ge20}"
 
 
-def pct_display(phase: dict, sv: str) -> str:
-    """Percent of ≥50 bp sites in each GIAB stratum (US/RM/SD/SR/CMRG)."""
+def pct_series(phase: dict, sv: str, which: str) -> str:
+    """Percent of sites in US/RM/SD/SR/CMRG for one size bin (`ge50` or `ge20`).
+
+    US–SR sum to 100. CMRG is independent of that partition.
+    """
+    if which not in ("ge50", "ge20"):
+        raise ValueError(f"unknown size bin {which!r}")
     if not phase["available"]:
         return "—"
-    total = phase["resolved_ge50"][sv]
+    total = phase[f"resolved_{which}"][sv]
     if not total:
         return "—"
-    ctx = phase["context_ge50"][sv]
+    ctx = phase[f"context_{which}"][sv]
     return " / ".join(f"{100.0 * ctx[k] / total:.1f}" for k in STRATA)
 
 
@@ -189,17 +185,18 @@ def main() -> None:
         if sv in CONTEXT_CLASSES:
             for stratum in STRATA:
                 rows.append(_context_row(f"{metric}_{stratum}", sv, stratum, p1, p2))
-            rows.append(
-                {
-                    "metric": f"{metric}_context_pct",
-                    "phase1_display": pct_display(p1, sv),
-                    "phase2_display": pct_display(p2, sv),
-                    "phase1_ge50": None,
-                    "phase1_ge20": None,
-                    "phase2_ge50": None,
-                    "phase2_ge20": None,
-                }
-            )
+            for which in ("ge50", "ge20"):
+                rows.append(
+                    {
+                        "metric": f"{metric}_context_pct_{which}",
+                        "phase1_display": pct_series(p1, sv, which),
+                        "phase2_display": pct_series(p2, sv, which),
+                        "phase1_ge50": None,
+                        "phase1_ge20": None,
+                        "phase2_ge50": None,
+                        "phase2_ge20": None,
+                    }
+                )
 
     rows.append(
         {

@@ -41,34 +41,55 @@ partitions are not CADD-scored.
 
 ## Sequence-context strata (site counts)
 
-Deletions and insertions in Table 2 also report the **percent of $\geq$50 bp
-sites** in each GIAB-style stratum (US / RM / SD / SR / CMRG). US and the
-RM ∪ SD ∪ SR union partition the class. The five percentages do **not** sum
-to 100 because RM, SD, and SR may overlap and CMRG is independent.
+Deletions and insertions in Table 2 report the **percent of sites** in each
+exclusive class (US / RM / SD / SR), plus CMRG, separately for |SVLEN|
+≥50 bp and |SVLEN| ≥20 bp (`deletions_context_pct_ge50` /
+`deletions_context_pct_ge20`, and the same for insertions). Within each
+row, US, RM, SD, and SR partition that size bin and sum to 100. CMRG is
+independent, so the five displayed percentages do not sum to 100.
+
+The label is the breakpoint rule from Xuefang Zhao's
+`annotate_genomic_context.sh` (gatk-sv branch `xz_fixes_3`; Zhao et al.,
+AJHG 2021). `region_class` is one of `US`, `RM`, `SD`, `SR`.
 
 | Label | Definition |
 |-------|------------|
-| `US` | Unique sequence: complement of RM ∪ SD ∪ SR (`region_class=non_repetitive`) |
-| `RM` | Overlaps UCSC RepeatMasker |
-| `SD` | Overlaps UCSC `genomicSuperDups` |
-| `SR` | Overlaps UCSC `simpleRepeat` |
-| `CMRG` | Overlaps GIAB challenging medically relevant gene coordinates |
+| `US` | Neither breakpoint (and, for a long CNV, not the body) meets a repeat class |
+| `RM` | RepeatMasker, unless SD or SR also applies |
+| `SD` | Segmental duplication, unless SR also applies |
+| `SR` | Simple repeat |
+| `CMRG` | Reference span overlaps GIAB challenging medically relevant gene coordinates |
 
-RM, SD, and SR may overlap, so those three do not partition ALL. CMRG is
-independent of the repeat tracks (a site can be US and CMRG, or RM and CMRG).
-Discovery figures still use the binary `region_class` union.
+Either breakpoint can set the class. Breakpoints are the 0-based BED start
+(VCF `POS` − 1) and the BED end (VCF `END`). Priority is SR, then SD, then RM.
 
-## Repetitive region (union)
+`DEL`, `DUP`, and `CNV` with reference span **> 5 kb** ignore breakpoints. A
+class applies only when the merged track covers more than half of the body,
+with the same priority; otherwise the site is `US`. Insertions always use
+breakpoints, including when `|SVLEN|` is large. If `end` was filled from
+`SVLEN` (`end − pos = |SVLEN|`), both insertion breakpoints are the anchor
+at `POS`.
 
-A site is **repetitive** if it overlaps the union of these GRCh38 tracks
-(configurable via `configs/repetitive_beds.json`):
+`hit_rmsk`, `hit_simpleRepeat`, and `hit_genomicSuperDups` are the evidence
+flags before the priority collapse, so more than one can be true.
+`hit_cmrg` is span overlap and is not part of `region_class`. A site can be
+`US` and CMRG, or `SR` and CMRG.
 
-1. UCSC `rmsk` (RepeatMasker)
-2. UCSC `simpleRepeat`
-3. UCSC `genomicSuperDups` (segmental duplications)
+Discovery strata use this four-way `region_class`, not a repetitive/unique
+union. Tracks are the merged GRCh38 BEDs from that script
+(`configs/repetitive_beds.json`).
 
-Non-repetitive = complement of that union. Underlying per-track hit flags are
-retained for QC even though figures use the binary `REGION_CLASS`.
+## Context tracks
+
+Stage with `notebooks/terra/sv_01_stage_repeat_tracks.ipynb`:
+
+1. `hg38.RM.sorted.merged.bed.gz` (RepeatMasker)
+2. `hg38.SR.sorted.merged.bed.gz` (simple repeats)
+3. `hg38.SD.sorted.merged.bed.gz` (segmental duplications)
+
+These are the merged beds from gatk-sv `benchmark_scripts/input` on
+`xz_fixes_3`, not the raw UCSC table dumps. CMRG stays the GIAB v1.00 gene
+BED and is not one of the three context tracks.
 
 ## Frequency strata (Ebert et al. 2021)
 

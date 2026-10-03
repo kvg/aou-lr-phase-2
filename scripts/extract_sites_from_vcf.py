@@ -89,7 +89,7 @@ def main() -> None:
                 "af": 0.0,
                 "n_carriers": 0,
                 "freq_class": "singleton",
-                "region_class": "non_repetitive",
+                "region_class": "US",
                 "hit_rmsk": False,
                 "hit_simpleRepeat": False,
                 "hit_genomicSuperDups": False,

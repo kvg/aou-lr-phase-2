@@ -3,7 +3,7 @@
 Manuscript-first pipeline that:
 
 1. Normalizes Phase 1 (main) and Phase 2 (main + breakends + large-event) SV callsets
-2. Builds a unified site table with AF/carriers, repetitive-union context, and CADD-SV bins
+2. Builds a unified site table with AF/carriers, exclusive US/RM/SD/SR context, and CADD-SV bins
 3. Emits the Phase 1 vs Phase 2 **total site** comparison table
 4. Emits ancestry-ordered Ebert-style cumulative discovery tables (optionally stratified)
 
@@ -48,7 +48,8 @@ cd sv_annotation
    notebook [`../notebooks/terra/sv_00_prepare_caddsv_annotations.ipynb`](../notebooks/terra/sv_00_prepare_caddsv_annotations.ipynb),
    which uploads to `$WORKSPACE_BUCKET/refs/caddsv/`. Alternatively run
    `../scripts/prepare_caddsv_annotations.sh` on a large VM.
-3. Stage RepeatMasker / simple-repeat / segdup BEDs with
+3. Stage the merged RepeatMasker / simple-repeat / segdup BEDs (gatk-sv
+   `benchmark_scripts/input` on `xz_fixes_3`) plus the GIAB CMRG BED with
    [`../notebooks/terra/sv_01_stage_repeat_tracks.ipynb`](../notebooks/terra/sv_01_stage_repeat_tracks.ipynb)
    (`$WORKSPACE_BUCKET/refs/grch38/`).
 4. Stage sample ancestry TSVs with
