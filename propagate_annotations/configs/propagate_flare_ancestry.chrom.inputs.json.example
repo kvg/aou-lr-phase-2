@@ -1,0 +1,15 @@
+{
+  "_comment": "Per-chromosome ancestry propagation onto the joint phased callset (GT:AN1:AN2 at every site, incl. SVs) for FelixGenome joint_vcfs. Root entity aou_lr_chrom, after the genome-wide FLARE run. Map outputs annotated_vcf -> this.joint_gt_an_vcf, annotated_vcf_index -> this.joint_gt_an_vcf_index.",
+  "PropagateFlareAncestry.flare_vcf": "this.lai_anc_vcf",
+  "PropagateFlareAncestry.flare_vcf_index": "this.lai_anc_vcf_index",
+  "PropagateFlareAncestry.target_vcf": "this.phased_vcf",
+  "PropagateFlareAncestry.target_vcf_index": "this.phased_vcf_index",
+  "PropagateFlareAncestry.region": "this.aou_lr_chrom_id",
+  "PropagateFlareAncestry.prefix": "this.aou_lr_chrom_id",
+  "PropagateFlareAncestry.propagate_script": "gs://WORKSPACE_BUCKET/scripts/propagate_flare_ancestry.py",
+  "PropagateFlareAncestry.gcs_project": "YOUR_TERRA_GOOGLE_PROJECT",
+  "PropagateFlareAncestry.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare-bcftools:1.24",
+  "PropagateFlareAncestry.min_coverage_rate": 0.95,
+  "PropagateFlareAncestry.fail_on_low_coverage": true,
+  "PropagateFlareAncestry.format_tags": "AN1,AN2"
+}
