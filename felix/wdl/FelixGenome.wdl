@@ -920,9 +920,11 @@ workflow FelixGenome {
 
   scatter (i in range(length(chroms))) {
     String chrom = chroms[i]
-    File phase_for_pack = if defined(joint_vcfs) then joint_vcfs[i] else phase_vcfs[i]
-    File flare_for_pack = if defined(joint_vcfs) then joint_vcfs[i] else flare_vcfs[i]
-    File phase_for_ru = if defined(joint_vcfs) then joint_vcfs[i] else phase_vcfs[i]
+    # Cromwell cannot index an optional array; select_first unwraps it
+    # (CheckChromVcfPairs has already checked which inputs were given).
+    File phase_for_pack = if defined(joint_vcfs) then select_first([joint_vcfs])[i] else select_first([phase_vcfs])[i]
+    File flare_for_pack = if defined(joint_vcfs) then select_first([joint_vcfs])[i] else select_first([flare_vcfs])[i]
+    File phase_for_ru = if defined(joint_vcfs) then select_first([joint_vcfs])[i] else select_first([phase_vcfs])[i]
 
     call PackFelixla as Pack {
       input:
