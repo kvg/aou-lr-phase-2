@@ -1,5 +1,5 @@
 {
-  "_comment": "Genome-wide FLARE2 apply: reuse the chr20-trained model so ancestry labels match across chromosomes. Root entity aou_lr_chrom. Map outputs anc_vcf -> this.lai_anc_vcf, anc_vcf_index -> this.lai_anc_vcf_index, models_tsv -> this.lai_models_tsv.",
+  "_comment": "Genome-wide original-FLARE pin (same recipe as chr20_flat_props_pin_t): whole cohort, EM off, T pinned AFR:8 AMR:12 others:8, FLARE defaults for props/weights/mu. Root entity aou_lr_chrom. Map outputs anc_vcf -> this.lai_anc_vcf, anc_vcf_index -> this.lai_anc_vcf_index, models_tsv -> this.lai_models_tsv.",
   "FlareByPopulation.covariates": "gs://WORKSPACE_BUCKET/covariates/covariates.source_rebuilt.csv.gz",
   "FlareByPopulation.gt_vcf": "this.phased_vcf",
   "FlareByPopulation.gt_vcf_index": "this.phased_vcf_index",
@@ -19,12 +19,17 @@
   "FlareByPopulation.min_maf": 0.005,
   "FlareByPopulation.min_mac": 50,
   "FlareByPopulation.seed": 12345,
-  "FlareByPopulation.flare_cpu_override": 8,
   "FlareByPopulation.gcs_project": "YOUR_TERRA_GOOGLE_PROJECT",
   "FlareByPopulation.include_pops": "",
   "FlareByPopulation.drop_pops": "",
   "FlareByPopulation.allow_unrepresented_pops": true,
-  "FlareByPopulation.flare2_model": "gs://WORKSPACE_BUCKET/refs/flare/flare2/lai_exp.sel_chr20_flare2_nancK.flare2_nancK.model",
-  "FlareByPopulation.flare2_em": true,
-  "FlareByPopulation.flare2_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare2:0.6.0-87573be"
+  "FlareByPopulation.em": false,
+  "FlareByPopulation.gen": 8,
+  "FlareByPopulation.gen_by_pop": "AFR:8,AMR:12,EUR:8,EAS:8,SAS:8,MID:8",
+  "FlareByPopulation.gen_by_pop_allow_default": false,
+  "FlareByPopulation.inherit_props": true,
+  "FlareByPopulation.inherit_panel_weights": true,
+  "FlareByPopulation.inherit_mu": true,
+  "FlareByPopulation.probs": false,
+  "FlareByPopulation.flare_preemptible": 1
 }

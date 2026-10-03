@@ -337,6 +337,39 @@ Code: `scripts/flare_lai_exp.py` (`select_recipe`), notebook `flare_02` Part 8
 (`scripts/flare_lai_null_lambda.py`) is kept for reference but no longer
 decides anything; the FELIX chr22 pilot covers calibration.
 
+### chr20 FLARE2 results and the time-box decision (2026-10-03)
+
+Both FLARE2 rows failed the default autocorrelation gate and were rerun with
+`flare2_min_autocorr` = 0.2 (`nanc` 5: min 0.247; `nanc` 6: min 0.209).
+
+- **Clusters.** AFR, EAS and EUR clusters are clean. A mixed cluster appears
+  almost only in AMR participants (~24%), consistent with Indigenous American
+  ancestry. With `nanc` 6, a SAS-like cluster (EAS/EUR/SAS weights ~1/3 each)
+  carries ~39% of SAS participants' ancestry; with `nanc` 5, SAS participants are
+  ~81% EUR. The lowest-autocorrelation cluster (EUR 0.53, AFR 0.23–0.30) takes
+  ~1.5–1.7% in every population, MID included: noise, not a MID ancestry.
+  MID participants are painted ~75–79% EUR.
+- **EM inflates T** in every shard (AFR ~61, AMR ~42–44, others 83–143), as it
+  did for original-FLARE EM.
+- **Names** come from the dominant panel and mislead for mixed clusters
+  (e.g. `anc3_eas` = SAS-like); relabel the trained model before any
+  genome-wide FLARE2 apply.
+
+Decision: LAI quality is time-boxed. FELIX's combined p-value includes the
+shared-effect test, which does not use local ancestry, and random ancestry
+errors cost power for ancestry-specific tests rather than calibration. Take the
+best recipe Part 8 supports (prefer the original-FLARE pin unless FLARE2 clearly
+wins) and move on. Revisit in review if needed: larger `flare2_panel_cm`,
+`nanc` 4, pinned T with FLARE2, or call-QC `include_sites`.
+
+Genome-wide configs (root entity `aou_lr_chrom`):
+[`configs/chrom.pin.inputs.json.example`](configs/chrom.pin.inputs.json.example)
+(original-FLARE pin) or
+[`configs/flare2.apply.inputs.json.example`](configs/flare2.apply.inputs.json.example),
+then
+[`../propagate_annotations/configs/propagate_flare_ancestry.chrom.inputs.json.example`](../propagate_annotations/configs/propagate_flare_ancestry.chrom.inputs.json.example)
+to build the `GT:AN1:AN2` joint VCFs for FELIX.
+
 Stage filtered-site helpers (`flare_site_stats.py`,
 `flare_build_indel_flanks.py`, `flare_build_call_qc_sites.py`) and panel
 builder (`flare_build_af_panel.py`) with the other scripts.
