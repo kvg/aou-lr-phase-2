@@ -7,8 +7,11 @@ and Firecloud/FISS credentials already exist. Typical flow:
 1. ``git clone`` / ``git pull`` ``kvg/aou-lr-phase-2`` (HTTPS + optional token)
 2. ``gsutil -m rsync`` ``scripts/`` → ``$WORKSPACE_BUCKET/scripts/``
 3. Copy ``notebooks/terra/*.ipynb`` onto the persistent notebook disk (+ optional bucket mirror)
-4. Upload WDLs to ``$WORKSPACE_BUCKET/wdl/`` (and extra assets such as
-   ``bam_to_contig/regions/``) and optionally push new Firecloud method snapshots
+4. Copy WDLs to ``$WORKSPACE_BUCKET/wdl/`` (and extra assets: ``felix/scripts/``,
+   ``bam_to_contig/regions/``). Copying does not register a WDL in the
+   workspace; add or replace it through the Terra Methods Repository UI (the
+   printed manual import checklist lists the changed ones). Pushing method
+   snapshots from here is optional and usually 403 on AoU namespaces.
 5. Upsert data tables (default: ``flare_lai_exp`` from ``flare/configs/lai_exp.tsv``) via FISS
 
 Example (Terra notebook)::
@@ -58,6 +61,8 @@ DEFAULT_WDLS: tuple[str, ...] = (
 
 # repo-relative src dir, bucket-relative dest dir (rsync)
 DEFAULT_EXTRA_ASSETS: tuple[tuple[str, str], ...] = (
+    # FELIX WDL helper scripts (FelixPilot / FelixGenome *_script inputs).
+    ("felix/scripts", "felix/scripts"),
     ("bam_to_contig/regions", "bam_to_contig/regions"),
 )
 
@@ -278,7 +283,7 @@ def stage_extra_assets(
     assets: Sequence[tuple[str, str]] = DEFAULT_EXTRA_ASSETS,
     dry_run: bool = False,
 ) -> list[str]:
-    """Rsync small non-script WDL inputs (region BEDs, …) onto the bucket."""
+    """Rsync extra WDL inputs (FELIX helper scripts, region BEDs, …) onto the bucket."""
     bucket = (bucket or workspace_bucket()).rstrip("/")
     if not bucket:
         raise SystemExit("WORKSPACE_BUCKET is unset; cannot stage extra assets")
