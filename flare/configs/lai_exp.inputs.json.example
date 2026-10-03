@@ -44,6 +44,7 @@
   "FlareByPopulation.seed": "this.seed",
   "FlareByPopulation.flare2_nanc": "this.flare2_nanc",
   "FlareByPopulation.flare2_em": "this.flare2_em",
+  "FlareByPopulation.flare2_min_autocorr": "this.flare2_min_autocorr",
   "FlareByPopulation.flare2_build_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/flare2_build_model.py",
   "FlareByPopulation.flare2_docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-flare2:0.6.0-87573be",
   "FlareByPopulation.gcs_project": "",

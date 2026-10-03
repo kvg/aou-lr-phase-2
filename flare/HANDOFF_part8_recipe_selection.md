@@ -77,25 +77,32 @@ The two tracks below can run in parallel.
 
 ### Track A: LAI recipe (M0)
 
-1. Build and push the FLARE2 image: `cd flare && ./build_docker.sh --flare2`.
-2. Run `00_sync_repo.ipynb` (stages the new scripts, notebooks and WDL; upserts
-   `flare_lai_exp`). Set the new column types (`flare2_nanc` number, `flare2_em`
-   boolean). Add the four `flare2_*` inputs from
-   `configs/lai_exp.inputs.json.example` to the method config, and map the
-   workflow output `flare2_model_out` to a table column of the same name.
-3. Launch `sel_chr20_flare2_nanc5` and `sel_chr20_flare2_nanc6`. Expect a
-   training subset stream (~90 min), the panel-probs pass, then the usual
-   shards. If training fails the autocorrelation gate, that `nanc` is too high.
-   Record it and drop the row.
-4. Run `flare_02` top to bottom (switch-QC diagnostics, then Part 8).
-   Part 8 writes `selection_v2/selection_decision.json`:
+Done (2026-10-02/03): FLARE2 image built; `sel_chr20_flare2_nanc5` / `nanc6` ran
+with the autocorrelation gate at 0.2 (both failed 0.25). Results and the
+decision to time-box LAI tuning: `README.md` → "chr20 FLARE2 results and the
+time-box decision".
+
+1. Rerun `00_sync_repo.ipynb`. In `flare_lai_exp`, set the new
+   `flare2_min_autocorr` column type to number, and add
+   `FlareByPopulation.flare2_min_autocorr = this.flare2_min_autocorr` to the
+   method config. Selection rows carry 0.2, all others 0.25.
+2. Run `flare_02`: setup, Config, Fetch, then the Part 8 cells. The pedigree is
+   read from `data_root()/resources/legacy_covariates/aou_phase2.ped` (or
+   `AOU_PHASE2_PED`). Part 8 writes `selection_v2/selection_decision.json`:
    - `winner` → production recipe.
-   - `tie_human_decision` → choose by hand (tie-break: smaller
-     |excess_recomb_over_expected|) and write the reason in `README.md`.
-   - `metric_invalid_…` → the Mendelian metric cannot beat the negative control;
-     stop and rethink before choosing.
-5. If FLARE2 wins: apply its trained model genome-wide with
-   `configs/flare2.apply.inputs.json.example`.
+   - `tie_human_decision` → prefer the original-FLARE pin unless FLARE2 is
+     clearly better; write the reason in `README.md`.
+   - `metric_invalid_…` → the Mendelian metric cannot beat the negative
+     control; default to the original-FLARE pin and note it.
+3. Genome-wide on `aou_lr_chrom` (map `anc_vcf` → `lai_anc_vcf`,
+   `anc_vcf_index` → `lai_anc_vcf_index`, `models_tsv` → `lai_models_tsv`):
+   - original-FLARE pin: `configs/chrom.pin.inputs.json.example`
+   - FLARE2: relabel the trained chr20 model first (names mislead for mixed
+     clusters), then `configs/flare2.apply.inputs.json.example`.
+4. Propagate ancestry onto the joint phased callset per chromosome:
+   `../propagate_annotations/configs/propagate_flare_ancestry.chrom.inputs.json.example`
+   (map `annotated_vcf` → `joint_gt_an_vcf`, `annotated_vcf_index` →
+   `joint_gt_an_vcf_index`). These are FelixGenome's `joint_vcfs`.
 
 ### Track B: FELIX (M1, M1b, M6)
 
@@ -103,9 +110,10 @@ The two tracks below can run in parallel.
    Tractor-Mix pilot), then `felix_01_pilot_gate.ipynb`. Pass = λGC ≈ 1 on null
    phenotypes and comparability `OK`.
 2. M1b: rerun FELIX with the full long-read callset (`phase_vcf` + `flare_vcf`).
-3. M6: build and push `felix-pilot:0.2.0` (FELIX v0.1 + carrier-QC patch), then
-   run `FelixGenome`'s RU branch on chr22 `joint_vcfs`. Patch, writer and WDL
-   wiring are done and validated locally (`SV_SCORER_DESIGN.md` §3.2, §7).
+3. M6: `felix-pilot:0.2.0` is pushed (FELIX v0.1 + carrier-QC patch). Run
+   `FelixGenome`'s RU branch on chr22 once Track A step 4 produces
+   `joint_vcfs`. Patch, writer and WDL wiring are validated locally
+   (`SV_SCORER_DESIGN.md` §3.2, §7).
 
 ---
 

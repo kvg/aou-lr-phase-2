@@ -116,7 +116,7 @@ Do not overload `aou_lr_chrom` with this.
 2. Set column types: `em` / `update_p` / `exclude_controls` / `inherit_*` /
    `probs` / `allow_unrepresented_pops` / `gen_by_pop_allow_default` /
    `flare2_em` → boolean; `gen` / `min_maf` → number; `min_mac` / `seed` /
-   `flare2_nanc` → number;
+   `flare2_nanc` / `flare2_min_autocorr` → number;
    VCF/map/`ref_panel`/`template_model`/`exclude_regions`/`include_sites` → file;
    `pop_models` → array of file (`[]` on most rows).
 3. Re-import [`wdl/FlareByPopulation.wdl`](wdl/FlareByPopulation.wdl).
