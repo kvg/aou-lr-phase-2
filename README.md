@@ -50,8 +50,9 @@ Package-level runbooks (image tags, input JSON, calibration gates):
    gsutil -m rsync -r scripts/ "$WORKSPACE_BUCKET/scripts/"
    ```
 
-   Association WDLs also need `./scripts/stage_tractor_scripts.sh` and/or
-   `./scripts/stage_felix_scripts.sh` (see those package READMEs).
+   `00_sync_repo` also stages `felix/scripts/` (FELIX WDL helpers). The
+   `./scripts/stage_tractor_scripts.sh` / `./scripts/stage_felix_scripts.sh`
+   helpers do the same from any shell with bucket access.
 3. Open the notebook. The first code cell rsyncs `$WORKSPACE_BUCKET/scripts/`
    onto the VM **before** importing (Terra’s persistent `edit/scripts/` is
    often stale). Set `TERRA_SYNC_SCRIPTS=false` only if you are iterating on

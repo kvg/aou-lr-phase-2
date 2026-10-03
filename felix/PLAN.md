@@ -82,11 +82,10 @@ not wait for M0: it compares FELIX with Tractor-Mix on the LAI the Tractor-Mix
 pilot already used. Both pilot configs now scan the same FLARE-marker VCF as
 that pilot, so the 2×2 compares like with like.
 
-1. **Stage scripts** to the workspace bucket:
-   ```bash
-   WORKSPACE_BUCKET=gs://... ./scripts/stage_felix_scripts.sh
-   WORKSPACE_BUCKET=gs://... ./scripts/stage_tractor_scripts.sh
-   ```
+1. **Stage scripts**: run `notebooks/terra/00_sync_repo.ipynb`. It stages
+   `scripts/` → `gs://BUCKET/scripts/` and `felix/scripts/` → `gs://BUCKET/felix/scripts/`
+   and copies the WDLs to the bucket; register changed WDLs yourself in the
+   Terra Methods Repository UI.
 2. **Reuse cohort** from `notebooks/terra/tractor_01_prepare_inputs.ipynb`
    (`analysis_samples`, `pheno_cov`, `selected_phenotypes`,
    `covariate_columns_{limited,full}`).
@@ -122,7 +121,7 @@ that pilot, so the 2×2 compares like with like.
 | Repeat SVs | Length dosage through FELIX tests with SPA | Length-additive biology; compare vs collapse/split; see `SV_SCORER_DESIGN.md` |
 | Scorer | FELIX VCF dosage input first; Rust scorer + SPA as fallback | SPA is required for low-prevalence binary traits across the phenome |
 | Layout | Top-level `felix/` | Separated from `tractor_mix/` before any Terra runs |
-| Scripts on GCS | `gs://BUCKET/felix/scripts/` for FELIX; `gs://BUCKET/scripts/` for shared | Stage via `stage_felix_scripts.sh` / `stage_tractor_scripts.sh` |
+| Scripts on GCS | `gs://BUCKET/felix/scripts/` for FELIX; `gs://BUCKET/scripts/` for shared | Staged by `00_sync_repo` (`stage_*_scripts.sh` as a fallback) |
 
 ### Out of scope (v1)
 
@@ -242,7 +241,7 @@ Before claiming M4 / RU genome done:
 # Image
 felix/build_docker.sh
 
-# Stage
+# Stage: run notebooks/terra/00_sync_repo.ipynb on the Terra VM, or from a shell with bucket access:
 WORKSPACE_BUCKET=gs://... ./scripts/stage_felix_scripts.sh
 WORKSPACE_BUCKET=gs://... ./scripts/stage_tractor_scripts.sh
 

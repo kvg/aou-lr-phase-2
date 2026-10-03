@@ -62,7 +62,9 @@ The image starts from FELIX v0.1 pinned by digest and applies
 
 ## Stage scripts
 
-FELIX scripts live under `felix/scripts/`; shared helpers stay in repo `scripts/`:
+FELIX scripts live under `felix/scripts/`; shared helpers stay in repo `scripts/`.
+`notebooks/terra/00_sync_repo.ipynb` stages both (`gs://BUCKET/felix/scripts/`,
+`gs://BUCKET/scripts/`). From another shell with bucket access:
 
 ```bash
 WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_felix_scripts.sh

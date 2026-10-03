@@ -114,8 +114,9 @@ Haplotig locus extraction (Julie / EichlerLab): `bam_to_contig/wdl/BamToContig.w
 See `bam_to_contig/README.md`.
 
 FELIX workflows (`felix/wdl/FelixPilot.wdl`, `FelixGenome.wdl`) use the
-`felix-pilot:0.2.0` image. Stage FELIX scripts with `./scripts/stage_felix_scripts.sh`
-and shared helpers with `./scripts/stage_tractor_scripts.sh`. See `felix/README.md`.
+`felix-pilot:0.2.0` image. `00_sync_repo` stages FELIX scripts to
+`$WORKSPACE_BUCKET/felix/scripts/` and shared helpers to `$WORKSPACE_BUCKET/scripts/`.
+See `felix/README.md`.
 
 ## Tractor-Mix WDL (Rust scorer)
 

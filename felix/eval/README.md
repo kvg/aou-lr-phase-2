@@ -10,7 +10,8 @@ pip install pandas numpy matplotlib
 # optional: scipy (faster erfcinv in calibration scripts)
 ```
 
-Stage workflow scripts to your workspace bucket first:
+Stage workflow scripts to your workspace bucket first (`00_sync_repo` does
+this on the Terra VM), or from a shell with bucket access:
 
 ```bash
 WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_felix_scripts.sh
