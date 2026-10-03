@@ -30,6 +30,9 @@
 
   "FelixGenome.simple_repeat_bed": "",
   "FelixGenome.annotate_repeat_units_script": "gs://BUCKET/scripts/annotate_repeat_units.py",
+  "FelixGenome.ru_engine": "felix",
+  "FelixGenome.write_admixed_dosage_script": "gs://BUCKET/scripts/write_admixed_dosage_vcf.py",
+  "FelixGenome.ru_min_carriers": 20,
 
   "FelixGenome.relatedness_cutoff": 0.05,
   "FelixGenome.num_random_markers": 2000,
@@ -38,5 +41,5 @@
   "FelixGenome.summarize_top_n": 50,
   "FelixGenome.pack_disk_gb_floor": 100,
   "FelixGenome.pack_disk_gb_multiplier": 3.5,
-  "FelixGenome.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+  "FelixGenome.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
 }

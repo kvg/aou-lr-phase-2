@@ -1,5 +1,12 @@
 #!/usr/bin/env Rscript
-# Run FELIX step2_SPAtests.R on a FELIXla packed prefix (admixed / LAI tests).
+# Run FELIX step2_SPAtests.R on a FELIXla packed prefix (admixed / LAI tests),
+# or on an admixed dosage VCF (FORMAT DS{k} + ANC{k}; repeat-SV dosages from
+# scripts/write_admixed_dosage_vcf.py) with --vcf-file. Pass exactly one.
+#
+# --dosage-qc carrier sets FELIX_DOSAGE_QC=carrier for FELIX, so the admixed
+# VCF path filters on carrier counts instead of sum(DS) (needs the patched
+# image, felix/patches/0001-dosage-carrier-qc.patch). Use it for repeat
+# dosages; leave it off (default) for FELIXla.
 #
 # Keeps the native FELIX column set (P_cct_admixed_c, P_het_admixed_c,
 # P_hom_admixed_c, per-ancestry *_c_*). Chromosome string must match the
@@ -17,6 +24,9 @@ args <- commandArgs(trailingOnly = TRUE)
 parse_args <- function(args) {
   out <- list(
     felixla_prefix = NA_character_,
+    vcf_file = NA_character_,
+    vcf_index = NA_character_,
+    dosage_qc = "none",
     chrom = "chr22",
     null_prefix = NA_character_,
     sample_file = NA_character_,
@@ -36,6 +46,9 @@ parse_args <- function(args) {
     if (i == length(args)) stop(paste("Missing value for", key))
     val <- args[[i + 1]]
     if (key == "--felixla-prefix") out$felixla_prefix <- val
+    else if (key == "--vcf-file") out$vcf_file <- val
+    else if (key == "--vcf-index") out$vcf_index <- val
+    else if (key == "--dosage-qc") out$dosage_qc <- val
     else if (key == "--chrom") out$chrom <- val
     else if (key == "--null-prefix") out$null_prefix <- val
     else if (key == "--sample-file") out$sample_file <- val
@@ -53,10 +66,19 @@ parse_args <- function(args) {
     else stop(paste("Unknown arg:", key))
     i <- i + 2
   }
-  req <- c("felixla_prefix", "chrom", "null_prefix", "out_tsv",
-           "sparse_grm", "sparse_grm_ids")
+  req <- c("chrom", "null_prefix", "out_tsv", "sparse_grm", "sparse_grm_ids")
   for (r in req) {
     if (is.na(out[[r]]) || !nzchar(out[[r]])) stop(paste("Missing required", r))
+  }
+  has_felixla <- !is.na(out$felixla_prefix) && nzchar(out$felixla_prefix)
+  has_vcf <- !is.na(out$vcf_file) && nzchar(out$vcf_file)
+  if (has_felixla == has_vcf) stop("Pass exactly one of --felixla-prefix or --vcf-file")
+  if (has_vcf && (is.na(out$vcf_index) || !nzchar(out$vcf_index))) {
+    out$vcf_index <- paste0(out$vcf_file, ".csi")
+  }
+  if (!out$dosage_qc %in% c("none", "carrier")) stop("--dosage-qc must be none or carrier")
+  if (out$dosage_qc == "carrier" && !has_vcf) {
+    stop("--dosage-qc carrier applies to --vcf-file input only")
   }
   if (is.na(out$out_raw) || !nzchar(out$out_raw)) {
     out$out_raw <- paste0(out$out_tsv, ".raw.txt")
@@ -75,12 +97,29 @@ if (!file.exists(opt$step2_r)) {
   }
 }
 
-meta <- paste0(opt$felixla_prefix, ".meta")
-if (!file.exists(meta)) {
-  stop(sprintf(
-    "FELIXla prefix is missing %s (pass the prefix, not a filename)",
-    meta
-  ))
+if (!is.na(opt$felixla_prefix) && nzchar(opt$felixla_prefix)) {
+  meta <- paste0(opt$felixla_prefix, ".meta")
+  if (!file.exists(meta)) {
+    stop(sprintf(
+      "FELIXla prefix is missing %s (pass the prefix, not a filename)",
+      meta
+    ))
+  }
+  geno_args <- paste0("--FELIXlaPrefix=", shQuote(opt$felixla_prefix))
+} else {
+  for (f in c(opt$vcf_file, opt$vcf_index)) {
+    if (!file.exists(f)) stop(paste("dosage VCF input not found:", f))
+  }
+  geno_args <- c(
+    paste0("--vcfFile=", shQuote(opt$vcf_file)),
+    paste0("--vcfFileIndex=", shQuote(opt$vcf_index)),
+    "--vcfField=DS"
+  )
+}
+if (opt$dosage_qc == "carrier") {
+  Sys.setenv(FELIX_DOSAGE_QC = "carrier")
+} else {
+  Sys.unsetenv("FELIX_DOSAGE_QC")
 }
 
 gmmat <- paste0(opt$null_prefix, ".rda")
@@ -132,7 +171,7 @@ dir.create(dirname(opt$out_raw), recursive = TRUE, showWarnings = FALSE)
 
 cmd <- paste(
   "Rscript", shQuote(opt$step2_r),
-  paste0("--FELIXlaPrefix=", shQuote(opt$felixla_prefix)),
+  paste(geno_args, collapse = " "),
   paste0("--chrom=", opt$chrom),
   "--is_admixed=TRUE",
   paste0("--number_of_ancestry=", opt$n_ancestries),

@@ -20,7 +20,7 @@ CONTEXT_DIR="${REPO_ROOT}"
 DEFAULT_PROJECT="broad-dsp-lrma"
 DEFAULT_REGION="us-central1"
 DEFAULT_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot"
-DEFAULT_TAG="0.1.0"
+DEFAULT_TAG="0.2.0"
 
 IMAGE="${IMAGE:-${DEFAULT_IMAGE}}"
 TAG="${TAG:-${DEFAULT_TAG}}"

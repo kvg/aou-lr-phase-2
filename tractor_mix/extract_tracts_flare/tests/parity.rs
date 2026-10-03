@@ -259,6 +259,7 @@ fn lib_extract_matches_cli() {
         compress_output: false,
         samples: None,
         threads: 1,
+        ru_baseline: Default::default(),
     })
     .unwrap();
     assert!(out.join("tiny.anc0.dosage.txt").exists());

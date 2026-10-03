@@ -1,8 +1,6 @@
 {
-  "_comment": "FELIX LIMITED covariates pilot (chr22). Provide joint_vcf OR phase_vcf + flare_vcf (not both empty).",
-  "FelixPilot.joint_vcf": "",
-  "FelixPilot.phase_vcf": "gs://BUCKET/phased/aou_lr_phase2_v1.chr22.phased.vcf.gz",
-  "FelixPilot.flare_vcf": "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz",
+  "_comment": "FELIX LIMITED covariates pilot (chr22). M1 scans the same FLARE-marker VCF as the Tractor-Mix pilot (joint GT:AN1:AN2) so the 2x2 compares like with like. M1b: set phase_vcf (full LR callset) + flare_vcf instead.",
+  "FelixPilot.joint_vcf": "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz",
   "FelixPilot.chrom": "chr22",
   "FelixPilot.num_ancs": 5,
 
@@ -26,5 +24,5 @@
   "FelixPilot.num_random_markers": 2000,
   "FelixPilot.min_mac": 50,
   "FelixPilot.pvalcutoff_of_haplotype": 0.05,
-  "FelixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+  "FelixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
 }

@@ -299,10 +299,16 @@ def expected_crossovers(
     return n_meioses * morgan
 
 
+WHOLE_CONTIG_END = 10**10
+
+
 def parse_region(spec: str) -> tuple[str, int, int]:
+    """``chr:start-end``, or a bare contig (``chr20``) for the whole chromosome."""
     spec = spec.strip()
+    if not spec:
+        raise ValueError("empty region")
     if ":" not in spec:
-        raise ValueError(f"need chr:start-end, got {spec!r}")
+        return spec, 1, WHOLE_CONTIG_END
     chrom, rest = spec.split(":", 1)
     start_s, end_s = rest.split("-", 1)
     return chrom, int(start_s), int(end_s)
@@ -396,7 +402,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--ped", required=True, type=Path)
     p.add_argument("--map", required=True, type=Path, help="PLINK genetic map")
     p.add_argument("--panel", type=Path, default=None, help="Optional fixed marker panel")
-    p.add_argument("--region", required=True, help="chr:start-end")
+    p.add_argument("--region", required=True, help="chr:start-end or bare contig (whole chromosome)")
     p.add_argument("--covariates", type=Path, default=None)
     p.add_argument("--samples", type=Path, default=None, help="Optional analysis keep-list")
     p.add_argument("--thin-every", type=int, default=1, help="Keep every Nth panel/grid locus")
@@ -442,7 +448,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     # try chrchrN naming if empty
     if not map_pts and not chrom.startswith("chrchr"):
         map_pts = load_map_cm(args.map, "chr" + chrom if not chrom.startswith("chr") else chrom)
-    exp_xo = expected_crossovers(map_pts, start, end, n_meioses=2)
+    # Span of the scored grid (not the requested region), so a bare-contig
+    # region does not count map distance outside the LAI markers.
+    exp_xo = expected_crossovers(map_pts, positions[0], positions[-1], n_meioses=2)
 
     tot_inf = 0
     tot_hard = 0

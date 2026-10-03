@@ -20,7 +20,9 @@ COPY tractor_mix/tractor_mix_score/src /src/score/src
 RUN cd score && cargo build --release --locked --bin tractor-mix-score \
     && test -x target/release/tractor-mix-score
 
-FROM lhu1/felix:latest
+# FELIX v0.1, pinned by digest (lhu1/felix:latest pointed here as of 2026-10;
+# v1.5.0 exists but is untested with our pipeline).
+FROM lhu1/felix@sha256:63c1e1d63aa029bc00403547b05554448c71d3b64164a16b93acb66a0ebeab88
 
 ARG PLINK2_URL=https://s3.amazonaws.com/plink2-assets/alpha7/plink2_linux_x86_64_20260808.zip
 ARG BCFTOOLS_VERSION=1.21
@@ -45,11 +47,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libbz2-dev \
         libcurl4-openssl-dev \
         liblzma-dev \
+        patch \
         python3 \
         unzip \
         wget \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# AoU-LR FELIX patches (felix/patches/*.patch) applied to the in-image source,
+# then the FELIX R package (named SAIGE) is reinstalled with FELIX's own
+# toolchain. 0001: opt-in carrier-count QC for admixed dosage VCFs
+# (FELIX_DOSAGE_QC=carrier); see felix/SV_SCORER_DESIGN.md.
+COPY felix/patches/ /tmp/felix_patches/
+RUN cd /app \
+    && for p in /tmp/felix_patches/*.patch; do patch -p1 --forward < "$p"; done \
+    && grep -q FELIX_DOSAGE_QC /app/src/Main.cpp \
+    && pixi run R CMD INSTALL . \
+    && Rscript -e 'library(SAIGE)' \
+    && rm -rf /tmp/felix_patches
 
 RUN mkdir -p /opt/plink2 \
     && cd /tmp \

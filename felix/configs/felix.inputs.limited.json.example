@@ -24,5 +24,5 @@
   "FelixPilot.num_random_markers": 2000,
   "FelixPilot.min_mac": 50,
   "FelixPilot.pvalcutoff_of_haplotype": 0.05,
-  "FelixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+  "FelixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
 }

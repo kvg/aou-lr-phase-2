@@ -39,6 +39,26 @@ pub fn parse_ru_site(info: &[u8], alt: &[u8]) -> Option<RuSite> {
     })
 }
 
+/// How a repeat haplotype is coded in the dosage file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RuBaseline {
+    /// Repeat units relative to REF (`C - CN_REF`): REF = 0, like an SNV's REF
+    /// allele, so per-ancestry dosage is not a multiple of the haplotype count.
+    #[default]
+    Ref,
+    /// Absolute copy number `C` (legacy). Per-ancestry dosage then carries
+    /// `CN_REF × hapcount`, which mostly tests local-ancestry dosage.
+    Absolute,
+}
+
+/// Dosage value for one haplotype allele under `baseline`.
+pub fn haplotype_value(allele: usize, site: &RuSite, baseline: RuBaseline) -> f64 {
+    match baseline {
+        RuBaseline::Absolute => haplotype_c(allele, site),
+        RuBaseline::Ref => haplotype_c(allele, site) - site.cn_ref,
+    }
+}
+
 /// Copy-number contributed by one haplotype allele (`0` = REF, `1..` = ALT index).
 pub fn haplotype_c(allele: usize, site: &RuSite) -> f64 {
     if allele == 0 {
@@ -207,6 +227,16 @@ mod tests {
         let rel = parse_ru_site(b"RU_TEST;SVTYPE=INS;RU=1", b"ACAG").unwrap();
         assert_eq!(haplotype_c(0, &rel), 0.0);
         assert_eq!(haplotype_c(1, &rel), 1.0);
+    }
+
+    #[test]
+    fn ref_baseline_is_delta_from_cn_ref() {
+        let del = parse_ru_site(b"RU_TEST;SVTYPE=DEL;CN_REF=20;RU=5", b"<DEL>").unwrap();
+        assert_eq!(haplotype_value(0, &del, RuBaseline::Ref), 0.0);
+        assert_eq!(haplotype_value(1, &del, RuBaseline::Ref), -5.0);
+        assert_eq!(haplotype_value(1, &del, RuBaseline::Absolute), 15.0);
+        let rel = parse_ru_site(b"RU_TEST;SVTYPE=INS;RU=1", b"ACAG").unwrap();
+        assert_eq!(haplotype_value(1, &rel, RuBaseline::Ref), 1.0);
     }
 
     #[test]

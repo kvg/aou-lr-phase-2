@@ -1,0 +1,54 @@
+# FLARE 0.6 + FLARE2 clustering for FlareByPopulation (flare2_nanc > 0).
+#
+# The popout FLARE image predates panel-probs / create_model_file.py
+# (browning-lab/flare commit 87573be, 2025-10-31), so build flare.jar from a
+# pinned upstream commit and add the clustering script's Python deps. One image
+# runs all three FLARE2 steps: panel-probs pass, clustering, and the apply pass.
+# FLARE is Apache-2.0.
+#
+# Build from flare/ (see build_docker.sh --flare2).
+
+ARG FLARE_COMMIT=87573bef4ddf94d66ecc99658c48186c32658883
+
+FROM eclipse-temurin:17-jdk AS jar-builder
+ARG FLARE_COMMIT
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone https://github.com/browning-lab/flare.git \
+    && cd flare && git checkout "${FLARE_COMMIT}" \
+    && cd /src \
+    && javac -cp flare/src/ flare/src/admix/AdmixMain.java \
+    && jar cfe flare.jar admix/AdmixMain -C flare/src/ ./ \
+    && cp flare/create_model_file.py /src/create_model_file.py
+
+FROM mambaorg/micromamba:1.5.10
+ARG FLARE_COMMIT
+USER root
+ENV DEBIAN_FRONTEND=noninteractive \
+    MAMBA_ROOT_PREFIX=/opt/conda \
+    PATH=/opt/conda/bin:${PATH} \
+    HTS_RETRY_MAX=8 \
+    HTS_RETRY_DELAY=500 \
+    HTS_RETRY_MAX_DELAY=60000 \
+    FLARE_COMMIT=${FLARE_COMMIT}
+
+RUN micromamba install -y -n base -c conda-forge -c bioconda \
+        python=3.12 \
+        openjdk=17 \
+        numpy \
+        scikit-learn \
+        bcftools=1.24 \
+        htslib=1.24 \
+    && micromamba clean --all --yes \
+    && java -version \
+    && python3 -c "import sklearn, numpy; print('sklearn', sklearn.__version__)"
+
+# Same paths as the popout image so flare_task's `java -jar /opt/flare/flare.jar` works.
+COPY --from=jar-builder /src/flare.jar /opt/flare/flare.jar
+COPY --from=jar-builder /src/create_model_file.py /opt/flare2/create_model_file.py
+RUN java -jar /opt/flare/flare.jar 2>&1 | grep -q "panel-probs" \
+    || (echo "flare.jar at ${FLARE_COMMIT} lacks panel-probs" >&2; exit 1)
+
+WORKDIR /work
+CMD ["/bin/bash"]

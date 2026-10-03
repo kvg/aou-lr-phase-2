@@ -27,7 +27,7 @@ task CheckChromVcfPairs {
     Int n_joint_vcfs
     Int n_phase_vcfs
     Int n_flare_vcfs
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
   }
 
   command <<<
@@ -78,7 +78,7 @@ task BuildSaigePlinkAndSparseGRM {
     File make_plink_keep_script
     Float relatedness_cutoff = 0.05
     Int num_random_markers = 2000
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 300
@@ -137,7 +137,7 @@ task FitFelixNull {
     File sparse_grm_sample_ids
     File fit_null_script
     String trait_type = "binary"
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 100
@@ -205,7 +205,7 @@ task PackFelixla {
     File analysis_samples
     String chrom
     Int num_ancs = 5
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 4
     Int memory_gb = 16
     Int disk_gb_floor = 100
@@ -291,7 +291,7 @@ task RunFelixStep2 {
     Int num_ancs = 5
     Int min_mac = 50
     Float pvalcutoff_of_haplotype = 0.05
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
     Int memory_gb = 16
     Int disk_gb_floor = 50
@@ -348,7 +348,7 @@ task ConcatPhenotypeScores {
   input {
     String phenotype
     Array[File] shard_tsvs
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 1
     Int memory_gb = 4
     Int disk_gb_floor = 20
@@ -441,7 +441,7 @@ task SummarizeFelixResults {
     File summarize_script
     Float p_threshold = 0.00000005
     Int top_n = 50
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 2
     Int memory_gb = 16
     Int disk_gb_floor = 50
@@ -504,7 +504,7 @@ task AnnotateRuTest {
     String chrom
     File simple_repeat_bed
     File annotate_script
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 2
     Int memory_gb = 8
     Int disk_gb_floor = 50
@@ -549,7 +549,7 @@ task ExtractRuDosage {
     String chrom
     File analysis_samples
     Int num_ancs
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 4
     Int memory_gb = 16
     Int disk_gb_floor = 100
@@ -633,7 +633,7 @@ task ScoreRuDosage {
     Array[File] split_files
     Int score_threads = 8
     Int chunk_size = 2048
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 200
@@ -701,6 +701,124 @@ task ScoreRuDosage {
   }
 }
 
+# Repeat-SV dosages for FELIX's admixed VCF path: DS{k} / ANC{k} from RU_TEST
+# loci (REF-relative repeat units, scaled per locus; scripts/write_admixed_dosage_vcf.py).
+task WriteRuAdmixedVcf {
+  input {
+    File annotated_vcf
+    String chrom
+    File analysis_samples
+    File write_script
+    Int num_ancs = 5
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+    Int cpu = 2
+    Int memory_gb = 8
+    Int disk_gb_floor = 50
+    Float disk_gb_multiplier = 3.0
+    Int preemptible = 1
+  }
+
+  Int disk_gb = ceil(size(annotated_vcf, "GB") * disk_gb_multiplier) + disk_gb_floor
+
+  command <<<
+    set -euo pipefail
+    CHROM=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{chrom}")
+    mkdir -p ru
+    python3 "~{write_script}" \
+      --vcf "~{annotated_vcf}" \
+      --num-ancs ~{num_ancs} \
+      --samples "~{analysis_samples}" \
+      --out ru/ru.admixed.vcf \
+      --stats-json ru/ru.admixed.stats.json
+    bcftools view -Oz -o ru/ru.admixed.vcf.gz ru/ru.admixed.vcf
+    bcftools index -c ru/ru.admixed.vcf.gz
+    rm -f ru/ru.admixed.vcf
+    cat ru/ru.admixed.stats.json
+    printf '%s\n' "${CHROM}" > ru/chrom.txt
+  >>>
+
+  output {
+    File admixed_vcf = "ru/ru.admixed.vcf.gz"
+    File admixed_vcf_index = "ru/ru.admixed.vcf.gz.csi"
+    File stats_json = "ru/ru.admixed.stats.json"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
+# FELIX step 2 on the repeat dosage VCF with carrier-count QC
+# (FELIX_DOSAGE_QC=carrier; needs the patched image, felix/patches/).
+task RunFelixStep2RuVcf {
+  input {
+    File admixed_vcf
+    File admixed_vcf_index
+    String chrom
+    String phenotype
+    File null_rda
+    File variance_ratio
+    File samples_used
+    File sparse_grm_mtx
+    File sparse_grm_sample_ids
+    File run_step2_script
+    Int num_ancs = 5
+    Int min_carriers = 20
+    Float pvalcutoff_of_haplotype = 0.05
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+    Int cpu = 2
+    Int memory_gb = 16
+    Int disk_gb = 50
+    Int preemptible = 1
+  }
+
+  command <<<
+    set -euo pipefail
+    mkdir -p step2
+    CHROM=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{chrom}")
+    PHENO=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{phenotype}")
+    ln -sf "~{null_rda}" "step2/${PHENO}.rda"
+    ln -sf "~{variance_ratio}" "step2/${PHENO}.varianceRatio.txt"
+    ln -sf "~{admixed_vcf}" ru.admixed.vcf.gz
+    ln -sf "~{admixed_vcf_index}" ru.admixed.vcf.gz.csi
+
+    # --min-mac is a carrier count here (samples with a non-zero dosage).
+    Rscript "~{run_step2_script}" \
+      --vcf-file ru.admixed.vcf.gz \
+      --vcf-index ru.admixed.vcf.gz.csi \
+      --dosage-qc carrier \
+      --chrom "${CHROM}" \
+      --null-prefix "step2/${PHENO}" \
+      --sample-file "~{samples_used}" \
+      --sparse-grm "~{sparse_grm_mtx}" \
+      --sparse-grm-ids "~{sparse_grm_sample_ids}" \
+      --min-mac ~{min_carriers} \
+      --n-ancestries ~{num_ancs} \
+      --pvalcutoff-of-haplotype ~{pvalcutoff_of_haplotype} \
+      --n-threads 1 \
+      --out-tsv "${PHENO}.ru.felix.tsv" \
+      --out-raw "${PHENO}.ru.felix.raw.txt"
+
+    cp "${PHENO}.ru.felix.tsv" results.ru.felix.tsv
+  >>>
+
+  output {
+    File results_tsv = "results.ru.felix.tsv"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
 workflow FelixGenome {
   input {
     Array[String] chroms
@@ -726,9 +844,16 @@ workflow FelixGenome {
     File run_felix_step2_script
     File summarize_script
 
-  # Optional RU_TEST repeat-unit branch (joint / phase VCF + simpleRepeat bed).
+  # Optional RU_TEST repeat-unit branch (simpleRepeat bed). Reads GT:AN1:AN2, so
+  # pass joint_vcfs (PropagateFlareAncestry output), not phase_vcfs alone.
     File? simple_repeat_bed
     File? annotate_repeat_units_script
+  # "felix" (default): FELIX step 2 on a REF-relative dosage VCF with carrier QC
+  # (needs write_admixed_dosage_script and the patched image).
+  # "rust": legacy tractor-mix-score encodings (no SPA), for comparison only.
+    String ru_engine = "felix"
+    File? write_admixed_dosage_script
+    Int ru_min_carriers = 20
 
     Float relatedness_cutoff = 0.05
     Int num_random_markers = 2000
@@ -749,7 +874,7 @@ workflow FelixGenome {
     Int chunk_size = 2048
     Int score_disk_gb = 200
 
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)
@@ -823,32 +948,66 @@ workflow FelixGenome {
           docker = docker
       }
 
-      call ExtractRuDosage as RuExtract {
-        input:
-          annotated_vcf = RuAnnot.annotated_vcf,
-          chrom = chrom,
-          analysis_samples = analysis_samples,
-          num_ancs = num_ancs,
-          docker = docker,
-          disk_gb_floor = ru_disk_gb_floor,
-          disk_gb_multiplier = ru_disk_gb_multiplier
+      if (ru_engine == "felix") {
+        call WriteRuAdmixedVcf as RuVcf {
+          input:
+            annotated_vcf = RuAnnot.annotated_vcf,
+            chrom = chrom,
+            analysis_samples = analysis_samples,
+            write_script = select_first([write_admixed_dosage_script]),
+            num_ancs = num_ancs,
+            docker = docker
+        }
+
+        scatter (j in range(length(phenotypes))) {
+          call RunFelixStep2RuVcf as RuStep2 {
+            input:
+              admixed_vcf = RuVcf.admixed_vcf,
+              admixed_vcf_index = RuVcf.admixed_vcf_index,
+              chrom = chrom,
+              phenotype = phenotypes[j],
+              null_rda = Null.null_rda[j],
+              variance_ratio = Null.variance_ratio[j],
+              samples_used = Null.samples_used[j],
+              sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
+              sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
+              run_step2_script = run_felix_step2_script,
+              num_ancs = num_ancs,
+              min_carriers = ru_min_carriers,
+              pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
+              docker = docker
+          }
+        }
       }
 
-      scatter (j in range(length(phenotypes))) {
-        scatter (enc in ru_encodings) {
-          call ScoreRuDosage as RuScore {
-            input:
-              phenotype = phenotypes[j],
-              chrom = chrom,
-              encoding = enc,
-              null_export_tar = Null.null_export_tar[j],
-              dosage_files = RuExtract.dosage_files,
-              collapse_files = RuExtract.collapse_files,
-              split_files = RuExtract.split_files,
-              score_threads = score_threads,
-              chunk_size = chunk_size,
-              docker = docker,
-              disk_gb = score_disk_gb
+      if (ru_engine == "rust") {
+        call ExtractRuDosage as RuExtract {
+          input:
+            annotated_vcf = RuAnnot.annotated_vcf,
+            chrom = chrom,
+            analysis_samples = analysis_samples,
+            num_ancs = num_ancs,
+            docker = docker,
+            disk_gb_floor = ru_disk_gb_floor,
+            disk_gb_multiplier = ru_disk_gb_multiplier
+        }
+
+        scatter (j in range(length(phenotypes))) {
+          scatter (enc in ru_encodings) {
+            call ScoreRuDosage as RuScore {
+              input:
+                phenotype = phenotypes[j],
+                chrom = chrom,
+                encoding = enc,
+                null_export_tar = Null.null_export_tar[j],
+                dosage_files = RuExtract.dosage_files,
+                collapse_files = RuExtract.collapse_files,
+                split_files = RuExtract.split_files,
+                score_threads = score_threads,
+                chunk_size = chunk_size,
+                docker = docker,
+                disk_gb = score_disk_gb
+            }
           }
         }
       }
@@ -877,6 +1036,21 @@ workflow FelixGenome {
   }
 
   Array[Array[File]] results_by_pheno = transpose(Step2.results_tsv)
+  # Chroms with RU results (felix engine), then per phenotype across chroms.
+  Array[Array[File]] ru_by_chrom = select_all(RuStep2.results_tsv)
+  Boolean has_ru = length(ru_by_chrom) > 0
+
+  if (has_ru) {
+    Array[Array[File]] ru_by_pheno = transpose(ru_by_chrom)
+    scatter (i in range(length(phenotypes))) {
+      call ConcatPhenotypeScores as RuConcat {
+        input:
+          phenotype = phenotypes[i] + ".ru",
+          shard_tsvs = ru_by_pheno[i],
+          docker = docker
+      }
+    }
+  }
 
   scatter (i in range(length(phenotypes))) {
     call ConcatPhenotypeScores as Concat {
@@ -915,10 +1089,13 @@ workflow FelixGenome {
     Array[Array[File]] results_tsvs_by_chrom = Step2.results_tsv
     Array[File] packed_tars = Pack.packed_tar
     Array[String] chrom_ids = Pack.chrom_id
+    Array[File]? ru_results_tsvs = RuConcat.merged_tsv
+    Array[File?] ru_admixed_vcfs = RuVcf.admixed_vcf
+    Array[File?] ru_admixed_stats = RuVcf.stats_json
   }
 
   meta {
-    description: "Genome-wide FELIX: shared SAIGE mtx GRM + FELIX nulls; per-chr felixla pack/step2; optional RU_TEST dosage scorer."
+    description: "Genome-wide FELIX: shared SAIGE mtx GRM + FELIX nulls; per-chr felixla pack/step2; optional RU_TEST repeat dosages through FELIX step 2 (carrier QC)."
     allowNestedInputs: true
   }
 }

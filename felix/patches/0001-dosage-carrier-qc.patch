@@ -1,0 +1,108 @@
+AoU-LR patch to FELIX v0.1 (lhu1/felix@sha256:63c1e1d63aa029bc00403547b05554448c71d3b64164a16b93acb66a0ebeab88).
+
+Opt-in carrier-count QC for the admixed single-variant VCF path
+(mainMarkerAdmixedInCPP, genoType "vcf"). Set FELIX_DOSAGE_QC=carrier in
+the environment of step2_SPAtests.R. The minMAC / minMAF / MACCutoffforER
+checks then use the number of samples with a non-zero DS{k} (and those
+without) among samples carrying an ancestry-k haplotype, instead of sum(DS{k})
+treated as an allele count. Needed for REF-relative repeat-length dosages,
+which can be negative. Off by default; FELIXla input is untouched.
+
+Design and validation: felix/SV_SCORER_DESIGN.md.
+Apply from /app with: patch -p1 < 0001-dosage-carrier-qc.patch
+
+--- a/src/Main.cpp	2026-10-02 17:12:18
++++ b/src/Main.cpp	2026-10-02 17:12:46
+@@ -31,6 +31,45 @@
+ #include "Duplicate_vec.hpp"
+ 
+ #include <boost/math/distributions/beta.hpp>
++#include <cstdlib>
++
++// AoU-LR patch (dosage carrier QC). With FELIX_DOSAGE_QC=carrier, the
++// admixed single-variant VCF path (mainMarkerAdmixedInCPP) filters on carrier
++// counts instead of sum(DS) "allele counts". Repeat-length dosages are coded
++// relative to REF (REF haplotype = 0) and can be negative or exceed the
++// haplotype count, so sum(DS) is not an allele count. Test statistics, SPA,
++// Firth and the joint tests are unchanged. Off by default.
++static bool aou_dosage_carrier_qc() {
++  static const bool on = [] {
++    const char* v = std::getenv("FELIX_DOSAGE_QC");
++    bool enabled = (v != nullptr) && (std::string(v) == "carrier");
++    if (enabled) {
++      std::cout << "FELIX_DOSAGE_QC=carrier: admixed VCF QC uses carrier counts" << std::endl;
++    }
++    return enabled;
++  }();
++  return on;
++}
++
++// Carrier-count stand-ins for MAC / MAF: samples with a non-zero dosage
++// versus samples without, among samples eligible for this test (carrying at
++// least one ancestry-k haplotype; every sample for the combined test).
++static void aou_carrier_mac_maf(const arma::vec& t_GVec, const arma::vec* t_ancVec,
++                                double& t_MAC, double& t_MAF) {
++  double eligible = 0.0;
++  double carriers = 0.0;
++  for (arma::uword s = 0; s < t_GVec.n_elem; ++s) {
++    if (t_ancVec != nullptr && (*t_ancVec)(s) <= 0.0) {
++      continue;
++    }
++    eligible += 1.0;
++    if (t_GVec(s) != 0.0) {
++      carriers += 1.0;
++    }
++  }
++  t_MAC = std::min(carriers, eligible - carriers);
++  t_MAF = (eligible > 0.0) ? t_MAC / eligible : 0.0;
++}
+ 
+ // global objects for different genotype formats
+ 
+@@ -4870,6 +4909,7 @@
+   int n = ptr_gSAIGEobj->m_n;
+   arma::vec t_GVec(n);
+   arma::vec t_GVecHom(n);
++  arma::vec aou_ancVec(n, arma::fill::zeros);  // AoU-LR patch: ANC_j per sample (carrier QC)
+   arma::vec gtildeVec(n);
+   arma::vec t_P2Vec;
+   if(ptr_gSAIGEobj->m_isFastTest){
+@@ -5139,6 +5179,18 @@
+    t_GVecHom = t_GVecHom + t_GVec;
+    altCounts = arma::accu(t_GVec);
+    altFreq = altCounts/double(nanc);
++   if (aou_dosage_carrier_qc() && t_genoType == "vcf" && isReadMarker) {
++     // Same record, second FORMAT field; the iterator advances once per marker.
++     std::string ref_anc, alt_anc, marker_anc, chr_anc;
++     uint32_t pd_anc;
++     double af_anc, ac_anc, miss_anc, info_anc;
++     std::vector<uint> miss_idx_anc, nz_idx_anc;
++     bool out_miss_anc = false;
++     bool only_nz_anc = false;
++     Unified_getOneMarker_Admixed(t_genoType, gIndex_prev, gIndex, ref_anc, alt_anc, marker_anc, pd_anc, chr_anc,
++                                  af_anc, ac_anc, miss_anc, info_anc, out_miss_anc, miss_idx_anc, only_nz_anc,
++                                  nz_idx_anc, aou_ancVec, t_isImputation, "ANC" + std::to_string(j+1));
++   }
+    if(!isReadMarker){
+       //std::cout << "isReadMarker " << isReadMarker << std::endl;
+       g_markerTestEnd = true;
+@@ -5184,6 +5236,9 @@
+     // MAF and MAC are for Quality Control (QC)
+     double MAF = std::min(altFreq, 1 - altFreq);
+     double MAC = MAF * nanc * (1 - missingRate);
++    if (aou_dosage_carrier_qc() && t_genoType == "vcf") {
++      aou_carrier_mac_maf(t_GVec, (j < t_NumberofANC) ? &aou_ancVec : nullptr, MAC, MAF);
++    }
+     altFreqVec.at(k) = altFreq;         // allele frequencies of ALT allele, this is not always < 0.5.
+     altCountsVec.at(k) = altCounts;         // allele frequencies of ALT allele, this is not always < 0.5.
+     
+@@ -5259,6 +5314,9 @@
+     flip = TRACTORHYBRID_TIMED_IMPUTE_FAKEFLIP(t_GVec, altFreq, altCounts,indexForMissing, g_impute_method, g_dosage_zerod_cutoff, g_dosage_zerod_MAC_cutoff, MAC, indexZeroVec, indexNonZeroVec);
+     MAC = std::min(altCounts, nanc-altCounts);
+     MAF = std::min(altFreq, 1 - altFreq);
++    if (aou_dosage_carrier_qc() && t_genoType == "vcf") {
++      aou_carrier_mac_maf(t_GVec, (j < t_NumberofANC) ? &aou_ancVec : nullptr, MAC, MAF);
++    }
+ 
+    if((MAF < g_marker_minMAF_cutoff) || (MAC < g_marker_minMAC_cutoff)){
+         includeTestANCvec(j) = 1;
