@@ -63,12 +63,13 @@ Joint phased VCF (GT + AN1/AN2 + SVs)
 | **M4** Encoding comparison + simulator | Done (scripts) | Simulator smoke OK; genome-wide encoding compare needs Terra |
 | **M5** `FelixGenome.wdl` (autosomes + optional RU branch) | Done | Not submitted |
 | **M0** LAI recipe (selection v2: FLARE2 vs FLARE pin, chr20) | FLARE2 WDL mode + scorers done | Build `aou-flare2` image; run `sel_chr20_*` rows; flare_02 Part 8 |
-| **M6** Repeat-SV scorer with SPA | Done: REF-relative dosage; dosage-VCF writer; FELIX carrier-QC patch (`felix/patches/`); `FelixGenome` RU branch on FELIX step 2. Validated locally on synthetic data (design note §3.1–3.2) | Build/push `felix-pilot:0.2.0`; run the RU branch on chr22 `joint_vcfs` |
+| **M6** Repeat-SV scorer with SPA | Done: REF-relative dosage; dosage-VCF writer; FELIX carrier-QC patch (`felix/patches/`); `FelixGenome` RU branch on FELIX step 2. Validated locally on synthetic data (design note §3.1–3.2); `felix-pilot:0.2.0` pushed | Run the RU branch on chr22 `joint_vcfs` |
 
 Image: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0`
 (built FROM FELIX v0.1 pinned by digest + `felix/patches/` (carrier QC, off by default) + PLINK2 +
-bcftools + Rust CLIs + staged scripts). 0.2.0 must be built and pushed (`felix/build_docker.sh`)
-before any workflow that defaults to it runs.
+bcftools + Rust CLIs + staged scripts). 0.2.0 pushed 2026-10-02 from commit `f65852f`
+(Cloud Build `0219507e-71cd-44ae-b28a-d154059f0bcf`), digest
+`sha256:a9b51dad68b6a8881357cbb9ce2317a68a5d00eadf6c6bc65b43612935c5868b`.
 
 Local smoke summary: [`eval/overnight_local_smoke.log`](eval/overnight_local_smoke.log).
 
