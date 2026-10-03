@@ -10,7 +10,7 @@ task CheckInputs {
   input {
     String chrom
     Int n_phenotypes
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
   }
 
   command <<<
@@ -50,7 +50,7 @@ task BuildSaigePlinkAndSparseGRM {
     File make_plink_keep_script
     Float relatedness_cutoff = 0.05
     Int num_random_markers = 2000
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 300
@@ -108,7 +108,7 @@ task FitFelixNull {
     File sparse_grm_mtx
     File sparse_grm_sample_ids
     File fit_null_script
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
     Int memory_gb = 32
     Int disk_gb = 100
@@ -167,7 +167,7 @@ task PackFelixla {
     File analysis_samples
     String chrom
     Int num_ancs = 5
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 4
     Int memory_gb = 16
     Int disk_gb_floor = 100
@@ -262,7 +262,7 @@ task RunFelixStep2 {
     Int num_ancs = 5
     Int min_mac = 50
     Float pvalcutoff_of_haplotype = 0.05
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
     Int memory_gb = 16
     Int disk_gb_floor = 50
@@ -325,7 +325,7 @@ task ConcatPhenotypeScores {
   input {
     String phenotype
     Array[File] shard_tsvs
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 1
     Int memory_gb = 4
     Int disk_gb_floor = 20
@@ -423,7 +423,7 @@ task SummarizeFelixResults {
     String p_column = "P_cct_admixed_c"
     String named_suffix = ".felix.tsv"
     String report_title = "FELIX chr22 QC summary"
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 2
     Int memory_gb = 16
     Int disk_gb_floor = 50
@@ -521,7 +521,7 @@ workflow FelixPilot {
     Int pack_disk_gb_floor = 100
     Float pack_disk_gb_multiplier = 3.5
 
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)

@@ -1,6 +1,6 @@
 # Design note: ancestry-aware association for repeat-mediated SVs
 
-Status: **proposal; Option A spike run locally 2026-10-02 (§3.1)**. Owner: Kiran Garimella.
+Status: **Option A + FELIX patch implemented and validated locally on synthetic data (2026-10-02, §3.1–3.2); not yet run on AoU data**. Owner: Kiran Garimella.
 Related docs: [`PLAN.md`](PLAN.md) (milestones), [`eval/README.md`](eval/README.md)
 (calibration gates).
 
@@ -138,24 +138,55 @@ Extend the packed format with a per-haplotype float plane for flagged loci.
 FELIX is GPL-3.0, so a fork is fine to maintain but harder to explain and to
 keep in sync. Choose this only if A and B both fail.
 
-### Recommendation after the spike
+### Chosen: Option A with a FELIX patch
 
-**Option A with a one-function FELIX patch.** In the admixed VCF path, replace
-the allele-count filter for dosage loci with a carrier-count filter (number of
-ancestry-k haplotypes with `x_h ≠ 0`), and keep everything else (SPA,
-variance rescaling, CCT) unchanged. Because the SNV equivalence is exact, the
-statistics are FELIX's own; the patch only stops valid loci being dropped. It
-is easy to explain ("FELIX's dosage input, with the genotype-count filter
-replaced by a carrier-count filter for repeat loci").
+[`patches/0001-dosage-carrier-qc.patch`](patches/0001-dosage-carrier-qc.patch)
+(59 added lines in `src/Main.cpp`, `mainMarkerAdmixedInCPP`). With
+`FELIX_DOSAGE_QC=carrier` in the environment and dosage-VCF input, the
+`minMAC` / `minMAF` / `MACCutoffforER` checks use carriers: samples with a
+non-zero `DS{k}` versus samples without, among samples with an ancestry-k
+haplotype (`ANC{k} > 0`; all samples for the combined test). For REF-relative
+coding, "non-zero" means "carries a non-REF repeat allele". `--min-mac` is
+therefore a carrier count in this mode. SPA, Firth, the joint tests and the
+reported `AC`/`AF` columns are unchanged, and nothing changes with the switch
+off. In one sentence: FELIX's dosage input, with its genotype-count filter
+replaced by a carrier-count filter for repeat loci.
 
-- Until the patch exists, Option A can run unpatched with each locus oriented so
-  ancestry sums are positive where possible (multiply the locus by −1: p-values
-  unchanged, `BETA` flips). This helps little: in the simulation only 51 of 584
-  affected loci had all ancestry sums of one sign. Report every locus where an
-  ancestry was dropped and treat those results as incomplete.
-- Option B (SPA in the Rust scorer) remains the fallback if the FELIX patch
-  cannot be maintained.
+The image (`felix/docker/Dockerfile`) starts from FELIX v0.1 pinned by digest,
+applies `felix/patches/*.patch` to the in-image source and reinstalls FELIX's
+R package with its own toolchain. `run_felix_step2.R --vcf-file …
+--dosage-qc carrier` sets the switch.
+
+- Option B (SPA in the Rust scorer) is the fallback if the patch cannot be
+  carried forward to a newer FELIX.
 - Option C (float dosages in FELIXla) is not needed.
+- Contributing the switch upstream is deferred until the pipeline works end to
+  end on AoU data.
+
+#### 3.2 Patch validation (local, patched FELIX v0.1, 2026-10-02)
+
+Same synthetic cohort and nulls as §3.1.
+
+| Check | Result |
+|---|---|
+| Switch off vs stock FELIX: FELIXla SNVs, dosage-VCF SNVs, repeat loci (binary 10%) | **Byte-identical** output files |
+| Switch on, 300 SNVs via dosage VCF | Same 300 sites tested; p-values identical in every column |
+| Switch on, 2,000 null repeat loci (`minMAC` = 20 carriers), binary 2% / 10% and quantitative | All 2,000 loci and every per-ancestry test kept (stock FELIX: 55 loci and ~14% of per-ancestry tests dropped). λ 0.91–1.08; type I error 0.044–0.053 at 0.05, 0.006–0.011 at 0.01, ≤ 0.002 at 0.001 |
+
+`run_felix_step2.R` was checked with a stub in place of `step2_SPAtests.R`:
+dosage-VCF mode passes `--vcfFile` / `--vcfFileIndex` / `--vcfField=DS` with
+`FELIX_DOSAGE_QC=carrier`, FELIXla mode clears an inherited switch, and
+carrier mode without a VCF (or both inputs at once) is refused. A full
+wrapper run against a sparse-GRM null did not finish locally (the step-1 fit
+ran over 40 minutes under amd64 emulation); it runs on Terra with the M6 chr22
+job.
+
+Scripts to rerun all of this after moving to a newer FELIX:
+[`eval/dosage_qc/`](eval/dosage_qc/).
+
+λ for `P_cct_admixed` sits a little below 1 (0.91–0.97); the Cauchy
+combination of correlated tests is conservative, and stock FELIX shows the same
+on SNVs.
 
 ## 4. Data flow
 
@@ -165,17 +196,19 @@ joint phased VCF (HiPhase → SHAPEIT4; SNVs + SVs on the same haplotypes)
    ├─ annotate_repeat_units.py  → INFO RU_TEST, RU (units per ALT), CN_REF, motif
    ├─ propagate_flare_ancestry  → AN1/AN2 at every SV site (FLARE2 production recipe)
    │
-   └─ write_admixed_dosage_vcf  (new; Rust extract or Python)
-         per sample: DS1..K, ANC1..K for RU_TEST loci (REF-relative, scaled, oriented)
+   └─ scripts/write_admixed_dosage_vcf.py
+         per sample: DS1..K, ANC1..K for RU_TEST loci (REF-relative, scaled)
          │
          └─ FELIX step2 --vcfFile … --is_admixed=TRUE --number_of_ancestry=K
-               same null (step-1 .rda + variance ratio) as the SNV run
+               FELIX_DOSAGE_QC=carrier; same null (step-1 .rda + variance ratio)
+               as the SNV run
 ```
 
-`FelixGenome.wdl`'s RU branch changes from "extract → `tractor-mix-score`" to
-"extract → admixed dosage VCF → FELIX step 2". The summary step then handles
-repeat results like FELIXla results (today the `RuScore` outputs are not wired
-into the summary at all).
+In `FelixGenome.wdl` (`ru_engine = "felix"`, default): `AnnotateRuTest` →
+`WriteRuAdmixedVcf` → `RunFelixStep2RuVcf` per phenotype → per-phenotype
+`<pheno>.ru.felix.tsv` (workflow output `ru_results_tsvs`). The RU branch reads
+`GT:AN1:AN2`, so it needs `joint_vcfs`. Repeat results are not yet merged into
+`SummarizeFelixResults`; they are written separately.
 
 ## 5. Upstream checks (before any results)
 
@@ -207,16 +240,18 @@ Do not headline "more hits" for any encoding without matched λGC
 ## 7. Work items
 
 1. ~~Fix the `x_h` baseline in `extract-tracts-flare`~~ Done: `--ru-baseline ref`
-   is the default (REF = 0); `absolute` keeps the old coding. The
-   ancestry-centered encoding is still to do (in the dosage-VCF writer).
+   is the default (REF = 0); `absolute` keeps the old coding.
 2. ~~Option A spike~~ Done locally on synthetic data (§3.1).
-3. Patch FELIX's allele-count filter for dosage loci (small fork of the
-   admixed VCF path) and rerun the spike to confirm no loci are dropped and
-   SNV results are unchanged.
-4. Write the admixed dosage-VCF writer (`DS{k}`, `ANC{k}` from the joint
-   `GT:AN1:AN2` VCF; REF-relative, scaled, oriented) and wire it into
-   `FelixGenome.wdl` in place of the `tractor-mix-score` RU branch.
-5. Run the upstream checks in section 5 on chr22, then genome-wide.
+3. ~~Patch FELIX's allele-count filter~~ Done and validated (§3.2).
+4. ~~Dosage-VCF writer and WDL wiring~~ Done: `scripts/write_admixed_dosage_vcf.py`
+   (matches `extract-tracts-flare --ru-baseline ref`; tests in
+   `scripts/test_write_admixed_dosage_vcf.py`) and the `ru_engine = "felix"`
+   branch of `FelixGenome.wdl` (`WriteRuAdmixedVcf` → `RunFelixStep2RuVcf`).
+5. Build and push `felix-pilot:0.2.0`; run the RU branch on chr22 with real
+   `joint_vcfs`; repeat checks A-1/A-2 on real data.
+6. Run the upstream checks in section 5 on chr22, then genome-wide.
+7. Ancestry-centered sensitivity encoding: not compatible with carrier QC as
+   written (centering makes every haplotype non-zero); needs its own design.
 
 ## 8. Open questions
 

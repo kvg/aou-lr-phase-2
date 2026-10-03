@@ -29,8 +29,12 @@ tractor_mix/
 
 FELIX replaces Tractor-Mix for SNV/indel + unique-SV association (`felixla` pack +
 `step2_SPAtests` with `--is_admixed=TRUE`). Repeat-mediated SVs use the optional
-**RU_TEST** branch: annotate → `extract-tracts-flare` (dosage encoding) →
-`tractor-mix-score --mode felix` with the same FELIX null export.
+**RU_TEST** branch: annotate → `scripts/write_admixed_dosage_vcf.py` (REF-relative
+repeat units per ancestry, `DS{k}` / `ANC{k}`) → FELIX step 2 on that VCF with
+carrier-count QC, using the same FELIX null as the SNV scan
+(`ru_engine = "felix"`, default). `ru_engine = "rust"` keeps the old
+`extract-tracts-flare` → `tractor-mix-score` encodings (no SPA) for comparison.
+Design and validation: [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md).
 
 | Model | Covariates (2×2 calibration) |
 |-------|------------------------------|
@@ -43,11 +47,18 @@ Scan: chr22 FLARE / phased VCFs (pilot) or parallel `chroms` + `phase_vcfs` +
 ## Build image
 
 ```bash
-felix/build_docker.sh                 # Cloud Build → us-central1-docker.pkg.dev/.../felix-pilot:0.1.0
+felix/build_docker.sh                 # Cloud Build → us-central1-docker.pkg.dev/.../felix-pilot:0.2.0
 felix/build_docker.sh --local --push  # or local docker
 ```
 
 Bump `FelixPilot.docker` / `FelixGenome.docker` in config JSON when retagging.
+
+The image starts from FELIX v0.1 pinned by digest and applies
+[`patches/`](patches/) to FELIX's source before reinstalling its R package:
+
+| Patch | Effect |
+|---|---|
+| `0001-dosage-carrier-qc.patch` | With `FELIX_DOSAGE_QC=carrier` (set by `run_felix_step2.R --dosage-qc carrier`), the admixed dosage-VCF path filters on carrier counts instead of `sum(DS)`. Off by default; FELIXla results are unchanged. |
 
 ## Stage scripts
 

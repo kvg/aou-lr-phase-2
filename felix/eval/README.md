@@ -91,7 +91,7 @@ Outputs:
 
 Example inputs: `felix/configs/felix.genome.inputs.{limited,full}.json.example`
 
-Docker default: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0`
+Docker default: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0`
 
 Build / push image:
 

@@ -1,0 +1,13 @@
+# Local validation image: FELIX v0.1 + felix/patches (same layer as felix/docker/Dockerfile).
+# Build from the repo root:
+#   docker build --platform linux/amd64 -f felix/eval/dosage_qc/Dockerfile.patch-test -t felix-dosageqc-test:local .
+# The repo Dockerfile pins the digest; a local docker that already holds an untagged
+# copy of v0.1 may refuse the digest pull ("cannot overwrite digest"), hence the tag.
+FROM lhu1/felix:v0.1
+RUN apt-get update && apt-get install -y --no-install-recommends patch && rm -rf /var/lib/apt/lists/*
+COPY felix/patches/ /tmp/felix_patches/
+RUN cd /app \
+    && for p in /tmp/felix_patches/*.patch; do patch -p1 --forward < "$p"; done \
+    && grep -q FELIX_DOSAGE_QC /app/src/Main.cpp \
+    && pixi run R CMD INSTALL . \
+    && Rscript -e 'library(SAIGE)'

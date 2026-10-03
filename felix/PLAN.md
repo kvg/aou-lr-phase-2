@@ -18,7 +18,7 @@ SVs; see [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md).
 | Association engine | **FELIX** (replaces Tractor-Mix) |
 | Cohort | **Whole cohort** for LAI-informed tests (all populations, including MID) |
 | Phasing | SNVs + SVs physically phased with HiPhase, then statistically phased with SHAPEIT4 (same haplotypes) |
-| Repeat SVs | Length dosage × ancestry through FELIX's own tests with SPA, via FELIX's admixed dosage-VCF input plus a small patch to its allele-count filter; SPA in our Rust scorer is the fallback ([`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md)) |
+| Repeat SVs | Length dosage × ancestry through FELIX's own tests with SPA, via FELIX's admixed dosage-VCF input plus our carrier-QC patch (`felix/patches/0001-dosage-carrier-qc.patch`); SPA in our Rust scorer is the fallback ([`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md)). Upstreaming deferred until the pipeline works end to end |
 | Recipe selection | Time-boxed selection v2 on chr20 (`flare/README.md` Part 8); no Tractor null-λ |
 
 ---
@@ -63,10 +63,12 @@ Joint phased VCF (GT + AN1/AN2 + SVs)
 | **M4** Encoding comparison + simulator | Done (scripts) | Simulator smoke OK; genome-wide encoding compare needs Terra |
 | **M5** `FelixGenome.wdl` (autosomes + optional RU branch) | Done | Not submitted |
 | **M0** LAI recipe (selection v2: FLARE2 vs FLARE pin, chr20) | FLARE2 WDL mode + scorers done | Build `aou-flare2` image; run `sel_chr20_*` rows; flare_02 Part 8 |
-| **M6** Repeat-SV scorer with SPA | REF-relative dosage done (`extract-tracts-flare --ru-baseline ref`); Option A spike passed locally (exact SNV equivalence, scale invariance, calibrated SPA) | FELIX drops ancestry tests with negative summed dosage; next = patch FELIX's allele-count filter (see design note §3) |
+| **M6** Repeat-SV scorer with SPA | Done: REF-relative dosage; dosage-VCF writer; FELIX carrier-QC patch (`felix/patches/`); `FelixGenome` RU branch on FELIX step 2. Validated locally on synthetic data (design note §3.1–3.2) | Build/push `felix-pilot:0.2.0`; run the RU branch on chr22 `joint_vcfs` |
 
-Image: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.1.0`
-(built FROM `lhu1/felix:latest` + PLINK2 + bcftools + Rust CLIs + staged scripts).
+Image: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0`
+(built FROM FELIX v0.1 pinned by digest + `felix/patches/` (carrier QC, off by default) + PLINK2 +
+bcftools + Rust CLIs + staged scripts). 0.2.0 must be built and pushed (`felix/build_docker.sh`)
+before any workflow that defaults to it runs.
 
 Local smoke summary: [`eval/overnight_local_smoke.log`](eval/overnight_local_smoke.log).
 
@@ -102,7 +104,9 @@ that pilot, so the 2×2 compares like with like.
 5. M1b: rerun FELIX on the full long-read callset (`phase_vcf` + `flare_vcf`).
 6. After M0 + M1: genome-wide FLARE2 apply (`flare/configs/flare2.apply.inputs.json.example`),
    then `FelixGenome.wdl`. Set `num_ancs` to the FLARE2 model's `nanc`.
-7. M6 per [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md) before turning on the RU branch.
+7. M6: build and push `felix-pilot:0.2.0` (`felix/build_docker.sh`; carries the FELIX
+   patch), then run the RU branch with `joint_vcfs` on chr22
+   ([`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md) §7).
 
 ---
 

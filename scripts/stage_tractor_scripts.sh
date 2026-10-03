@@ -30,6 +30,7 @@ REQUIRED=(
   build_saige_plink_and_grm.sh
   summarize_tractor_genome_results.py
   annotate_repeat_units.py
+  write_admixed_dosage_vcf.py
   compare_calibration.py
   compare_tractor_runs.py
   plot_tractor_results.py
