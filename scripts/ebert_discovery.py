@@ -201,7 +201,7 @@ def main() -> None:
                 continue
             n_used += 1
             freq = parts[i_freq]
-            region = parts[i_region] if i_region is not None and i_region < len(parts) else "non_repetitive"
+            region = parts[i_region] if i_region is not None and i_region < len(parts) else "US"
             cadd = parts[i_cadd] if i_cadd is not None and i_cadd < len(parts) else "unscored"
             for strata in strata_list:
                 sk = stratum_key(strata, region, cadd)

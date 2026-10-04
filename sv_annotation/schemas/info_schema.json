@@ -10,7 +10,7 @@
       "id": "REGION_CLASS",
       "number": "1",
       "type": "String",
-      "description": "repetitive if overlapping union of rmsk/simpleRepeat/genomicSuperDups; else non_repetitive"
+      "description": "Exclusive context class US, RM, SD, or SR (SR overrides SD overrides RM)"
     },
     {
       "id": "CADD_SV_PHRED",

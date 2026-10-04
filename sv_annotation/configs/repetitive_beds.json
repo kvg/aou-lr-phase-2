@@ -1,33 +1,37 @@
 {
   "genome_build": "GRCh38",
-  "definition": "union",
+  "definition": "exclusive_breakpoint",
+  "source": "https://github.com/broadinstitute/gatk-sv/tree/xz_fixes_3/benchmark_scripts/input",
   "tracks": [
     {
       "name": "rmsk",
-      "description": "UCSC RepeatMasker",
+      "description": "Merged GRCh38 RepeatMasker (hg38.RM.sorted.merged.bed.gz)",
+      "blob_sha": "240c47a8efb20bbba9f302cea74a78fa928b6b83",
       "uri_example": "gs://BUCKET/refs/grch38/rmsk.bed.gz",
       "required": true
     },
     {
       "name": "simpleRepeat",
-      "description": "UCSC simple repeats",
+      "description": "Merged GRCh38 simple repeats (hg38.SR.sorted.merged.bed.gz)",
+      "blob_sha": "fd401896a855af170e0d580b9b174f709baeb7c0",
       "uri_example": "gs://BUCKET/refs/grch38/simpleRepeat.bed.gz",
       "required": true
     },
     {
       "name": "genomicSuperDups",
-      "description": "UCSC segmental duplications",
+      "description": "Merged GRCh38 segmental duplications (hg38.SD.sorted.merged.bed.gz)",
+      "blob_sha": "c0a50644a35511e619774a2aae9da63ee9a562d9",
       "uri_example": "gs://BUCKET/refs/grch38/genomicSuperDups.bed.gz",
       "required": true
     }
   ],
   "count_strata": {
     "all": "parent class total",
-    "us": "complement of rmsk ∪ simpleRepeat ∪ genomicSuperDups",
-    "rm": "hit_rmsk",
-    "sd": "hit_genomicSuperDups",
-    "sr": "hit_simpleRepeat",
-    "cmrg": "GIAB CMRG v1.00 gene coordinates; not part of the repetitive union"
+    "us": "region_class US; exclusive of RM, SD, and SR",
+    "rm": "region_class RM",
+    "sd": "region_class SD",
+    "sr": "region_class SR",
+    "cmrg": "GIAB CMRG v1.00 gene coordinates; not part of region_class"
   },
   "cmrg": {
     "name": "CMRG",
@@ -36,5 +40,5 @@
     "source": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/CMRG_v1.00/GRCh38/SupplementaryFiles/GRCh38_CMRG_benchmark_gene_coordinates.bed",
     "required": true
   },
-  "notes": "Non-repetitive / US = complement of the union of the three UCSC tracks. Stage with notebooks/terra/sv_01_stage_repeat_tracks.ipynb, then pin concrete URIs in phase input JSON."
+  "notes": "region_class is US, RM, SD, or SR with SR > SD > RM. Breakpoints assign the class, except DEL/DUP/CNV longer than 5 kb, which use body coverage > 0.5. Stage the merged beds with notebooks/terra/sv_01_stage_repeat_tracks.ipynb, then pin concrete URIs in phase input JSON. Do not substitute raw UCSC table dumps."
 }

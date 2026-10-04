@@ -17,8 +17,8 @@ workflow AnnotateSvCallset {
 
     File sample_ancestry_tsv
     File caddsv_annotations_tar
-    # Localized scripts so unique/repetitive GIAB strata (US/RM/SD/SR/CMRG) and
-    # hit_cmrg do not require a Docker rebuild. PYTHONPATH prefers these copies.
+    # Localized scripts so the exclusive US/RM/SD/SR label and hit_cmrg do not
+    # require a Docker rebuild. PYTHONPATH prefers these copies.
     File sv_site_utils_py
     File annotate_repeat_context_py
     File manuscript_site_counts_py

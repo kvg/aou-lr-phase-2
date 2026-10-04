@@ -76,7 +76,7 @@ SV annotation (run in this order):
 | Notebook | Use |
 |---|---|
 | `sv_00_prepare_caddsv_annotations.ipynb` | One-time CADD-SV bundle (≥60 GB disk) |
-| `sv_01_stage_repeat_tracks.ipynb` | UCSC rmsk / simpleRepeat / genomicSuperDups BEDs |
+| `sv_01_stage_repeat_tracks.ipynb` | Merged RM / SR / SD BEDs (gatk-sv `xz_fixes_3`) plus GIAB CMRG |
 | `sv_02_stage_sample_ancestry.ipynb` | Phase 1 / Phase 2 sample ancestry TSVs |
 | `sv_03_manuscript_stats.ipynb` | SV site-count table + discovery plots (after the WDL) |
 
