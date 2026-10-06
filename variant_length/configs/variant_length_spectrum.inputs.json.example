@@ -1,0 +1,13 @@
+{
+  "VariantLengthSpectrum.chrom": "this.GL_INTERVAL_set_id",
+  "VariantLengthSpectrum.vcf": "this.VCF",
+  "VariantLengthSpectrum.rmsk_bed": "gs://BUCKET/refs/grch38/rmsk.bed.gz",
+  "VariantLengthSpectrum.simple_repeat_bed": "gs://BUCKET/refs/grch38/simpleRepeat.bed.gz",
+  "VariantLengthSpectrum.segdup_bed": "gs://BUCKET/refs/grch38/genomicSuperDups.bed.gz",
+  "VariantLengthSpectrum.summarize_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/summarize_variant_length_spectrum.py",
+  "VariantLengthSpectrum.sv_site_utils_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/sv_site_utils.py",
+  "VariantLengthSpectrum.annotate_repeat_context_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/annotate_repeat_context.py",
+  "VariantLengthSpectrum.small_max_bp": 20,
+  "VariantLengthSpectrum.apply_filters": "PASS,.",
+  "VariantLengthSpectrum.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
+}

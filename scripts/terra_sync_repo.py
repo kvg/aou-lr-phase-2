@@ -53,6 +53,8 @@ DEFAULT_WDLS: tuple[str, ...] = (
     "felix/wdl/FelixPilot.wdl",
     "felix/wdl/FelixGenome.wdl",
     "sv_annotation/wdl/AnnotateSvCallset.wdl",
+    "variant_length/wdl/VariantLengthSpectrum.wdl",
+    "variant_length/wdl/MergeVariantLengthSpectrum.wdl",
     "snv_stats/wdl/BcftoolsGlnexusStats.wdl",
     "methylation_stats/wdl/PbCpgSampleStats.wdl",
     "methylation_stats/wdl/PbCpgChromSites.wdl",

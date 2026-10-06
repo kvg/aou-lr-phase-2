@@ -79,6 +79,7 @@ into the LaTeX. Do not edit table TSVs by hand.
 | Table 2 SNV/indel rows (`tab:callset`) | **`snv_stats/wdl/BcftoolsGlnexusStats.wdl`**, then `snv_00_merge_glnexus_stats.ipynb` | `snv_indel_site_counts.{tsv,md}`, `snv_indel_sample_qc.tsv` |
 | Table 2 assembly rows | QUAST downloads (no notebook yet) | `scripts/download_phase1_hifiasm_quast.sh`, `scripts/download_phase2_quast.sh` |
 | Table 2 SV rows + discovery plots | `sv_03_manuscript_stats.ipynb` after `AnnotateSvCallset.wdl` | `sv_annotation/outputs/` (or Terra `sv_outputs/`) |
+| Fig. 2 variant length spectrum | **`variant_length/wdl/VariantLengthSpectrum.wdl`** on `aou_lr_chrom`, then `fig2_00_variant_length_spectrum.ipynb` | `fig2_length_spectrum.{bins.tsv,summary.json}` → manuscript `mockup_figures/data/` |
 | Genome-wide methylation maps | **`methylation_stats/wdl/PbCpgSampleStats.wdl`** on `aou2_v1_phased_bams`, then `meth_00_merge_pbcpg_stats.ipynb`. Concordance: `PbCpgChromSites.wdl` on a Primrose vs Jasmine subsample. | `methylation_manuscript_numbers.{tsv,json}` |
 | Ancestry PCs (`lr_PC*`) | `tractor_05` → `tractor_06` → `tractor_07` | `$WORKSPACE_BUCKET/pca/<run_label>/` |
 | Association λGC / QQ / Manhattan | Tractor-Mix / FELIX / SAIGE WDLs, then `tractor_09` | workflow `results_tsvs` + notebook figures |

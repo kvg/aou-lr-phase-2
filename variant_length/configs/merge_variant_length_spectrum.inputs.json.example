@@ -1,0 +1,15 @@
+{
+  "MergeVariantLengthSpectrum.chrom_bins": "this.GL_INTERVAL_sets.bins",
+  "MergeVariantLengthSpectrum.chrom_summaries": "this.GL_INTERVAL_sets.summary",
+  "MergeVariantLengthSpectrum.main_vcf": "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf",
+  "MergeVariantLengthSpectrum.large_vcf": "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_ultralong.bcf",
+  "MergeVariantLengthSpectrum.bnd_vcf": "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_bnd.bcf",
+  "MergeVariantLengthSpectrum.rmsk_bed": "gs://BUCKET/refs/grch38/rmsk.bed.gz",
+  "MergeVariantLengthSpectrum.simple_repeat_bed": "gs://BUCKET/refs/grch38/simpleRepeat.bed.gz",
+  "MergeVariantLengthSpectrum.segdup_bed": "gs://BUCKET/refs/grch38/genomicSuperDups.bed.gz",
+  "MergeVariantLengthSpectrum.summarize_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/summarize_variant_length_spectrum.py",
+  "MergeVariantLengthSpectrum.sv_site_utils_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/sv_site_utils.py",
+  "MergeVariantLengthSpectrum.annotate_repeat_context_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/annotate_repeat_context.py",
+  "MergeVariantLengthSpectrum.merge_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/merge_variant_length_spectrum.py",
+  "MergeVariantLengthSpectrum.sv_min_bp": 20
+}
