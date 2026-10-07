@@ -265,7 +265,7 @@ task AggregateChrom {
       "${VCF_ARGS[@]}" \
       --catalog-bed "~{catalog_bed}" \
       --chrom "~{chrom}" \
-      ~{"--samples " + samples} \
+      ~{if defined(samples) then "--samples " + samples else ""} \
       --exclude-prefixes "~{exclude_prefixes}" \
       --flank ~{flank} \
       --max-bp ~{max_bp} \
@@ -273,7 +273,7 @@ task AggregateChrom {
       --apply-filters "~{apply_filters}" \
       ~{true="--with-ancestry" false="" with_ancestry} \
       ~{true="--ignore-phase" false="" ignore_phase} \
-      ~{true="--out-vcf ~{prefix}.loci.vcf" false="" write_locus_vcf} \
+      ~{if write_locus_vcf then "--out-vcf " + prefix + ".loci.vcf" else ""} \
       --out-alleles "~{prefix}.alleles.tsv.gz" \
       --out-summary "~{prefix}.summary.json"
 

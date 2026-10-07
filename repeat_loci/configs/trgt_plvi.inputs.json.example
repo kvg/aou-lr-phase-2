@@ -1,5 +1,5 @@
 {
-  "TrgtPlvi.vcf_list": "gs://YOUR_WORKSPACE_BUCKET/metadata/repeat_loci/trgt_plvi_subsample.txt",
+  "TrgtPlvi.vcf_list": "gs://YOUR_WORKSPACE_BUCKET/metadata/repeat_loci/trgt_plvi_vcfs.txt",
   "TrgtPlvi.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
   "TrgtPlvi.shard_size": 50,
   "TrgtPlvi.min_call_rate": 0.8,

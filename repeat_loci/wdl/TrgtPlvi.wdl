@@ -4,8 +4,8 @@ version 1.0
 # Danzi et al. 2025) from per-sample TRGT VCFs, ranked within motif-length
 # groups. Used to choose the Figure 2C example loci. See scripts/trgt_plvi.py.
 #
-# vcf_list: one TRGT VCF URI per line (a random participant subsample is
-# enough; LPS stats are summed across shards).
+# vcf_list: one TRGT VCF URI per line (every Phase 2 participant; LPS stats
+# are summed across shards).
 
 workflow TrgtPlvi {
   input {
@@ -59,7 +59,7 @@ workflow TrgtPlvi {
   }
 
   meta {
-    description: "PLVI per TRGT locus from a TRGT VCF subsample, ranked within motif-length groups."
+    description: "PLVI per TRGT locus from the Phase 2 TRGT VCFs, ranked within motif-length groups."
     allowNestedInputs: true
   }
 }
