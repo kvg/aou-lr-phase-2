@@ -1,0 +1,17 @@
+{
+  "RepeatLocusDosage.label": "phase2",
+  "RepeatLocusDosage.chroms": ["chr1", "chr2", "...", "chrX"],
+  "RepeatLocusDosage.chrom_vcfs": ["<GL_INTERVAL_set VCF for chr1>", "..."],
+  "RepeatLocusDosage.chrom_vcf_indexes": ["<GL_INTERVAL_set VCF_idx for chr1>", "..."],
+  "RepeatLocusDosage.chrom_vcf_role": "small",
+  "RepeatLocusDosage.genome_vcfs": ["gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf"],
+  "RepeatLocusDosage.genome_vcf_indexes": ["gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf.csi"],
+  "RepeatLocusDosage.genome_vcf_roles": ["sv"],
+  "RepeatLocusDosage.split_bp": 50,
+  "RepeatLocusDosage.apply_filters": "PASS,.",
+  "RepeatLocusDosage.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+  "RepeatLocusDosage.samples": "gs://YOUR_WORKSPACE_BUCKET/metadata/repeat_loci/phase2_participants.txt",
+  "RepeatLocusDosage.exclude_prefixes": "HG,NA",
+  "RepeatLocusDosage.aggregate_repeat_loci_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/aggregate_repeat_loci.py",
+  "RepeatLocusDosage.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
+}

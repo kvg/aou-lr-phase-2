@@ -1,0 +1,19 @@
+{
+  "RepeatLocusDosage.label": "phase1",
+  "RepeatLocusDosage.chroms": ["chr1", "chr2", "...", "chrX"],
+  "RepeatLocusDosage.genome_vcfs": [
+    "gs://prod-drc-broad/longreads/demo_group/phase1/Jointcall_dvcf.g.vcf.bgz.QualFT40.vcf.gz",
+    "gs://YOUR_WORKSPACE_BUCKET/scratch/kvg/phase1/concat_annotated.sens_07.bcf"
+  ],
+  "RepeatLocusDosage.genome_vcf_indexes": [
+    "gs://prod-drc-broad/longreads/demo_group/phase1/Jointcall_dvcf.g.vcf.bgz.QualFT40.vcf.gz.tbi",
+    "gs://YOUR_WORKSPACE_BUCKET/scratch/kvg/phase1/concat_annotated.sens_07.bcf.csi"
+  ],
+  "RepeatLocusDosage.genome_vcf_roles": ["small", "sv"],
+  "RepeatLocusDosage.split_bp": 50,
+  "RepeatLocusDosage.apply_filters": "PASS,.",
+  "RepeatLocusDosage.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+  "RepeatLocusDosage.exclude_prefixes": "HG,NA",
+  "RepeatLocusDosage.aggregate_repeat_loci_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/aggregate_repeat_loci.py",
+  "RepeatLocusDosage.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
+}

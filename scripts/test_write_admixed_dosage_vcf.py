@@ -107,8 +107,31 @@ def test_rejects_unphased_and_bad_ancestry():
             raise AssertionError("expected ancestry range error")
 
 
+def test_sign_per_alt_and_signed_locus_dosage():
+    head, body = FIXTURE.read_text().split("#CHROM", 1)
+    cols = "#CHROM" + body.splitlines()[0]
+    records = [
+        # Sequence-resolved deletion with no SVTYPE: shorter ALT is a loss.
+        "chr22\t800\tsmall_del\tACAGCAG\tA\t.\tPASS\tRU_TEST;PERIOD=3;RU=2\tGT:AN1:AN2\t0|1:0:1\t0|0:0:0\t1|1:1:1",
+        # Aggregated locus: signed per-ALT dosage, one gain and one loss.
+        "chr22\t900\tlocus1\tN\t<TR:+6>,<TR:-3>\t.\tPASS\tRU_TEST;RU_DOSAGE=2,-1\tGT:AN1:AN2\t1|2:0:1\t0|2:1:1\t0|0:0:0",
+    ]
+    with tempfile.TemporaryDirectory() as td:
+        vcf = Path(td) / "signed.vcf"
+        vcf.write_text(head + cols + "\n" + "\n".join(records) + "\n")
+        buf = io.StringIO()
+        write_admixed_vcf(str(vcf), buf, num_ancs=3)
+    _, rows = _parse(buf.getvalue())
+    assert _unscaled(rows["small_del"], 1) == [0, 0, 0]
+    assert _unscaled(rows["small_del"], 2) == [-2, 0, -4]
+    assert _unscaled(rows["locus1"], 1) == [2, 0, 0]
+    assert _unscaled(rows["locus1"], 2) == [-1, -1, 0]
+    assert rows["locus1"][0] == 2
+
+
 if __name__ == "__main__":
     test_matches_extract_ref_baseline()
     test_keep_list_reorders_and_errors()
     test_rejects_unphased_and_bad_ancestry()
+    test_sign_per_alt_and_signed_locus_dosage()
     print("ok")

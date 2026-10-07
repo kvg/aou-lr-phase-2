@@ -1,0 +1,19 @@
+{
+  "TrgtLocusConcordance.chrom": "chr20",
+  "TrgtLocusConcordance.vcfs": [
+    "<GL_INTERVAL_set VCF for chr20>",
+    "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf"
+  ],
+  "TrgtLocusConcordance.vcf_indexes": [
+    "<GL_INTERVAL_set VCF_idx for chr20>",
+    "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf.csi"
+  ],
+  "TrgtLocusConcordance.vcf_roles": ["small", "sv"],
+  "TrgtLocusConcordance.split_bp": 50,
+  "TrgtLocusConcordance.apply_filters": "PASS,.",
+  "TrgtLocusConcordance.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+  "TrgtLocusConcordance.trgt_table": "gs://YOUR_WORKSPACE_BUCKET/metadata/repeat_loci/trgt_concordance_subset.tsv",
+  "TrgtLocusConcordance.aggregate_repeat_loci_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/aggregate_repeat_loci.py",
+  "TrgtLocusConcordance.compare_trgt_locus_dosage_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/compare_trgt_locus_dosage.py",
+  "TrgtLocusConcordance.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
+}

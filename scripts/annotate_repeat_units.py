@@ -43,6 +43,7 @@ INFO_HEADERS = [
     '##INFO=<ID=MOTIF,Number=1,Type=String,Description="Tandem repeat consensus motif">',
     '##INFO=<ID=CN_REF,Number=1,Type=Float,Description="Reference copy number of the overlapping tandem array; omitted means extra-units-vs-REF">',
     '##INFO=<ID=RU,Number=A,Type=Integer,Description="Repeat-unit count of each ALT (SVLEN/PERIOD for symbolic ALTs)">',
+    '##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Variant type (added for RU_TEST records without one; inferred from REF/ALT lengths)">',
 ]
 
 _CHROM_RE = re.compile(r"^(chr)?([1-9]|1[0-9]|2[0-2]|[XYM]|MT)$", re.IGNORECASE)
@@ -64,6 +65,9 @@ class RuAnnotation:
     motif: Optional[str]
     cn_ref: Optional[float]
     ru: tuple[int, ...]
+    # Downstream dosage writers take the sign of RU from SVTYPE, so records
+    # without one (sequence-resolved small deletions) must get it written.
+    svtype: Optional[str] = None
 
 
 def _is_chrom(token: str) -> bool:
@@ -338,7 +342,7 @@ def annotate_record(
                 use_motif = motif_from_seq(seq, period, None)
                 if use_motif:
                     break
-        return RuAnnotation(period, use_motif, cn_ref, tuple(rus))
+        return RuAnnotation(period, use_motif, cn_ref, tuple(rus), svtype)
 
     scored: list[tuple[int, int, RuAnnotation]] = []
     for hit in hits:
@@ -409,6 +413,8 @@ def merge_info(info: str, ann: Optional[RuAnnotation]) -> str:
         extra.insert(2, f"MOTIF={escape_info_string(ann.motif)}")
     if ann.cn_ref is not None:
         extra.insert(-1, f"CN_REF={format_cn_ref(ann.cn_ref)}")
+    if ann.svtype and "SVTYPE" not in keys:
+        extra.insert(0, f"SVTYPE={ann.svtype}")
     return ";".join(kept + extra)
 
 

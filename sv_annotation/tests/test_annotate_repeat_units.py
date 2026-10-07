@@ -17,6 +17,7 @@ from annotate_repeat_units import (  # noqa: E402
     annotate_record,
     annotate_vcf,
     load_tandem_arrays,
+    merge_info,
     parse_tandem_bed_line,
 )
 from sv_site_utils import parse_info as parse_info_shared  # noqa: E402
@@ -123,6 +124,16 @@ def test_3col_bed_infers_period_no_cn_ref():
         1000, "N", "<DEL>", {"SVTYPE": "DEL", "SVLEN": "-10", "END": "1010"}, arrays["chr22"]
     )
     assert symbolic is None
+
+
+def test_sequence_resolved_deletion_gets_svtype():
+    arrays = load_tandem_arrays(str(FIX / "simpleRepeat.ru.3col.bed"))
+    ann = annotate_record(500, "ACAGCAG", "A", {}, arrays["chr22"])
+    assert ann is not None and ann.ru == (2,) and ann.svtype == "DEL"
+    info = parse_info_shared(merge_info(".", ann))
+    assert info["SVTYPE"] == "DEL" and info["RU"] == "2"
+    kept = parse_info_shared(merge_info("SVTYPE=INS;SVLEN=9", ann))
+    assert kept["SVTYPE"] == "INS", "an existing SVTYPE is never overwritten"
 
 
 def test_inv_bnd_unique_not_ru():

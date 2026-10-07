@@ -1,0 +1,9 @@
+{
+  "TrgtPlvi.vcf_list": "gs://YOUR_WORKSPACE_BUCKET/metadata/repeat_loci/trgt_plvi_subsample.txt",
+  "TrgtPlvi.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+  "TrgtPlvi.shard_size": 50,
+  "TrgtPlvi.min_call_rate": 0.8,
+  "TrgtPlvi.label": "trgt_plvi.trexplorer_v1.0.1",
+  "TrgtPlvi.trgt_plvi_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/trgt_plvi.py",
+  "TrgtPlvi.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
+}

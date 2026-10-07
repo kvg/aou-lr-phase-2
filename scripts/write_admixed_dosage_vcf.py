@@ -3,12 +3,17 @@
 
 Input: the joint phased VCF with FORMAT GT:AN1:AN2 (FLARE ancestry propagated
 onto every site) and INFO from ``annotate_repeat_units.py`` (``RU_TEST``,
-``RU`` per ALT, optional ``SVTYPE``). Only ``RU_TEST`` records are written.
+``RU`` per ALT, optional ``SVTYPE``) or from ``aggregate_repeat_loci.py``
+(``RU_TEST``, signed ``RU_DOSAGE`` per ALT). Only ``RU_TEST`` records are written.
 
 Per haplotype ``h`` with allele ``a`` and ancestry ``k``::
 
     x_h = 0                     if a == 0 (REF)
-    x_h = sign(SVTYPE) * RU[a]  otherwise (repeat units relative to REF)
+    x_h = RU_DOSAGE[a]          when the record has RU_DOSAGE (one locus per record)
+    x_h = sign(a) * RU[a]       otherwise (repeat units relative to REF)
+
+``sign(a)`` is -1 when the ALT is shorter than REF and +1 when longer; symbolic
+ALTs fall back to ``SVTYPE`` (DEL = -1).
 
     DS{k+1} = sum_{h: anc_h = k} x_h / s      ANC{k+1} = number of ancestry-k haplotypes
 
@@ -18,8 +23,8 @@ Per haplotype ``h`` with allele ``a`` and ancestry ``k``::
 a shift adds ``c * ANC{k}`` and turns the per-ancestry tests into local-ancestry
 tests (felix/SV_SCORER_DESIGN.md).
 
-Matches ``extract-tracts-flare --ru-baseline ref`` (same sign rule; ``CN_REF``
-cancels). Run FELIX step 2 on the output with ``--vcfField=DS`` and
+Matches ``extract-tracts-flare --ru-baseline ref`` on ``annotate_repeat_units.py``
+output, which writes ``SVTYPE`` for every ``RU_TEST`` record (``CN_REF`` cancels). Run FELIX step 2 on the output with ``--vcfField=DS`` and
 ``FELIX_DOSAGE_QC=carrier`` (felix/patches/0001-dosage-carrier-qc.patch).
 
 Example::
@@ -71,17 +76,31 @@ def svtype_sign(info: dict[str, Optional[str]], alt: str) -> int:
     return -1 if alt[:4].upper() == "<DEL" else 1
 
 
-def allele_units(info: dict[str, Optional[str]], alt: str) -> list[float]:
+def allele_sign(info: dict[str, Optional[str]], ref: str, alt: str) -> int:
+    if not alt.startswith("<") and "[" not in alt and "]" not in alt and alt != "*":
+        if len(alt) < len(ref):
+            return -1
+        if len(alt) > len(ref):
+            return 1
+    return svtype_sign(info, alt)
+
+
+def allele_units(info: dict[str, Optional[str]], ref: str, alt: str) -> list[float]:
     """x for allele index 0..n_alt (REF = 0)."""
+    alts = alt.split(",")
+    signed = info.get("RU_DOSAGE")
+    if signed:
+        vals = [float(v) for v in signed.split(",")]
+        if len(vals) != len(alts):
+            raise ValueError(f"RU_DOSAGE has {len(vals)} values for {len(alts)} ALT alleles")
+        return [0.0] + vals
     raw = info.get("RU")
     if not raw:
-        raise ValueError("RU_TEST record without RU")
+        raise ValueError("RU_TEST record without RU or RU_DOSAGE")
     ru = [float(v) for v in raw.split(",")]
-    n_alt = alt.count(",") + 1
-    if len(ru) != n_alt:
-        raise ValueError(f"RU has {len(ru)} values for {n_alt} ALT alleles")
-    sign = svtype_sign(info, alt)
-    return [0.0] + [sign * v for v in ru]
+    if len(ru) != len(alts):
+        raise ValueError(f"RU has {len(ru)} values for {len(alts)} ALT alleles")
+    return [0.0] + [allele_sign(info, ref, a) * v for a, v in zip(alts, ru)]
 
 
 def fmt_num(v: float) -> str:
@@ -191,7 +210,7 @@ def write_admixed_vcf(
                 continue
             stats["ru_records"] += 1
             where = f"{f[0]}:{f[1]}"
-            units = allele_units(info, f[4])
+            units = allele_units(info, f[3], f[4])
             fields = [f[9 + i] for i in order]
             ds_rows, anc_rows, max_abs = site_dosages(fields, f[8].split(":"), units, num_ancs, where)
             if max_abs == 0.0:
