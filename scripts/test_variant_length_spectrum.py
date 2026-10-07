@@ -151,14 +151,16 @@ def test_end_to_end_script() -> None:
         assert c["bnd_records"] == 4 and c["large_records"] == 1
         assert c["bnd_mate_unparsed"] == 1
         assert c["bnd_records_with_mateid"] == 2 and c["bnd_records_mate_in_file"] == 2
-        assert "companions\tbnd\t0\tRM\t2\n" in comp
+        assert "companions\tbnd\t0\tRM\t1\n" in comp
+        assert c["bnd_events"] == 3 and c["bnd_reciprocal_pairs"] == 1
         assert "companions\tbnd\t0\tSD\t1\n" in comp
         assert "companions\tbnd\t0\tUS\t1\n" in comp
 
         merged = json.loads((t / "all.json").read_text(encoding="utf-8"))
         assert merged["table2_check"]["SNVs (bcftools 'number of SNPs')"] == 3
-        assert merged["table2_check"]["BND"] == 4
-        assert merged["partition_totals"] == {"bnd": 4, "small": 5, "sv": 4, "ultralong": 1}
+        assert merged["table2_check"]["BND records"] == 4
+        assert merged["table2_check"]["BND events (reciprocal record pairs counted once)"] == 3
+        assert merged["partition_totals"] == {"bnd": 3, "small": 5, "sv": 4, "ultralong": 1}
 
 
 if __name__ == "__main__":

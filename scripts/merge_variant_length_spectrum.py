@@ -20,7 +20,8 @@ TABLE2_KEYS = {
     "main_ge20_INS": "INS >= 20 bp (main)",
     "main_ge50_INS": "INS >= 50 bp (main)",
     "large_records": "Large events > 10 kb",
-    "bnd_records": "BND",
+    "bnd_records": "BND records",
+    "bnd_events": "BND events (reciprocal record pairs counted once)",
 }
 
 

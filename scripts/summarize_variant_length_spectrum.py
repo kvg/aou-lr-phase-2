@@ -282,8 +282,10 @@ def bnd_mate(alt: str, info: dict[str, str]) -> Optional[tuple[str, int]]:
 
 
 def summarize_bnd(path: str, *, contigs: Optional[set[str]], tracks: Tracks, counts: Counter, totals: Counter) -> None:
+    """One count per breakend event: a reciprocal pair of records (A's mate is B, B's mate is A) counts once."""
     ids: set[str] = set()
     mate_ids: list[str] = []
+    recs: list[tuple[tuple[str, int], Optional[tuple[str, int]], str]] = []
     for chrom, pos, vid, alt, info in iter_bnd_records(path):
         if contigs is not None and chrom not in contigs:
             totals["bnd_records_off_contig"] += 1
@@ -301,11 +303,18 @@ def summarize_bnd(path: str, *, contigs: Optional[set[str]], tracks: Tracks, cou
             cls = breakpoint_class(tracks.points(c), p0, p0)
             if CLASS_RANK[cls] > CLASS_RANK[label]:
                 label = cls
-        counts[("bnd", 0, label)] += 1
+        recs.append(((chrom, pos), mate, label))
         if vid and vid != ".":
             ids.add(vid)
         if info.get("MATEID"):
             mate_ids.append(info["MATEID"])
+    links = {(own, mate) for own, mate, _label in recs if mate is not None}
+    for own, mate, label in recs:
+        if mate is not None and mate != own and (mate, own) in links and own > mate:
+            totals["bnd_reciprocal_pairs"] += 1
+            continue
+        totals["bnd_events"] += 1
+        counts[("bnd", 0, label)] += 1
     totals["bnd_records_with_mateid"] = len(mate_ids)
     totals["bnd_records_mate_in_file"] = sum(1 for m in mate_ids if m in ids)
 
