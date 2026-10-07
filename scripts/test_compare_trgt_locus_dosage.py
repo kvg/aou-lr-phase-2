@@ -52,6 +52,7 @@ def _trgt(path: Path, sample: str, calls: dict[str, tuple[int, int]]) -> str:
     plain = path.with_suffix("")
     plain.write_text("\n".join(lines) + "\n")
     subprocess.run(["bcftools", "view", "-Oz", "-o", str(path), str(plain)], check=True)
+    subprocess.run(["bcftools", "index", "-t", str(path)], check=True)
     return str(path)
 
 

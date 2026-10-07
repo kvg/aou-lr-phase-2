@@ -42,14 +42,17 @@ def open_text(path: str) -> TextIO:
     return gzip.open(path, "rt") if path.endswith((".gz", ".bgz")) else open(path)
 
 
-def load_catalog(path: str, chrom: str) -> dict[str, int]:
-    """locus id -> period (first motif length)."""
+def load_catalog(path: str, chrom: str, lo: Optional[int] = None, hi: Optional[int] = None) -> dict[str, int]:
+    """locus id -> period (first motif length). lo/hi are 1-based positions on chrom."""
     out = {}
     with open_text(path) as fh:
         for line in fh:
             f = line.rstrip("\n").split("\t")
-            if f[0] == chrom:
-                out[f[3]] = max(len(f[4].split(",")[0]), 1) if len(f) > 4 else 1
+            if f[0] != chrom:
+                continue
+            if lo is not None and not (lo <= int(f[1]) + 1 <= hi):
+                continue
+            out[f[3]] = max(len(f[4].split(",")[0]), 1) if len(f) > 4 else 1
     return out
 
 
@@ -81,8 +84,8 @@ def load_locus_vcf(path: str, keep: set[str]):
     return loci, samples
 
 
-def trgt_changes(vcf: str, chrom: str) -> dict[str, tuple[int, int]]:
-    cmd = ["bcftools", "query", "-t", chrom, "-f", "%INFO/TRID\t%REF\t%ALT[\t%GT]\n", vcf]
+def trgt_changes(vcf: str, region: str) -> dict[str, tuple[int, int]]:
+    cmd = ["bcftools", "query", "-r", region, "-f", "%INFO/TRID\t%REF\t%ALT[\t%GT]\n", vcf]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
     assert proc.stdout is not None
     out = {}
@@ -111,7 +114,15 @@ def size_class(bp: int) -> str:
 
 
 def run(args: argparse.Namespace) -> dict:
-    catalog = load_catalog(args.catalog_bed, args.chrom)
+    region = args.region or args.chrom
+    if not region:
+        raise SystemExit("--chrom or --region is required")
+    if ":" in region:
+        chrom, span = region.rsplit(":", 1)
+        lo, hi = (int(x) for x in span.split("-"))
+    else:
+        chrom, lo, hi = region, None, None
+    catalog = load_catalog(args.catalog_bed, chrom, lo, hi)
     pairs = [ln.split("\t") for ln in Path(args.trgt_tsv).read_text().splitlines() if ln.strip()]
     trgt_vcfs = {s.strip(): p.strip() for s, p in pairs}
     loci, vcf_samples = load_locus_vcf(args.locus_vcf, set(trgt_vcfs))
@@ -125,7 +136,7 @@ def run(args: argparse.Namespace) -> dict:
     ys: list[int] = []
     n_trgt_only = 0
     for i, s in enumerate(samples):
-        tr = trgt_changes(trgt_vcfs[s], args.chrom)
+        tr = trgt_changes(trgt_vcfs[s], region)
         print(f"[concordance] {i + 1}/{len(samples)} {len(tr):,} TRGT loci", file=sys.stderr, flush=True)
         for lid, (d1, d2) in tr.items():
             if lid not in catalog:
@@ -192,7 +203,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--locus-vcf", required=True, help="aggregate_repeat_loci.py --out-vcf output")
     p.add_argument("--catalog-bed", required=True)
     p.add_argument("--trgt-tsv", required=True, help="sample<TAB>TRGT VCF path, one per line")
-    p.add_argument("--chrom", required=True)
+    p.add_argument("--chrom", default=None)
+    p.add_argument("--region", default=None, help="chrom or chrom:start-end; limits both callsets to this window")
     p.add_argument("--out-loci", required=True)
     p.add_argument("--out-summary", required=True)
     args = p.parse_args(argv)

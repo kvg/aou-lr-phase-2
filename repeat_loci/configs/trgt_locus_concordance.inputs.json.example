@@ -1,5 +1,6 @@
 {
   "TrgtLocusConcordance.chrom": "chr20",
+  "TrgtLocusConcordance.region": "chr20:10000000-20000000",
   "TrgtLocusConcordance.vcfs": [
     "<GL_INTERVAL_set VCF for chr20>",
     "gs://prod-drc-broad/longreads/demo_group/integrated_sv_callset/v3_main.bcf"

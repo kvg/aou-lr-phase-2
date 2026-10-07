@@ -9,10 +9,13 @@ version 1.0
 # trgt_table: participant<TAB>TRGT VCF URI, the subset to compare.
 # vcfs / vcf_roles: the same callsets and roles as RepeatLocusDosage
 # (Phase 2: GLnexus shard for `chrom` as "small", v3_main.bcf as "sv").
+# region: indexed window. The callsets and TRGT VCFs stay in the bucket;
+# bcftools reads this window through the index.
 
 workflow TrgtLocusConcordance {
   input {
     String chrom = "chr20"
+    String region = "chr20:10000000-20000000"
     Array[File] vcfs
     Array[File] vcf_indexes
     Array[String] vcf_roles
@@ -22,6 +25,7 @@ workflow TrgtLocusConcordance {
     Int split_bp = 50
     String apply_filters = "PASS,."
     Boolean ignore_phase = true
+    String gcs_project = ""
 
     File aggregate_repeat_loci_py
     File compare_trgt_locus_dosage_py
@@ -36,6 +40,8 @@ workflow TrgtLocusConcordance {
   call Concordance {
     input:
       chrom = chrom,
+      region = region,
+      gcs_project = gcs_project,
       vcfs = vcfs,
       vcf_indexes = vcf_indexes,
       vcf_roles = vcf_roles,
@@ -68,6 +74,8 @@ workflow TrgtLocusConcordance {
 task Concordance {
   input {
     String chrom
+    String region
+    String gcs_project
     Array[File] vcfs
     Array[File] vcf_indexes
     Array[String] vcf_roles
@@ -76,7 +84,7 @@ task Concordance {
     Boolean ignore_phase
     File catalog_bed
     Array[String] samples
-    Array[File] trgt_vcfs
+    Array[String] trgt_vcfs
     Int flank
     File aggregate_repeat_loci_py
     File compare_trgt_locus_dosage_py
@@ -85,23 +93,63 @@ task Concordance {
     Int preemptible
   }
 
-  Int disk_gb = ceil((size(vcfs, "GB") + size(trgt_vcfs, "GB")) * 1.2) + 30
+  parameter_meta {
+    vcfs: { description: "Indexed callsets; the region is streamed, the files are not localized.", localization_optional: true }
+    vcf_indexes: { description: "Tabix or CSI sibling of each VCF.", localization_optional: true }
+  }
 
   command <<<
     set -euo pipefail
-    mkdir -p in
+    export HTS_RETRY_MAX="${HTS_RETRY_MAX:-8}"
+    export HTS_RETRY_DELAY="${HTS_RETRY_DELAY:-500}"
+    python3 - "~{sep=' ' vcfs}" "~{gcs_project}" <<'PY'
+import json, os, subprocess, sys, urllib.request
+from pathlib import Path
+
+def fresh_token():
+    for cmd in (["gcloud", "auth", "print-access-token"],
+                ["gcloud", "auth", "application-default", "print-access-token"]):
+        try:
+            tok = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+            if tok:
+                return tok
+        except Exception:
+            pass
+    for url in ("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+                "http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"):
+        req = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                tok = json.load(resp).get("access_token") or ""
+                if tok:
+                    return tok
+        except Exception:
+            continue
+    return ""
+
+parts = []
+project = sys.argv[-1].strip() or os.environ.get("GOOGLE_PROJECT", "")
+if project:
+    parts.append(f"export GCS_REQUESTER_PAYS_PROJECT={project}")
+if any(a.startswith("gs://") for a in sys.argv[1:-1]):
+    token = fresh_token()
+    if not token:
+        raise SystemExit("error: bcftools needs a GCS OAuth token to read gs:// VCFs")
+    parts.append(f"export GCS_OAUTH_TOKEN='{token}'")
+Path("gcs.env").write_text(("\n".join(parts) + "\n") if parts else "")
+PY
+    # shellcheck disable=SC1091
+    source gcs.env
+
+    # Keep the gs:// URI and name its index. bcftools then reads only --region.
     paste "~{write_lines(vcfs)}" "~{write_lines(vcf_indexes)}" "~{write_lines(vcf_roles)}" > pairs.tsv
     VCF_ARGS=()
-    n=0
     while IFS=$'\t' read -r v x role; do
-      n=$((n + 1))
-      name="in/${n}.$(basename "${v}")"
-      ln -s "${v}" "${name}"
-      case "${x}" in *.csi) ln -s "${x}" "${name}.csi" ;; *) ln -s "${x}" "${name}.tbi" ;; esac
+      spec="${v}##idx##${x}"
       case "${role}" in
-        all) VCF_ARGS+=(--vcf "${name}") ;;
-        small) VCF_ARGS+=(--small-vcf "${name}") ;;
-        sv) VCF_ARGS+=(--sv-vcf "${name}") ;;
+        all) VCF_ARGS+=(--vcf "${spec}") ;;
+        small) VCF_ARGS+=(--small-vcf "${spec}") ;;
+        sv) VCF_ARGS+=(--sv-vcf "${spec}") ;;
         *) echo "unknown VCF role ${role}" >&2; exit 1 ;;
       esac
     done < pairs.tsv
@@ -111,7 +159,7 @@ task Concordance {
     python3 "~{aggregate_repeat_loci_py}" \
       "${VCF_ARGS[@]}" \
       --catalog-bed "~{catalog_bed}" \
-      --chrom "~{chrom}" \
+      --region "~{region}" \
       --samples samples.txt \
       --flank ~{flank} \
       --split-bp ~{split_bp} \
@@ -125,7 +173,7 @@ task Concordance {
       --locus-vcf loci.vcf \
       --catalog-bed "~{catalog_bed}" \
       --trgt-tsv trgt.tsv \
-      --chrom "~{chrom}" \
+      --region "~{region}" \
       --out-loci "~{chrom}.trgt_concordance.loci.tsv.gz" \
       --out-summary "~{chrom}.trgt_concordance.summary.json"
   >>>
@@ -140,7 +188,7 @@ task Concordance {
     docker: docker
     cpu: 2
     memory: memory_gb + " GiB"
-    disks: "local-disk " + disk_gb + " HDD"
+    disks: "local-disk 20 HDD"
     preemptible: preemptible
   }
 }
