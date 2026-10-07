@@ -116,6 +116,7 @@ class LocusState:
     nrec2: np.ndarray = field(init=False)
     an1: Optional[np.ndarray] = None
     an2: Optional[np.ndarray] = None
+    anc_inconsistent: int = 0
 
     def __post_init__(self) -> None:
         n = self.n
@@ -155,8 +156,17 @@ class LocusState:
         both = (rec.a1 >= 0) & (rec.a2 >= 0)
         differ = both & (bp[np.maximum(rec.a1, 0)] != bp[np.maximum(rec.a2, 0)])
         self.unphased_hets += (rec.unphased_het & differ).astype(np.int16)
-        if self.with_ancestry and self.an1 is None and rec.an1 is not None:
-            self.an1, self.an2 = rec.an1, rec.an2
+        if self.with_ancestry and rec.an1 is not None:
+            if self.an1 is None:
+                self.an1, self.an2 = rec.an1, rec.an2
+            else:
+                # A tandem array is orders of magnitude shorter than a FLARE
+                # tract, so every record at a locus should carry the same local
+                # ancestry. Count haplotypes where it does not instead of
+                # assuming it: the first record's call is the one used.
+                for cur, new in ((self.an1, rec.an1), (self.an2, rec.an2)):
+                    both = (cur >= 0) & (new >= 0)
+                    self.anc_inconsistent += int(np.count_nonzero(both & (cur != new)))
 
 
 def open_text(path: str) -> TextIO:
@@ -239,8 +249,23 @@ def record_span(pos: int, ref: str, alt_bp: np.ndarray, end: str) -> tuple[int, 
     return start0, end0
 
 
+def _anc_codes(tokens: Sequence[str]) -> np.ndarray:
+    """Ancestry codes as integers, -1 for '.' / empty. Any number of digits."""
+    out = np.full(len(tokens), -1, np.int16)
+    for i, t in enumerate(tokens):
+        t = t.strip()
+        if t and t != "." and (t.isdigit() or (t[0] == "-" and t[1:].isdigit())):
+            out[i] = int(t)
+    return out
+
+
 def parse_gts(cells: str, n: int, with_ancestry: bool):
-    """(a1, a2, unphased_het, an1, an2) for the per-sample columns of one query line."""
+    """(a1, a2, unphased_het, an1, an2) for the per-sample columns of one query line.
+
+    Ancestry codes are parsed as decimal integers of any width: a FLARE model
+    with nanc >= 10 emits two-digit codes, and reading only the first byte would
+    silently fold ancestry 12 into ancestry 1.
+    """
     width = 8 if with_ancestry else 4
     if len(cells) == width * n - 1:
         b = np.frombuffer((cells + "\t").encode(), np.uint8).reshape(n, width)
@@ -252,7 +277,12 @@ def parse_gts(cells: str, n: int, with_ancestry: bool):
             unph = (b[:, 1] == 0x2F) & (a1 != a2) & (a1 >= 0) & (a2 >= 0)
             an1 = an2 = None
             if with_ancestry:
-                an1, an2 = b[:, 4].copy(), b[:, 6].copy()
+                # Fixed-width path: every AN field is exactly one byte wide, so a
+                # digit is its own code and anything else ('.') is missing.
+                an1 = (b[:, 4].astype(np.int16) - 48)
+                an2 = (b[:, 6].astype(np.int16) - 48)
+                an1[(an1 < 0) | (an1 > 9)] = -1
+                an2[(an2 < 0) | (an2 > 9)] = -1
             return a1, a2, unph, an1, an2
     parts = cells.split("\t")
     step = 3 if with_ancestry else 1
@@ -271,8 +301,8 @@ def parse_gts(cells: str, n: int, with_ancestry: bool):
         unph[i] = sep == "/" and x != y and x >= 0 and y >= 0
     an1 = an2 = None
     if with_ancestry:
-        an1 = np.array([ord(p[0]) if p else 46 for p in parts[1::3]], np.uint8)
-        an2 = np.array([ord(p[0]) if p else 46 for p in parts[2::3]], np.uint8)
+        an1 = _anc_codes(parts[1::3])
+        an2 = _anc_codes(parts[2::3])
     return a1, a2, unph, an1, an2
 
 
@@ -293,7 +323,10 @@ class Source:
             cmd += ["-S", samples_file, "--force-samples"]
         expr = []
         if prefilter:
-            expr.append('(strlen(REF)!=strlen(ALT) || ALT~"<")')
+            # gVCF reference blocks are ALT <NON_REF> / <*> and can carry a
+            # megabase REF. Exclude them before strlen(), which would otherwise
+            # keep every block (ALT~"<") and pull that REF into memory.
+            expr.append('ALT!="<NON_REF>" && ALT!="<*>" && (strlen(REF)!=strlen(ALT) || ALT~"<")')
         if filters:
             expr.append("(" + " || ".join(f'FILTER="{f}"' for f in filters) + ")")
         if expr:
@@ -337,7 +370,20 @@ def contig_lines(vcf: str) -> list[str]:
 
 
 def fmt_units(v: float) -> str:
+    """Human-readable units for the allele table."""
     return f"{v:.4g}" if v != int(v) else str(int(v))
+
+
+def fmt_units_exact(v: float) -> str:
+    """Units for --out-vcf INFO RU_DOSAGE, at round-trip precision.
+
+    The association path consumes this value as the per-haplotype dosage, so it
+    must not be quantised: at a period-3 locus a 7 bp change is 2.333333...
+    units, and the allele table's 4 significant figures would introduce a
+    ~1e-4 relative error into every test. SVLEN and PERIOD are also written, so
+    a consumer can recompute the ratio exactly.
+    """
+    return f"{v:.17g}" if v != int(v) else str(int(v))
 
 
 class Aggregator:
@@ -360,8 +406,10 @@ class Aggregator:
                 "records_uncatalogued_ru", "loci_in_catalog", "loci_with_records", "loci_polymorphic",
                 "loci_written", "hap_called", "hap_missing", "hap_unphased_ambiguous", "hap_multi_record",
                 "hap_possible_duplicate", "alleles", "alleles_nonref", "alleles_out_of_band",
+                "hap_ancestry_inconsistent", "hap_ancestry_missing", "anc_code_max",
             )
         }
+        self.counts["anc_code_max"] = -1
         self.counts["loci_in_catalog"] = len(loci)
 
     def assign(self, start0: int, end0: int) -> Optional[int]:
@@ -419,6 +467,12 @@ class Aggregator:
         L = st.locus
         c = self.counts
         c["loci_with_records"] += 1
+        c["hap_ancestry_inconsistent"] += st.anc_inconsistent
+        if st.an1 is not None:
+            for an in (st.an1, st.an2):
+                c["hap_ancestry_missing"] += int(np.count_nonzero(an < 0))
+                if an.size:
+                    c["anc_code_max"] = max(c["anc_code_max"], int(an.max()))
         m1, m2 = st.miss1.copy(), st.miss2.copy()
         if self.missing_as_ref:
             m1[:] = False
@@ -459,12 +513,15 @@ class Aggregator:
             info = (
                 f"END={L.end};RU_TEST;PERIOD={period};MOTIF={L.motif or '.'};LOCUS_RECORDS={st.n_records};"
                 f"SVLEN={','.join(str(int(v)) for v in nonref)};"
-                f"RU_DOSAGE={','.join(fmt_units(v / period) for v in nonref)}"
+                f"RU_DOSAGE={','.join(fmt_units_exact(v / period) for v in nonref)}"
             )
             gts = [f"{'.' if a < 0 else a}{'/' if amb else '|'}{'.' if b < 0 else b}" for a, b, amb in zip(g1, g2, ambiguous)]
             if self.with_ancestry and st.an1 is not None:
                 fmt = "GT:AN1:AN2"
-                cells = [f"{g}:{chr(x)}:{chr(y)}" for g, x, y in zip(gts, st.an1, st.an2)]
+                cells = [
+                    f"{g}:{'.' if x < 0 else int(x)}:{'.' if y < 0 else int(y)}"
+                    for g, x, y in zip(gts, st.an1, st.an2)
+                ]
             else:
                 fmt = "GT"
                 cells = gts
@@ -603,6 +660,12 @@ def run(args: argparse.Namespace) -> dict:
         agg.flush_before(start0)
         cells = f[src_fixed] if len(f) > src_fixed else ""
         a1, a2, unph, an1, an2 = parse_gts(cells, n, args.with_ancestry)
+        if args.num_ancs and an1 is not None:
+            for an in (an1, an2):
+                if an.size and an.max() >= args.num_ancs:
+                    raise SystemExit(
+                        f"{chrom}:{pos}: ancestry code {int(an.max())} but --num-ancs={args.num_ancs}"
+                    )
         if args.ignore_phase:
             unph = (a1 != a2) & (a1 >= 0) & (a2 >= 0)
         if a1.size and (a1.max() >= bp.size or a2.max() >= bp.size):
@@ -638,6 +701,14 @@ def run(args: argparse.Namespace) -> dict:
         "counts": c,
         "hap_missing_frac": c["hap_missing"] / max(c["hap_called"] + c["hap_missing"], 1),
         "hap_possible_duplicate_frac": c["hap_possible_duplicate"] / max(c["hap_called"], 1),
+        # Fraction of haplotypes where a later record at the locus disagreed with
+        # the first record's local-ancestry call. Should be ~0: a tandem array is
+        # far shorter than a FLARE tract. A non-trivial value means the
+        # "ancestry is constant across the locus" assumption is not holding.
+        "hap_ancestry_inconsistent_frac": (
+            c["hap_ancestry_inconsistent"] / max(c["hap_called"] + c["hap_missing"], 1)
+        ),
+        "anc_code_max": c["anc_code_max"],
     }
     return summary
 
@@ -662,6 +733,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--window-pad", type=int, default=1000,
                    help="With --region, also read records starting this far before the first locus")
     p.add_argument("--with-ancestry", action="store_true", help="Carry FORMAT AN1/AN2 into --out-vcf")
+    p.add_argument("--num-ancs", type=int, default=0,
+                   help="With --with-ancestry, fail if any AN1/AN2 code is >= this (0 = no check)")
     p.add_argument("--keep-uncatalogued-ru", action="store_true",
                    help="Write RU_TEST records outside every catalog locus as their own loci")
     p.add_argument("--missing-as-ref", action="store_true", help="Treat missing calls as REF instead of missing")

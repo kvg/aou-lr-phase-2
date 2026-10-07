@@ -154,6 +154,29 @@ def test_small_and_sv_sources_count_each_allele_once(tmp_path: Path):
     assert sv["L1"] == {0: 4, 60: 2}, "only S1's 60 bp insertion; S4 is missing at r3"
 
 
+def test_gvcf_reference_block_is_not_read(tmp_path: Path):
+    header = HEADER.replace("S1\tS2\tS3\tS4\tHG00001", "S1")
+    lines = [header.rstrip("\n")]
+    ref = "N" * 5000
+    lines.append("\t".join(["chr22", "500", "block", ref, "<NON_REF>", ".", "PASS", "END=5500", "GT", "0/0"]))
+    lines.append("\t".join(["chr22", "510", "ins", "A", "ACAG", ".", "PASS", ".", "GT", "0/1"]))
+    plain = tmp_path / "in.vcf"
+    plain.write_text("\n".join(lines) + "\n")
+    vcf = tmp_path / "in.vcf.gz"
+    subprocess.run(["bcftools", "view", "-Oz", "-o", str(vcf), str(plain)], check=True)
+    subprocess.run(["bcftools", "index", "-t", str(vcf)], check=True)
+    bed = tmp_path / "catalog.bed"
+    bed.write_text("chr22\t499\t530\tL1\tCAG\n")
+    summary = tmp_path / "summary.json"
+    main([
+        "--vcf", str(vcf), "--catalog-bed", str(bed), "--chrom", "chr22",
+        "--out-alleles", str(tmp_path / "alleles.tsv"), "--out-summary", str(summary),
+    ])
+    counts = json.loads(summary.read_text())["counts"]
+    assert counts["records_read"] == 1
+    assert counts["records_length_change"] == 1
+
+
 def test_keep_uncatalogued_ru_record(tmp_path: Path):
     rows, vcf, summary = _run(tmp_path, "--keep-uncatalogued-ru")
     c = summary["counts"]
@@ -181,6 +204,105 @@ def test_locus_vcf_feeds_dosage_writer(tmp_path: Path):
     stats = write_admixed_vcf(str(path), buf, num_ancs=3)
     assert stats["written"] == 1
     cells = [ln for ln in buf.getvalue().splitlines() if not ln.startswith("#")][0].split("\t")
-    assert cells[7] == "RU_SCALE=21"
+    assert cells[7] == "RU_SCALE=21;RU_HAP_MISS=0"
     s1 = dict(zip(cells[8].split(":"), cells[9].split(":")))
     assert round(float(s1["DS1"]) * 21, 6) == 21 and round(float(s1["DS2"]) * 21, 6) == 20
+
+
+def _two_digit_vcf(tmp_path: Path) -> Path:
+    """Two records at one locus; ancestry codes 12 and 7, inconsistent at S2 hap1."""
+    rows = [
+        ("500", "r1", "A", "ACAG", ".", ["1|0:12:7", "0|0:7:7", "0|0:12:12"]),
+        ("505", "r2", "A", "ACAGCAG", ".", ["0|1:12:7", "0|0:12:7", "0|0:12:12"]),
+    ]
+    header = "\n".join(
+        ln for ln in HEADER.strip().splitlines()
+        if not ln.startswith("#CHROM")
+    ) + "\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\n"
+    lines = [header.rstrip("\n")]
+    for pos, rid, ref, alt, info, gts in rows:
+        lines.append("\t".join(["chr22", pos, rid, ref, alt, ".", "PASS", info, "GT:AN1:AN2", *gts]))
+    plain = tmp_path / "wide.vcf"
+    plain.write_text("\n".join(lines) + "\n")
+    gz = tmp_path / "wide.vcf.gz"
+    subprocess.run(["bcftools", "view", "-Oz", "-o", str(gz), str(plain)], check=True)
+    subprocess.run(["bcftools", "index", "-t", str(gz)], check=True)
+    return gz
+
+
+def _run_wide(tmp_path: Path, *extra: str):
+    gz = _two_digit_vcf(tmp_path)
+    bed = tmp_path / "wide.bed"
+    bed.write_text("chr22\t499\t530\tL1\tCAG\n")
+    out_vcf = tmp_path / "wide.loci.vcf"
+    summary = tmp_path / "wide.summary.json"
+    rc = main([
+        "--vcf", str(gz), "--catalog-bed", str(bed), "--chrom", "chr22",
+        "--with-ancestry", "--out-vcf", str(out_vcf),
+        "--out-alleles", str(tmp_path / "wide.alleles.tsv"),
+        "--out-summary", str(summary), *extra,
+    ])
+    assert rc == 0
+    return out_vcf.read_text(), json.loads(summary.read_text())
+
+
+def test_two_digit_ancestry_codes_round_trip(tmp_path: Path):
+    vcf, summary = _run_wide(tmp_path)
+    rec = [ln.split("\t") for ln in vcf.splitlines() if ln.startswith("chr22")][0]
+    assert rec[8] == "GT:AN1:AN2"
+    # Codes 12 and 7 survive; reading one byte would have given 1 and 7.
+    assert rec[9].endswith(":12:7"), rec[9]
+    assert summary["anc_code_max"] == 12
+    assert summary["counts"]["anc_code_max"] == 12
+    # The writer accepts them and puts the dosage on the right ancestry.
+    path = tmp_path / "wide.for_writer.vcf"
+    path.write_text(vcf)
+    buf = io.StringIO()
+    stats = write_admixed_vcf(str(path), buf, num_ancs=13)
+    assert stats["written"] == 1
+    cells = [ln for ln in buf.getvalue().splitlines() if not ln.startswith("#")][0].split("\t")
+    s1 = dict(zip(cells[8].split(":"), cells[9].split(":")))
+    scale = float(dict(kv.split("=", 1) for kv in cells[7].split(";") if "=" in kv)["RU_SCALE"])
+    # S1 carries +3 bp (1 unit) on hap1 (ancestry 12) and +6 bp (2 units) on hap2 (ancestry 7).
+    assert round(float(s1["DS13"]) * scale, 6) == 1.0
+    assert round(float(s1["DS8"]) * scale, 6) == 2.0
+    assert (s1["ANC13"], s1["ANC8"]) == ("1", "1")
+
+
+def test_ancestry_inconsistency_is_counted(tmp_path: Path):
+    _vcf, summary = _run_wide(tmp_path)
+    # S2 hap1 is ancestry 7 at r1 and 12 at r2; one haplotype disagrees.
+    assert summary["counts"]["hap_ancestry_inconsistent"] == 1
+    assert summary["hap_ancestry_inconsistent_frac"] == pytest.approx(1 / 6)
+
+
+def test_num_ancs_rejects_out_of_range_code(tmp_path: Path):
+    with pytest.raises(SystemExit) as exc:
+        _run_wide(tmp_path, "--num-ancs", "8")
+    assert "ancestry code 12" in str(exc.value)
+
+
+def test_ambiguous_locus_survives_the_writer(tmp_path: Path):
+    """The ./. locus the aggregator emits is tested, not refused (--missing ref)."""
+    _rows, vcf, _s = _run(tmp_path, "--with-ancestry")
+    path = tmp_path / "all.vcf"
+    path.write_text(vcf if vcf.endswith("\n") else vcf + "\n")
+    buf = io.StringIO()
+    stats = write_admixed_vcf(str(path), buf, num_ancs=3, max_hap_missing=0.5)
+    assert stats["written"] == 2, "both loci tested, including the ambiguous one"
+    assert stats["hap_missing"] > 0 and stats["missingness_skipped"] == 0
+    recs = {ln.split("\t")[2]: ln.split("\t") for ln in buf.getvalue().splitlines()
+            if not ln.startswith("#")}
+    l2 = recs["L2"]
+    s1 = dict(zip(l2[8].split(":"), l2[9].split(":")))
+    # The ambiguous sample contributes no dosage and no denominator.
+    assert {s1["DS1"], s1["DS2"], s1["DS3"]} == {"0"}
+    assert (s1["ANC1"], s1["ANC2"], s1["ANC3"]) == ("0", "0", "0")
+
+    # Strict mode still refuses it, so the old behaviour stays reachable.
+    try:
+        write_admixed_vcf(str(path), io.StringIO(), num_ancs=3, missing="error")
+    except ValueError as exc:
+        assert "unphased" in str(exc) or "missing allele" in str(exc)
+    else:
+        raise AssertionError("expected strict-mode refusal")

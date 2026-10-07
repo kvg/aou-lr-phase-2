@@ -189,7 +189,7 @@ PY
     # shellcheck disable=SC1091
     source gcs.env
 
-    bcftools view -r "~{chrom}" -i 'strlen(REF)!=strlen(ALT) || ALT~"<"' \
+    bcftools view -r "~{chrom}" -i 'ALT!="<NON_REF>" && ALT!="<*>" && (strlen(REF)!=strlen(ALT) || ALT~"<")' \
       -Ob -o "~{chrom}.~{tag}.bcf" --write-index "~{vcf}##idx##~{vcf_index}"
     ls -lh "~{chrom}.~{tag}.bcf"*
   >>>
