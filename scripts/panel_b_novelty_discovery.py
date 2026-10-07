@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Cumulative Phase 2 SVs absent from HPRC/HGSVC3, split by Phase 1 status (Fig. 2B).
+"""Cumulative Phase 2 SVs split by prior catalog: HPRC/HGSVC3, then Phase 1 (Fig. 2B).
 
 Sites: main-callset DEL / INS with 50 <= |SVLEN| <= 10,000 (Table 2 rows), skipping
-``suppressed_main_duplicate``. A site counts only if no reference control carries
-it. Classes:
+``suppressed_main_duplicate``. Classes, first match wins:
 
+  * ``in_controls``   carried by >= 1 HPRC/HGSVC3 reference control
   * ``in_phase1``     Truvari-matched to a Phase 1 site (``--phase1-matched``)
   * ``new_singleton`` not in Phase 1, one carrier among participants
   * ``new_recurrent`` not in Phase 1, >= 2 carriers among participants
 
 Participants follow ``--order`` (Fig. 2B discovery order). Each site enters the
-curve at its first carrier. Output is cumulative counts every ``--step``
+curve at its first participant carrier; sites carried only by controls never
+enter. Output is cumulative counts every ``--step``
 participants (plus the last), with no sample ids, so it can leave the Workbench.
 """
 
@@ -28,9 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sv_site_utils import open_text  # noqa: E402
 
-CLASSES = ("in_phase1", "new_singleton", "new_recurrent")
+CLASSES = ("in_controls", "in_phase1", "new_singleton", "new_recurrent")
 AMBIGUOUS = -2
-CONTROL = -1
 
 
 def _truthy(v: str) -> bool:
@@ -49,6 +49,10 @@ def load_order(path: str) -> tuple[list[str], list[str]]:
 def load_controls(path: str) -> set[str]:
     out: set[str] = set()
     with open_text(path, "rt") as fh:
+        first = fh.readline()
+        if "research_id" not in first.split("\t")[0]:
+            return {s.strip() for s in [first, *fh] if s.strip()}
+        fh.seek(0)
         rows = csv.DictReader(fh, delimiter="\t")
         for r in rows:
             if "is_reference_control" in r and not _truthy(r["is_reference_control"]):
@@ -67,9 +71,9 @@ def load_matched(path: str) -> set[tuple[str, str, str]]:
     return out
 
 
-def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: Counter) -> dict[str, tuple[int, int]]:
-    """id -> (first participant rank, n participant carriers); CONTROL / AMBIGUOUS flags in slot 0."""
-    out: dict[str, tuple[int, int]] = {}
+def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: Counter) -> dict[str, tuple[int, int, bool]]:
+    """id -> (first participant rank or -1, n participant carriers, any control carrier); AMBIGUOUS in slot 0."""
+    out: dict[str, tuple[int, int, bool]] = {}
     with open_text(path, "rt") as fh:
         header = fh.readline().rstrip("\n").split("\t")
         i_id, i_c = header.index("id"), header.index("carriers")
@@ -78,7 +82,7 @@ def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: C
             vid = parts[i_id]
             if vid in out:
                 totals["carriers_duplicate_id"] += 1
-                out[vid] = (AMBIGUOUS, 0)
+                out[vid] = (AMBIGUOUS, 0, False)
                 continue
             field = parts[i_c] if i_c < len(parts) else ""
             first, n = None, 0
@@ -92,10 +96,8 @@ def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: C
                     continue
                 n += 1
                 first = r if first is None or r < first else first
-            if has_control:
-                out[vid] = (CONTROL, n)
-            elif first is not None:
-                out[vid] = (first, n)
+            if first is not None or has_control:
+                out[vid] = (-1 if first is None else first, n, has_control)
     return out
 
 
@@ -146,15 +148,20 @@ def main() -> int:
             if hit is None:
                 totals["skip_no_participant_carrier"] += 1
                 continue
-            first, n = hit
+            first, n, has_control = hit
             if first == AMBIGUOUS:
                 totals["skip_ambiguous_id"] += 1
                 continue
-            if first == CONTROL:
-                totals[f"in_controls_{svtype}"] += 1
+            if first < 0:
+                totals[f"controls_only_{svtype}"] += 1
                 continue
             key = (parts[col["chrom"]], parts[col["pos"]], parts[col["id"]])
-            cls = "in_phase1" if key in matched else ("new_singleton" if n == 1 else "new_recurrent")
+            if has_control:
+                cls = "in_controls"
+            elif key in matched:
+                cls = "in_phase1"
+            else:
+                cls = "new_singleton" if n == 1 else "new_recurrent"
             totals[f"{cls}_{svtype}"] += 1
             buckets[(svtype, cls)].append(first)
 
