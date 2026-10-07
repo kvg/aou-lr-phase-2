@@ -318,7 +318,9 @@ class Source:
         if with_ru:
             fmt += "\t%INFO/RU_TEST\t%INFO/PERIOD\t%INFO/MOTIF"
         fmt += "[\t%GT\t%AN1\t%AN2]\n" if with_ancestry else "[\t%GT]\n"
-        cmd = ["bcftools", "query", "-H", "-f", fmt, *region_args]
+        # -u: a joint gVCF has no INFO/END, SVTYPE, or SVLEN. Without it, bcftools
+        # exits instead of printing "." for those tags.
+        cmd = ["bcftools", "query", "-u", "-H", "-f", fmt, *region_args]
         if samples_file:
             cmd += ["-S", samples_file, "--force-samples"]
         expr = []

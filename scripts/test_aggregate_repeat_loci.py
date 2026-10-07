@@ -177,6 +177,26 @@ def test_gvcf_reference_block_is_not_read(tmp_path: Path):
     assert counts["records_length_change"] == 1
 
 
+def test_gvcf_without_info_end_still_reads(tmp_path: Path):
+    header = "\n".join(
+        ln for ln in HEADER.replace("S1\tS2\tS3\tS4\tHG00001", "S1").splitlines()
+        if not ln.startswith("##INFO=<ID=SVTYPE") and not ln.startswith("##INFO=<ID=SVLEN") and not ln.startswith("##INFO=<ID=END")
+    )
+    plain = tmp_path / "in.vcf"
+    plain.write_text(header + "\n" + "\t".join(["chr22", "510", "ins", "A", "ACAG", ".", "PASS", ".", "GT", "0/1"]) + "\n")
+    vcf = tmp_path / "in.vcf.gz"
+    subprocess.run(["bcftools", "view", "-Oz", "-o", str(vcf), str(plain)], check=True)
+    subprocess.run(["bcftools", "index", "-t", str(vcf)], check=True)
+    bed = tmp_path / "catalog.bed"
+    bed.write_text("chr22\t499\t530\tL1\tCAG\n")
+    summary = tmp_path / "summary.json"
+    main([
+        "--vcf", str(vcf), "--catalog-bed", str(bed), "--chrom", "chr22",
+        "--out-alleles", str(tmp_path / "alleles.tsv"), "--out-summary", str(summary),
+    ])
+    assert json.loads(summary.read_text())["counts"]["records_length_change"] == 1
+
+
 def test_keep_uncatalogued_ru_record(tmp_path: Path):
     rows, vcf, summary = _run(tmp_path, "--keep-uncatalogued-ru")
     c = summary["counts"]
