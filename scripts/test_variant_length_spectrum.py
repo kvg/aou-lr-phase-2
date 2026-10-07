@@ -78,7 +78,14 @@ def test_end_to_end_script() -> None:
         ]
     )
     large = HEADER + "chr22\t7000\tul\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL;SVLEN=-25000;END=32000\n"
-    bnd = HEADER + "chr22\t600\tbnd\tN\tN]chr1:100]\t.\tPASS\tSVTYPE=BND\n"
+    bnd = HEADER + "".join(
+        [
+            "chr22\t600\tbnd1\tN\tN]chr22:1000]\t.\tPASS\tSVTYPE=BND;MATEID=bnd2\n",  # mate end in RM
+            "chr22\t1000\tbnd2\tN\t]chr22:600]N\t.\tPASS\tSVTYPE=BND;MATEID=bnd1\n",  # own end in RM
+            "chr22\t8000\tbnd3\tN\t<BND>\t.\tPASS\tSVTYPE=BND;CHR2=chr1;END=100\n",   # own end in SD
+            "chr22\t600\tbnd4\tN\t<BND>\t.\tPASS\tSVTYPE=BND\n",                      # no mate: US
+        ]
+    )
     beds = {
         "rmsk": "chr22\t990\t1010\n",
         "sr": "chr22\t2305\t2320\n",
@@ -141,12 +148,17 @@ def test_end_to_end_script() -> None:
         assert c["main_ge20_INS"] == 3 and c["main_ge50_INS"] == 2
         assert c["main_ge20_INV"] == 1
         assert c["main_lt_sv_min_dropped"] == 1
-        assert c["bnd_records"] == 1 and c["large_records"] == 1
+        assert c["bnd_records"] == 4 and c["large_records"] == 1
+        assert c["bnd_mate_unparsed"] == 1
+        assert c["bnd_records_with_mateid"] == 2 and c["bnd_records_mate_in_file"] == 2
+        assert "companions\tbnd\t0\tRM\t2\n" in comp
+        assert "companions\tbnd\t0\tSD\t1\n" in comp
+        assert "companions\tbnd\t0\tUS\t1\n" in comp
 
         merged = json.loads((t / "all.json").read_text(encoding="utf-8"))
         assert merged["table2_check"]["SNVs (bcftools 'number of SNPs')"] == 3
-        assert merged["table2_check"]["BND"] == 1
-        assert merged["partition_totals"] == {"small": 5, "sv": 4, "ultralong": 1}
+        assert merged["table2_check"]["BND"] == 4
+        assert merged["partition_totals"] == {"bnd": 4, "small": 5, "sv": 4, "ultralong": 1}
 
 
 if __name__ == "__main__":

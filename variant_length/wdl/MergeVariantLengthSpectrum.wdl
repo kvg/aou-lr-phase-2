@@ -5,7 +5,7 @@ version 1.0
 #
 #   main_vcf  = gs://…/v3_main.bcf       resolved DEL / INS with |SVLEN| >= sv_min_bp
 #   large_vcf = gs://…/v3_ultralong.bcf  every record
-#   bnd_vcf   = gs://…/v3_bnd.bcf        count only (no length)
+#   bnd_vcf   = gs://…/v3_bnd.bcf        no length; context from either end
 
 workflow MergeVariantLengthSpectrum {
   input {

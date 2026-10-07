@@ -11,7 +11,9 @@ Uses the same sources and rules as Table 2 (tab:callset):
     |SVLEN| >= ``--sv-min-bp`` (20), i.e. ``size_bin_ge20`` in the site table.
     SVTYPE / SVLEN / END are derived as in ``extract_sites_from_vcf.py``.
   * ``--large-vcf``: ultralong companion, every record.
-  * ``--bnd-vcf``: breakends; no length, summary only.
+  * ``--bnd-vcf``: breakends; no length (``signed_len`` 0). The class comes from
+    either end, the record's own position or its mate's (ALT bracket notation,
+    else INFO CHR2 / END), with the same SR > SD > RM precedence.
 
 GLnexus is per chromosome; the companions are genome-wide and are scanned once
 (by MergeVariantLengthSpectrum), optionally restricted with ``--contigs``.
@@ -23,13 +25,14 @@ coverage > 0.5, insertions collapse to the anchor. Small variants use the same
 breakpoint rule on their REF span.
 
 Output rows: ``chrom  partition  signed_len  region_class  n_sites`` with
-partition in {small, sv, ultralong}.
+partition in {small, sv, ultralong, bnd}.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from bisect import bisect_right
 from collections import Counter
@@ -245,6 +248,68 @@ def signed_sv_length(svtype: str, svlen: int) -> int:
     return int(svlen)
 
 
+BND_MATE = re.compile(r"[\[\]]([^\[\]:]+):(\d+)[\[\]]")
+CLASS_RANK = {"US": 0, **{name: i + 1 for i, name in enumerate(TRACK_NAMES)}}
+
+
+def iter_bnd_records(path: str) -> Iterator[tuple[str, int, str, str, dict[str, str]]]:
+    """Yield (chrom, pos, id, alt, info); unlike ``iter_site_records`` this keeps ALT."""
+    if bcftools_bin():
+        with bcftools_stdout(["query", "-f", r"%CHROM\t%POS\t%ID\t%ALT\t%INFO\n"], path) as fh:
+            for line in fh:
+                chrom, pos, vid, alt, info = line.rstrip("\n").split("\t", 4)
+                yield chrom, int(pos), vid, alt, parse_info(info)
+        return
+    with open_text(path, "rt") as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            parts = line.rstrip("\n").split("\t", 8)
+            if len(parts) >= 8:
+                yield parts[0], int(parts[1]), parts[2], parts[4], parse_info(parts[7])
+
+
+def bnd_mate(alt: str, info: dict[str, str]) -> Optional[tuple[str, int]]:
+    m = BND_MATE.search(alt)
+    if m:
+        return m.group(1), int(m.group(2))
+    if "CHR2" in info and "END" in info:
+        try:
+            return info["CHR2"], int(info["END"])
+        except ValueError:
+            return None
+    return None
+
+
+def summarize_bnd(path: str, *, contigs: Optional[set[str]], tracks: Tracks, counts: Counter, totals: Counter) -> None:
+    ids: set[str] = set()
+    mate_ids: list[str] = []
+    for chrom, pos, vid, alt, info in iter_bnd_records(path):
+        if contigs is not None and chrom not in contigs:
+            totals["bnd_records_off_contig"] += 1
+            continue
+        totals["bnd_records"] += 1
+        ends = [(chrom, pos)]
+        mate = bnd_mate(alt, info)
+        if mate is None:
+            totals["bnd_mate_unparsed"] += 1
+        else:
+            ends.append(mate)
+        label = "US"
+        for c, p in ends:
+            p0 = p - 1
+            cls = breakpoint_class(tracks.points(c), p0, p0)
+            if CLASS_RANK[cls] > CLASS_RANK[label]:
+                label = cls
+        counts[("bnd", 0, label)] += 1
+        if vid and vid != ".":
+            ids.add(vid)
+        if info.get("MATEID"):
+            mate_ids.append(info["MATEID"])
+    totals["bnd_records_with_mateid"] = len(mate_ids)
+    totals["bnd_records_mate_in_file"] = sum(1 for m in mate_ids if m in ids)
+
+
 def summarize_companion(
     path: str,
     *,
@@ -264,8 +329,6 @@ def summarize_companion(
             totals[f"{source_vcf}_records_off_contig"] += 1
             continue
         totals[f"{source_vcf}_records"] += 1
-        if source_vcf == "bnd":
-            continue
         pos = int(pos_s)
         info = parse_info(info_s)
         svtype, svlen, end = sv_site_fields(pos, ref, alt, info, source_vcf)
@@ -347,6 +410,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             totals=totals,
         )
     for source_vcf, path in companions:
+        if source_vcf == "bnd":
+            summarize_bnd(path, contigs=keep, tracks=tracks, counts=counts, totals=totals)
+            continue
         summarize_companion(
             path,
             source_vcf=source_vcf,
