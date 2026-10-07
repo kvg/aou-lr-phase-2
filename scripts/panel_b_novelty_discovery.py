@@ -6,8 +6,12 @@ Sites: main-callset DEL / INS with 50 <= |SVLEN| <= 10,000 (Table 2 rows), skipp
 
   * ``in_controls``   carried by >= 1 HPRC/HGSVC3 reference control
   * ``in_phase1``     Truvari-matched to a Phase 1 site (``--phase1-matched``)
-  * ``new_singleton`` not in Phase 1, one carrier among participants
-  * ``new_recurrent`` not in Phase 1, >= 2 carriers among participants
+  * ``new_singleton`` not in Phase 1, one carrier among the participants so far
+  * ``new_recurrent`` not in Phase 1, >= 2 carriers among the participants so far
+
+As in HGSVC3 Fig. 1f, the carrier class is recomputed at each prefix: a new site is
+a singleton from its first carrier until its second, then recurrent. Summary
+``counts`` use the full cohort.
 
 Participants follow ``--order`` (Fig. 2B discovery order). Each site enters the
 curve at its first participant carrier; sites carried only by controls never
@@ -71,9 +75,12 @@ def load_matched(path: str) -> set[tuple[str, str, str]]:
     return out
 
 
-def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: Counter) -> dict[str, tuple[int, int, bool]]:
-    """id -> (first participant rank or -1, n participant carriers, any control carrier); AMBIGUOUS in slot 0."""
-    out: dict[str, tuple[int, int, bool]] = {}
+def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: Counter) -> dict[str, tuple[int, int, int, bool]]:
+    """id -> (first participant rank or -1, second rank or -1, n participant carriers, any control carrier).
+
+    AMBIGUOUS in slot 0 for duplicate ids.
+    """
+    out: dict[str, tuple[int, int, int, bool]] = {}
     with open_text(path, "rt") as fh:
         header = fh.readline().rstrip("\n").split("\t")
         i_id, i_c = header.index("id"), header.index("carriers")
@@ -82,10 +89,10 @@ def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: C
             vid = parts[i_id]
             if vid in out:
                 totals["carriers_duplicate_id"] += 1
-                out[vid] = (AMBIGUOUS, 0, False)
+                out[vid] = (AMBIGUOUS, -1, 0, False)
                 continue
             field = parts[i_c] if i_c < len(parts) else ""
-            first, n = None, 0
+            ranks: list[int] = []
             has_control = False
             for s in field.split(",") if field else ():
                 if s in controls:
@@ -94,10 +101,12 @@ def load_carriers(path: str, rank: dict[str, int], controls: set[str], totals: C
                 r = rank.get(s)
                 if r is None:
                     continue
-                n += 1
-                first = r if first is None or r < first else first
-            if first is not None or has_control:
-                out[vid] = (-1 if first is None else first, n, has_control)
+                ranks.append(r)
+            if ranks or has_control:
+                ranks.sort()
+                first = ranks[0] if ranks else -1
+                second = ranks[1] if len(ranks) > 1 else -1
+                out[vid] = (first, second, len(ranks), has_control)
     return out
 
 
@@ -148,7 +157,7 @@ def main() -> int:
             if hit is None:
                 totals["skip_no_participant_carrier"] += 1
                 continue
-            first, n, has_control = hit
+            first, second, n, has_control = hit
             if first == AMBIGUOUS:
                 totals["skip_ambiguous_id"] += 1
                 continue
@@ -163,7 +172,12 @@ def main() -> int:
             else:
                 cls = "new_singleton" if n == 1 else "new_recurrent"
             totals[f"{cls}_{svtype}"] += 1
-            buckets[(svtype, cls)].append(first)
+            if cls.startswith("new_"):
+                buckets[(svtype, "new")].append(first)
+                if second >= 0:
+                    buckets[(svtype, "new_recurrent")].append(second)
+            else:
+                buckets[(svtype, cls)].append(first)
 
     for v in buckets.values():
         v.sort()
@@ -175,9 +189,10 @@ def main() -> int:
         out.write("n_participants\tblock\tsvtype\tclass\tcumulative\n")
         for k in grid:
             for svtype in ("INS", "DEL"):
+                n_at = {c: bisect.bisect_right(buckets.get((svtype, c), []), k) for c in ("in_controls", "in_phase1", "new", "new_recurrent")}
+                n_at["new_singleton"] = n_at.pop("new") - n_at["new_recurrent"]
                 for cls in CLASSES:
-                    c = bisect.bisect_right(buckets.get((svtype, cls), []), k)
-                    out.write(f"{k + 1}\t{blocks[k]}\t{svtype}\t{cls}\t{c}\n")
+                    out.write(f"{k + 1}\t{blocks[k]}\t{svtype}\t{cls}\t{n_at[cls]}\n")
 
     block_edges = {}
     for i, b in enumerate(blocks):
