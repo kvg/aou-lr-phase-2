@@ -77,7 +77,7 @@ Figure 2:
 |---|---|
 | `fig2_00_variant_length_spectrum.ipynb` | Panel A signed-length spectrum |
 | `fig2_01_panel_b_discovery.ipynb` | Panel B SVs absent from HPRC/HGSVC3 by Phase 1 status |
-| `fig2_02_panel_c_repeat_loci.ipynb` | Panel C repeat-locus allele rarefaction + PLVI-ranked examples; writes inputs for `repeat_loci/wdl/` (`TrgtLocusConcordance`, `RepeatLocusDosage` ×2, `TrgtPlvi`) |
+| `fig2_02_panel_c_repeat_loci.ipynb` | Panel C. Allele counts are `TrgtAlleleCounts` (once per phase); `TrgtPlvi` ranks examples. The notebook still writes the older integrated-dosage inputs; do not launch those for this figure. |
 
 SV annotation (run in this order):
 

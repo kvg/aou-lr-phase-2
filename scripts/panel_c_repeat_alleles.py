@@ -2,9 +2,9 @@
 """
 Figure 2C inputs: allele rarefaction at repeat loci and PLVI-ranked example loci.
 
-Reads the allele tables of ``aggregate_repeat_loci.py`` for both phases (one
-row per locus x distinct locus dosage, no sample ids) and the PLVI table of
-``trgt_plvi.py merge``.
+Reads allele tables for both phases (``trgt_allele_counts.py``, or
+``aggregate_repeat_loci.py``; one row per locus x distinct dosage, no sample
+ids) and the PLVI table of ``trgt_plvi.py merge``.
 
 Locus set: catalog loci with a length-changing record in either phase and,
 in each phase, at least ``--min-call-rate`` of that phase's haplotypes called.

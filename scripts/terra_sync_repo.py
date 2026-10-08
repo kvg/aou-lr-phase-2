@@ -57,6 +57,7 @@ DEFAULT_WDLS: tuple[str, ...] = (
     "variant_length/wdl/MergeVariantLengthSpectrum.wdl",
     "repeat_loci/wdl/RepeatLocusDosage.wdl",
     "repeat_loci/wdl/TrgtPlvi.wdl",
+    "repeat_loci/wdl/TrgtAlleleCounts.wdl",
     "repeat_loci/wdl/TrgtLocusConcordance.wdl",
     "snv_stats/wdl/BcftoolsGlnexusStats.wdl",
     "methylation_stats/wdl/PbCpgSampleStats.wdl",

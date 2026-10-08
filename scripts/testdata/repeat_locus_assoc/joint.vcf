@@ -1,0 +1,16 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr22,length=50818468>
+##FILTER=<ID=PASS,Description="All filters passed">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Variant type">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Length change per ALT">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=AN1,Number=1,Type=Integer,Description="Local ancestry of haplotype 1">
+##FORMAT=<ID=AN2,Number=1,Type=Integer,Description="Local ancestry of haplotype 2">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2	S3	S4	S5	S6
+chr22	1005	L1a	A	ACAGCAG	60	PASS	.	GT:AN1:AN2	1|0:0:1	0|1:0:0	0|0:1:1	1|1:0:1	0|0:1:0	0|0:0:0
+chr22	1020	L1b	T	<INS>	60	PASS	SVTYPE=INS;SVLEN=60;END=1021	GT:AN1:AN2	1|0:0:1	0|0:0:0	0|1:1:1	0|0:0:1	1|1:1:0	0|0:0:0
+chr22	2005	L2	A	ACAGCAG,ACAGCAGC	60	PASS	.	GT:AN1:AN2	1|0:0:1	2|0:0:0	1|2:1:1	0|0:0:1	0|0:1:0	0|0:0:0
+chr22	3005	L3	ACAGCAG	A	60	PASS	.	GT:AN1:AN2	0|0:0:1	1|0:0:0	0|1:1:1	1|1:0:1	0|0:1:0	0|0:0:0
+chr22	4005	L4	T	<DEL>,<INS>	60	PASS	SVTYPE=DEL,INS;SVLEN=-9,9;END=4014	GT:AN1:AN2	1|0:0:1	2|0:0:0	1|2:1:1	0|0:0:1	0|0:1:0	0|0:0:0
+chr22	5005	L5	ACAGCAG	A,ACAGCAGCAGCAG	60	PASS	.	GT:AN1:AN2	1|0:0:1	2|0:0:0	1|2:1:1	0|0:0:1	0|0:1:0	0|0:0:0

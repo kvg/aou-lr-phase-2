@@ -1,30 +1,55 @@
-# Repeat-locus dosage (Figure 2C)
+# Repeat loci (Figure 2C)
 
-Per-locus repeat alleles from the SNV/indel and SV callsets, without TRGT
-calls. Every length-changing record inside a TRExplorer v1.0.1 locus
-(± `flank` bp) contributes its signed length change to that haplotype's locus
-dosage, so split or partially merged records at one repeat are summed into a
-single allele. The same dosage is what a repeat-aware association test would
-use later (`--out-vcf`, FORMAT `GT[:AN1:AN2]`, INFO `RU_DOSAGE`).
+Panel C counts TRGT allele lengths at TRExplorer v1.0.1 loci. `TrgtPlvi` ranks
+every locus by PLVI; the three examples are chosen from that ranking once the
+allele counts exist. `TrgtAlleleCounts` counts haplotypes at each distinct
+length. Run it once on the Phase 1 TRGT list and once on the Phase 2 list,
+with the same catalog. `panel_c_repeat_alleles.py` turns the two allele tables
+and the PLVI table into the rarefaction curve and the example histograms.
 
-Driven by [`notebooks/terra/fig2_02_panel_c_repeat_loci.ipynb`](../notebooks/terra/fig2_02_panel_c_repeat_loci.ipynb).
-
-> **Also the association input.** `aggregate_repeat_loci.py --out-vcf
-> --with-ancestry` is what the FELIX repeat-dosage branch tests, so the loci in
-> Figure 2C and the loci in the association scan are the same objects. The
-> coding rules below (sign, period, ambiguity, size split) are therefore
-> association conventions too — see
-> [`felix/REPEAT_DOSAGE.md`](../felix/REPEAT_DOSAGE.md) §6.1 before changing any
-> of them.
+`RepeatLocusDosage` sums integrated SNV/indel/SV records. That is not the
+Panel C input. `TrgtLocusConcordance` on chr20 is already done.
 
 | Step | Workflow | Script | Output |
 |---|---|---|---|
-| 1. Double-count check | `wdl/TrgtLocusConcordance.wdl` | `aggregate_repeat_loci.py`, `compare_trgt_locus_dosage.py` | Integrated vs TRGT locus dosage on one chromosome for a participant subset |
-| 2. Allele tables | `wdl/RepeatLocusDosage.wdl` (run once for Phase 1, once for Phase 2) | `aggregate_repeat_loci.py` | `<label>.alleles.tsv.gz` (locus × dosage × haplotype count) and `<label>.summary.json` |
-| 3. Example loci | `wdl/TrgtPlvi.wdl` | `trgt_plvi.py` | PLVI per TRGT locus, ranked within motif-length groups |
-| Figure inputs | notebook | `panel_c_repeat_alleles.py` | Rarefaction curves, example-locus alleles, summary |
+| Allele tables | `wdl/TrgtAlleleCounts.wdl` (Phase 1 and Phase 2) | `trgt_allele_counts.py` | `<label>.alleles.tsv.gz` (locus × dosage × haplotype count) and `<label>.summary.json` |
+| Example ranking | `wdl/TrgtPlvi.wdl` (Phase 2) | `trgt_plvi.py` | PLVI per TRGT locus, ranked within motif-length groups |
+| Figure inputs | `panel_c_repeat_alleles.py` | same | Rarefaction curves, example-locus alleles, summary |
 
 No output carries sample ids.
+
+## TRGT allele counts
+
+A haplotype's dosage is `AL - (END - POS + 1)`: the TRGT allele length minus
+the reference span, in bp. Repeat units are that change divided by the first
+motif's length. Two sequences of the same length are one allele, including a
+length that is not a whole number of copies. A missing genotype counts as
+missing, not as reference. A catalog locus absent from a VCF counts as two
+missing haplotypes. A hemizygous call counts as one haplotype.
+
+Both phases use the catalog BED from `trgt_plvi.py catalog` (one TRExplorer
+VCF). Phase 2 reuses the VCF list `TrgtPlvi` is already running. Phase 1 is
+`trgt.phase1.txt`: `sample_id` and the GCS path, tab-separated, no header,
+same shape as `trgt_table.txt`. Example inputs are in `configs/`. Shards of
+50 VCFs are localized.
+The merge writes the allele table above (`locus_id` is the TRID).
+
+Docker: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6`.
+
+## Integrated dosage (not used for Panel C)
+
+Every length-changing record inside a TRExplorer v1.0.1 locus (± `flank` bp)
+contributes its signed length change to that haplotype's locus dosage, so
+split or partially merged records at one repeat are summed into a single
+allele. The same dosage is what a repeat-aware association test would use
+later (`--out-vcf`, FORMAT `GT[:AN1:AN2]`, INFO `RU_DOSAGE`). The chr20
+concordance workflow is `wdl/TrgtLocusConcordance.wdl`.
+
+> **Association input, not the figure.** `aggregate_repeat_loci.py --out-vcf
+> --with-ancestry` is what the FELIX repeat-dosage branch tests. The coding
+> rules below are association conventions — see
+> [`felix/REPEAT_DOSAGE.md`](../felix/REPEAT_DOSAGE.md) §6.1 before changing
+> any of them.
 
 ## Rules
 
@@ -36,7 +61,7 @@ No output carries sample ids.
 - **Ambiguity.** A sample with two or more unphased heterozygous length
   changes at one locus is set missing (both haplotypes), because the changes
   cannot be assigned to haplotypes; `hap_unphased_ambiguous` counts them. One
-  unphased het plus any homozygous records is resolved. All Figure 2C inputs
+  unphased het plus any homozygous records is resolved. The integrated inputs
   are unphased; `--ignore-phase` applies the same rule to a phased callset.
 - **Size split.** Each input has a role: `small` keeps alleles with
   |change| < `split_bp` (50), `sv` keeps the rest, `all` keeps everything.
@@ -75,5 +100,6 @@ Example configs are in `configs/`. Docker:
 
 ```bash
 python -m pytest scripts/test_aggregate_repeat_loci.py scripts/test_trgt_plvi.py \
-  scripts/test_compare_trgt_locus_dosage.py scripts/test_panel_c_repeat_alleles.py
+  scripts/test_trgt_allele_counts.py scripts/test_compare_trgt_locus_dosage.py \
+  scripts/test_panel_c_repeat_alleles.py
 ```

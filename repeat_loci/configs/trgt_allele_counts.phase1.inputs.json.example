@@ -1,0 +1,8 @@
+{
+  "TrgtAlleleCounts.vcf_list": "gs://YOUR_WORKSPACE_BUCKET/metadata/repeat_loci/trgt_allele_counts.phase1_vcfs.txt",
+  "TrgtAlleleCounts.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+  "TrgtAlleleCounts.shard_size": 50,
+  "TrgtAlleleCounts.label": "trgt_alleles.phase1.trexplorer_v1.0.1",
+  "TrgtAlleleCounts.trgt_allele_counts_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/trgt_allele_counts.py",
+  "TrgtAlleleCounts.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-sv-annotation:0.1.6"
+}
