@@ -183,7 +183,17 @@ python3 scripts/apply_lr_soft_field_fills.py \
 python3 scripts/merge_anc_pcs_into_covariates.py
 ```
 
-8. Run `notebooks/terra/tractor_03_cov_summarize.ipynb` → inline QC plus
+8. Release `covariates.v8.csv.gz` with analysis-membership flags from the
+   eQTL, sQTL, and pQTL sample lists in `covariates.tar.gz` (`in_eqtl`,
+   `in_sqtl`, `in_pqtl`). Duplicate lines in those lists are collapsed.
+   Does not add rows and does not replace `has_rna` or `has_proteomics`:
+
+```bash
+python3 scripts/merge_qtl_membership_into_covariates.py \
+  --ids-tar ../aou-lr-phase-2-manuscript/covariates.tar.gz
+```
+
+9. Run `notebooks/terra/tractor_03_cov_summarize.ipynb` → inline QC plus
    `summaries/{figures,tables,manuscript}/` (gitignored). Small crosstab cells
    (`n < 20`) are redacted in exports.
 

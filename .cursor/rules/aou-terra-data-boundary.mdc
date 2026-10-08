@@ -1,0 +1,40 @@
+---
+description: All of Us long-read primary data (BAM/CRAM/VCF) stays in Terra; limited participant tables may be local but never committed
+alwaysApply: true
+---
+
+# AoU-LR data boundary
+
+## Primary data stays in Terra
+
+All of Us rules forbid downloading primary data: BAMs, CRAMs, VCF/BCFs
+(integrated, GLnexus, SV, FLARE, TRGT) and their per-sample genotypes. They live
+in Terra (workspace bucket `gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09`,
+the Phase 2 storage workspace, `gs://prod-drc-broad/...`). Never suggest
+downloading or streaming them to the laptop, or running "quick checks" on them
+locally. Test code on synthetic fixtures instead (`scripts/test_*.py`).
+
+## Limited participant tables may be local
+
+Covariates, sample lists, id orders and similar small tables (e.g.
+`covariates.v8.csv.gz`, `tractor_mix/resources/`) are permitted locally for
+practical work. They must never be committed (this repo is on GitHub) or shared
+outside the AoU long-read working group. Keep them gitignored; never `git add`
+them, and flag any that are untracked but not ignored.
+
+## How work reaches the data
+
+1. Scripts, notebooks and resources go to the workspace bucket: commit and push,
+   then run `notebooks/terra/00_sync_repo.ipynb` on Terra, or the user uploads
+   them by hand (gitignored resources always by hand).
+2. WDLs are uploaded **manually** by the user to the Terra Methods Repository;
+   `00_sync_repo` only stages copies under `$WORKSPACE_BUCKET/wdl/`.
+3. Analyses run in Terra notebooks or workflows.
+
+## What comes back
+
+Derived outputs: summary TSVs and JSONs, text summaries, figures, metrics. Ones
+meant for the manuscript repo carry no research_ids (small cells may be plotted).
+
+When proposing work, say which steps the user runs on Terra and which outputs
+to bring back, rather than offering to run them locally.

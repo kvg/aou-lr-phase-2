@@ -17,6 +17,7 @@ thing.tsv
 covariates.v2.csv.gz
 covariates.v6.csv.gz
 covariates.v7.csv.gz
+covariates.v8.csv.gz
 
 # Local CDRv9 / covariate source exports (large / private; do not commit)
 tractor_mix/resources/
@@ -49,3 +50,8 @@ locityper/batch/.tasks/
 # Rust extract-tracts-flare build artifacts
 tractor_mix/extract_tracts_flare/target/
 .venv-pca/
+
+# Participant-level tables (local only; never commit)
+aou2_100k.tsv.gz
+aou2_100k_sample.tsv.gz
+aou2_100k_sex_at_birth.tsv

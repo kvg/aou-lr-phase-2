@@ -7,6 +7,9 @@ rna_meet_qc	multiomics RNASeq meet QC	bool; blank→False
 has_rna	multiomics RNASeq releasable	v3-compatible
 proteomics_meet_qc	multiomics Proteomics meet QC	bool; blank→False
 has_proteomics	multiomics Proteomics releasable	v3-compatible
+in_eqtl	covariates.tar.gz eqtl_ids.txt	True if research_id is listed in the eQTL analysis sample list (eqtl_ids.txt); duplicate lines are collapsed to unique IDs; False otherwise. Does not replace has_rna or has_proteomics.
+in_sqtl	covariates.tar.gz sqtl_ids.txt	True if research_id is listed in the sQTL analysis sample list (sqtl_ids.txt); duplicate lines are collapsed to unique IDs; False otherwise. Does not replace has_rna or has_proteomics.
+in_pqtl	covariates.tar.gz pqtl_ids.txt	True if research_id is listed in the pQTL analysis sample list (pqtl_ids.txt); duplicate lines are collapsed to unique IDs; False otherwise. Does not replace has_rna or has_proteomics.
 has_exposomics	multiomics Exposomics releasable v9	bool; blank→False
 has_srWGS	multiomics rid_no_srWGS	True unless source marks person as lacking short-read WGS
 age	part.csv.gz age_at_cdr	
@@ -20,8 +23,8 @@ has_trgt	trgt_table.txt	True if one or more TRGT VCFs are listed
 n_trgt_vcfs	trgt_table.txt	count of listed TRGT VCF paths
 population	pc.log.gz member name (+ control ancestry_pred_other; + lr_pop_population / kNN soft fills)	continental code for population-specific PCA (AFR/AMR/EAS/EUR/SAS/OTH/MID); HG/NA controls use ancestry_pred_other uppercased; ancestry kNN and rare joint-callset nits may fill from lr_PC inference or lr_pop_population (see reference_controls/COVARIATE_FILLS.md)
 lr_pop_population	population_pcs.tsv population	continental subset used for this sample's long-read within-pop PCA (lowercase afr/amr/eas/eur/sas/mid/oth); usually equals ancestry_pred_other
-ancestry_pred	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external six-class ancestry prediction; merged_all fills missing values only when person-level value is unique
-ancestry_pred_other	anc_df.csv.gz (+ merged_all_df.csv.gz fill)	external ancestry prediction that permits oth; merged_all fills missing values only when person-level value is unique
+ancestry_pred	anc_df.csv.gz (+ merged_all_df.csv.gz fill; + lr_PC hard kNN)	hard continental ancestry (afr/amr/eas/eur/sas/mid); never oth after fill_lr_ancestry Rule C; merged_all fills missing values only when person-level value is unique
+ancestry_pred_other	anc_df.csv.gz (+ merged_all_df.csv.gz fill; + lr_PC soft kNN)	external ancestry prediction that permits oth; merged_all fills missing values only when person-level value is unique
 has_ancestry_annotation	derived	True if either ancestry prediction is non-missing after source supplements
 is_reference_control	derived	True for HPRC/HGSVC3/GIAB reference controls with HG*/NA* sample IDs
 in_pedigree	aou_phase2.ped	True if person is represented in the user-maintained Phase 2 pedigree; Phase 1 has no pedigrees
@@ -62,6 +65,22 @@ PC29	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC30	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC31	full.tsv.gz global full-training PCA	canonical PCs; match v3
 PC32	full.tsv.gz global full-training PCA	canonical PCs; match v3
+anc_PC1	anc_df.csv.gz PC1 (same values in merged_all_df.csv.gz)	ancestry-export PC1 from the circulated long-read metadata; does not replace full-training PC1 or long-read lr_PC1
+anc_PC2	anc_df.csv.gz PC2 (same values in merged_all_df.csv.gz)	ancestry-export PC2 from the circulated long-read metadata; does not replace full-training PC2 or long-read lr_PC2
+anc_PC3	anc_df.csv.gz PC3 (same values in merged_all_df.csv.gz)	ancestry-export PC3 from the circulated long-read metadata; does not replace full-training PC3 or long-read lr_PC3
+anc_PC4	anc_df.csv.gz PC4 (same values in merged_all_df.csv.gz)	ancestry-export PC4 from the circulated long-read metadata; does not replace full-training PC4 or long-read lr_PC4
+anc_PC5	anc_df.csv.gz PC5 (same values in merged_all_df.csv.gz)	ancestry-export PC5 from the circulated long-read metadata; does not replace full-training PC5 or long-read lr_PC5
+anc_PC6	anc_df.csv.gz PC6 (same values in merged_all_df.csv.gz)	ancestry-export PC6 from the circulated long-read metadata; does not replace full-training PC6 or long-read lr_PC6
+anc_PC7	anc_df.csv.gz PC7 (same values in merged_all_df.csv.gz)	ancestry-export PC7 from the circulated long-read metadata; does not replace full-training PC7 or long-read lr_PC7
+anc_PC8	anc_df.csv.gz PC8 (same values in merged_all_df.csv.gz)	ancestry-export PC8 from the circulated long-read metadata; does not replace full-training PC8 or long-read lr_PC8
+anc_PC9	anc_df.csv.gz PC9 (same values in merged_all_df.csv.gz)	ancestry-export PC9 from the circulated long-read metadata; does not replace full-training PC9 or long-read lr_PC9
+anc_PC10	anc_df.csv.gz PC10 (same values in merged_all_df.csv.gz)	ancestry-export PC10 from the circulated long-read metadata; does not replace full-training PC10 or long-read lr_PC10
+anc_PC11	anc_df.csv.gz PC11 (same values in merged_all_df.csv.gz)	ancestry-export PC11 from the circulated long-read metadata; does not replace full-training PC11 or long-read lr_PC11
+anc_PC12	anc_df.csv.gz PC12 (same values in merged_all_df.csv.gz)	ancestry-export PC12 from the circulated long-read metadata; does not replace full-training PC12 or long-read lr_PC12
+anc_PC13	anc_df.csv.gz PC13 (same values in merged_all_df.csv.gz)	ancestry-export PC13 from the circulated long-read metadata; does not replace full-training PC13 or long-read lr_PC13
+anc_PC14	anc_df.csv.gz PC14 (same values in merged_all_df.csv.gz)	ancestry-export PC14 from the circulated long-read metadata; does not replace full-training PC14 or long-read lr_PC14
+anc_PC15	anc_df.csv.gz PC15 (same values in merged_all_df.csv.gz)	ancestry-export PC15 from the circulated long-read metadata; does not replace full-training PC15 or long-read lr_PC15
+anc_PC16	anc_df.csv.gz PC16 (same values in merged_all_df.csv.gz)	ancestry-export PC16 from the circulated long-read metadata; does not replace full-training PC16 or long-read lr_PC16
 lr_PC1	tractor_mix/pca/deepvariant_lr_v1/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC1; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC1
 lr_PC2	tractor_mix/pca/deepvariant_lr_v1/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC2; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC2
 lr_PC3	tractor_mix/pca/deepvariant_lr_v1/global_pcs.tsv (DeepVariant long-read global PCA)	long-read global PC3; includes HPRC/HGSVC3 HG/NA controls; does not replace short-read PC3
@@ -159,6 +178,7 @@ pop_PC30	pc.log.gz population-specific PCA	within-population PCA axis
 pop_PC31	pc.log.gz population-specific PCA	within-population PCA axis
 pop_PC32	pc.log.gz population-specific PCA	within-population PCA axis
 has_global_pcs	derived	True if matched to a global full-training PCA row
+has_anc_pcs	derived	True if anc_PC1 is non-missing after the anc_df join
 has_lr_pcs	derived	True if matched to a long-read global PCA row in global_pcs.tsv
 has_lr_pop_pcs	derived	True if matched to a long-read within-population PCA row in population_pcs.tsv
 has_pop_pcs	derived	True if matched to a population-specific PCA row
