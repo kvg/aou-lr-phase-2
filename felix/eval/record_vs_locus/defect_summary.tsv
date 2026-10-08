@@ -1,0 +1,6 @@
+locus	defect	tests_locus_path	tests_record_path	nonzero_dik	locus_path_correct	record_path_correct	verdict
+TR_L1	1_split_across_records	1	2	7	7	7	record path splits the locus into separate tests
+TR_L2	2_impure_allele	1	0	3	3	0	record path drops the locus entirely
+TR_L3	3_seqres_deletion_no_svtype	1	1	4	4	4	record path agrees with the locus path
+TR_L4	4_mixed_symbolic_record	1	1	2	2	1	record path mis-signs the dosage
+TR_L5	4b_mixed_seqresolved_record	1	0	2	2	0	record path drops the locus entirely

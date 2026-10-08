@@ -1,16 +1,10 @@
 {
-  "_comment": "FelixGenome LIMITED covariates. chroms, phase_vcfs, and flare_vcfs must be parallel (same order). GRM stays small (chr1+chr22). For autosomes: python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes. Repeat dosage (ru_engine=felix, locus level): set repeat_catalog_bed + aggregate_repeat_loci_script + write_admixed_dosage_script, and pass joint_vcfs (PropagateFlareAncestry output) so the branch sees GT:AN1:AN2. Set num_ancs to the FLARE2 model's nanc. See felix/REPEAT_DOSAGE.md. ru_engine=rust is the legacy record-level encoding comparison and uses simple_repeat_bed instead.",
+  "_comment": "FelixGenome chr22 repeat-dosage shakedown (M6b), LIMITED covariates. One chromosome, locus-level repeat dosage through FELIX step 2 with carrier QC. Replace BUCKET and confirm num_ancs against the FLARE2 selection-v2 decision (5 or 6) before submitting. joint_vcfs must be the PropagateFlareAncestry output (FORMAT GT:AN1:AN2). See HANDOFF_repeat_dosage_chr22.md and felix/REPEAT_DOSAGE.md.",
   "FelixGenome.chroms": [
-    "chr21",
     "chr22"
   ],
-  "FelixGenome.phase_vcfs": [
-    "gs://BUCKET/phased/aou_lr_phase2_v1.chr21.phased.vcf.gz",
-    "gs://BUCKET/phased/aou_lr_phase2_v1.chr22.phased.vcf.gz"
-  ],
-  "FelixGenome.flare_vcfs": [
-    "gs://BUCKET/REPLACE_chr21.anc.vcf.gz",
-    "gs://BUCKET/REPLACE_chr22.anc.vcf.gz"
+  "FelixGenome.joint_vcfs": [
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz"
   ],
   "FelixGenome.num_ancs": 5,
   "FelixGenome.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",

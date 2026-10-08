@@ -27,6 +27,27 @@ Matches ``extract-tracts-flare --ru-baseline ref`` on ``annotate_repeat_units.py
 output, which writes ``SVTYPE`` for every ``RU_TEST`` record (``CN_REF`` cancels). Run FELIX step 2 on the output with ``--vcfField=DS`` and
 ``FELIX_DOSAGE_QC=carrier`` (felix/patches/0001-dosage-carrier-qc.patch).
 
+Missing haplotypes
+------------------
+``aggregate_repeat_loci.py`` writes ``.|.`` for a haplotype whose contributing
+record was missing and ``./.`` for a sample whose length changes cannot be
+assigned to haplotypes, so real loci arrive with missing calls.
+``--missing ref`` (default) gives such a haplotype ``x = 0`` and **excludes it
+from** ``ANC{k}``; ``--max-hap-missing`` drops a locus above a missingness
+fraction, recorded per locus as INFO ``RU_HAP_MISS``. ``--missing error`` keeps
+the original strict refusal.
+
+Excluding the haplotype from ``ANC{k}`` rather than counting it is what keeps
+the FELIX carrier-QC patch exact. That patch counts a sample as a carrier when
+``DS{k} != 0``, among samples with ``ANC{k} > 0``; a missing haplotype is
+neither a carrier nor part of the denominator, which is the same convention
+``aggregate_repeat_loci.py`` uses for its ``n_hap`` tallies. Note that the patch
+evaluates carrier counts at two points in ``mainMarkerAdmixedInCPP`` — once
+before FELIX's own imputation and once after
+(``TRACTORHYBRID_TIMED_IMPUTE_FAKEFLIP``). Emitting ``0`` rather than a missing
+``DS`` means both evaluations see the same value and FELIX's ``g_impute_method``
+never fires on these records, so the two call sites cannot disagree.
+
 Example::
 
     python3 scripts/write_admixed_dosage_vcf.py \\
@@ -115,8 +136,26 @@ def site_dosages(
     units: Sequence[float],
     num_ancs: int,
     where: str,
-) -> tuple[list[list[float]], list[list[int]], float]:
-    """Per-sample (x sums per ancestry, haplotype counts per ancestry, max |x|)."""
+    missing: str = "ref",
+) -> tuple[list[list[float]], list[list[int]], float, int, int]:
+    """Per-sample (x sums per ancestry, haplotype counts per ancestry, max |x|,
+    missing haplotypes, total haplotypes).
+
+    A haplotype is missing when its allele or its ancestry is ``.``, or when the
+    genotype is unphased (``/``) — the locus aggregator writes ``./.`` for a
+    sample whose length changes cannot be assigned to haplotypes, and an
+    unphased heterozygote has no haplotype-to-ancestry mapping to test.
+
+    ``missing``:
+      ``error`` — refuse the record (the original strict behaviour).
+      ``ref``   — the haplotype contributes ``x = 0`` and is **excluded** from
+                  ``ANC{k}``. Under REF-relative coding that keeps carrier QC
+                  exact: a carrier is a sample with a non-zero ``DS{k}``, i.e.
+                  one that carries a non-reference repeat allele, and a missing
+                  haplotype is neither a carrier nor part of the denominator.
+    """
+    if missing not in ("error", "ref"):
+        raise ValueError(f"missing must be 'error' or 'ref', got {missing!r}")
     try:
         gi, a1i, a2i = fmt_keys.index("GT"), fmt_keys.index("AN1"), fmt_keys.index("AN2")
     except ValueError as exc:
@@ -124,18 +163,25 @@ def site_dosages(
     ds_rows: list[list[float]] = []
     anc_rows: list[list[int]] = []
     max_abs = 0.0
+    n_missing = 0
+    n_hap = 0
     for field in sample_fields:
         parts = field.split(":")
         gt = parts[gi]
-        if "|" not in gt:
+        phased = "|" in gt
+        if not phased and missing == "error":
             raise ValueError(f"{where}: unphased or missing GT {gt!r}")
-        alleles = gt.split("|")
+        alleles = gt.replace("/", "|").split("|")
         ancs = (parts[a1i], parts[a2i])
         ds = [0.0] * num_ancs
         cnt = [0] * num_ancs
         for allele_s, anc_s in zip(alleles, ancs):
-            if allele_s == "." or anc_s in (".", ""):
-                raise ValueError(f"{where}: missing allele or ancestry in {field!r}")
+            n_hap += 1
+            if allele_s in (".", "") or anc_s in (".", "") or not phased:
+                if missing == "error":
+                    raise ValueError(f"{where}: missing allele or ancestry in {field!r}")
+                n_missing += 1
+                continue
             allele, anc = int(allele_s), int(anc_s)
             if not 0 <= anc < num_ancs:
                 raise ValueError(f"{where}: ancestry {anc} outside 0..{num_ancs - 1}")
@@ -147,7 +193,7 @@ def site_dosages(
             max_abs = max(max_abs, abs(x))
         ds_rows.append(ds)
         anc_rows.append(cnt)
-    return ds_rows, anc_rows, max_abs
+    return ds_rows, anc_rows, max_abs, n_missing, n_hap
 
 
 def header_lines(contigs: Sequence[str], num_ancs: int, samples: Sequence[str]) -> list[str]:
@@ -156,6 +202,11 @@ def header_lines(contigs: Sequence[str], num_ancs: int, samples: Sequence[str]) 
     out.append(
         '##INFO=<ID=RU_SCALE,Number=1,Type=Float,Description="DS{k} = sum of repeat units '
         'relative to REF over ancestry-k haplotypes / RU_SCALE">'
+    )
+    out.append(
+        '##INFO=<ID=RU_HAP_MISS,Number=1,Type=Float,Description="Fraction of haplotypes with a '
+        'missing allele or ancestry, or an unphased genotype; they contribute 0 to DS{k} and are '
+        'excluded from ANC{k}">'
     )
     for k in range(1, num_ancs + 1):
         out.append(
@@ -175,8 +226,13 @@ def write_admixed_vcf(
     *,
     num_ancs: int,
     keep: Optional[list[str]] = None,
+    missing: str = "ref",
+    max_hap_missing: float = 0.1,
 ) -> dict[str, int]:
-    stats = {"records_in": 0, "ru_records": 0, "written": 0, "monomorphic_skipped": 0}
+    stats = {
+        "records_in": 0, "ru_records": 0, "written": 0, "monomorphic_skipped": 0,
+        "missingness_skipped": 0, "hap_missing": 0, "hap_total": 0,
+    }
     contigs: list[str] = []
     order: Optional[list[int]] = None
     fmt_out = ":".join([f"DS{k}" for k in range(1, num_ancs + 1)] + [f"ANC{k}" for k in range(1, num_ancs + 1)])
@@ -194,9 +250,9 @@ def write_admixed_vcf(
                     names = vcf_samples
                 else:
                     idx = {s: i for i, s in enumerate(vcf_samples)}
-                    missing = [s for s in keep if s not in idx]
-                    if missing:
-                        raise SystemExit(f"{len(missing)} keep-list samples not in VCF, e.g. {missing[:3]}")
+                    absent = [s for s in keep if s not in idx]
+                    if absent:
+                        raise SystemExit(f"{len(absent)} keep-list samples not in VCF, e.g. {absent[:3]}")
                     order = [idx[s] for s in keep]
                     names = keep
                 out.write("\n".join(header_lines(contigs, num_ancs, names)) + "\n")
@@ -212,14 +268,22 @@ def write_admixed_vcf(
             where = f"{f[0]}:{f[1]}"
             units = allele_units(info, f[3], f[4])
             fields = [f[9 + i] for i in order]
-            ds_rows, anc_rows, max_abs = site_dosages(fields, f[8].split(":"), units, num_ancs, where)
+            ds_rows, anc_rows, max_abs, n_miss, n_hap = site_dosages(
+                fields, f[8].split(":"), units, num_ancs, where, missing=missing
+            )
             if max_abs == 0.0:
                 stats["monomorphic_skipped"] += 1
                 continue
+            miss_frac = (n_miss / n_hap) if n_hap else 0.0
+            if miss_frac > max_hap_missing:
+                stats["missingness_skipped"] += 1
+                continue
+            stats["hap_missing"] += n_miss
+            stats["hap_total"] += n_hap
             cells = []
             for ds, cnt in zip(ds_rows, anc_rows):
                 cells.append(":".join([fmt_num(v / max_abs) for v in ds] + [str(c) for c in cnt]))
-            info_out = f"RU_SCALE={fmt_num(max_abs)}"
+            info_out = f"RU_SCALE={fmt_num(max_abs)};RU_HAP_MISS={fmt_num(round(miss_frac, 6))}"
             out.write("\t".join([f[0], f[1], f[2], f[3], f[4], ".", f[6], info_out, fmt_out, *cells]) + "\n")
             stats["written"] += 1
     return stats
@@ -232,14 +296,28 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--samples", type=Path, default=None, help="Keep-list; output columns in this order")
     p.add_argument("--out", required=True, help="Output VCF (plain text; bgzip afterwards), or - for stdout")
     p.add_argument("--stats-json", type=Path, default=None)
+    p.add_argument(
+        "--missing", choices=("ref", "error"), default="ref",
+        help="ref: a missing or unphased haplotype contributes 0 to DS{k} and is excluded from "
+             "ANC{k}; error: refuse any such record",
+    )
+    p.add_argument(
+        "--max-hap-missing", type=float, default=0.1,
+        help="Skip a locus whose missing-haplotype fraction exceeds this (default 0.1)",
+    )
     args = p.parse_args(argv)
+    if not 0.0 <= args.max_hap_missing <= 1.0:
+        raise SystemExit("--max-hap-missing must be between 0 and 1")
 
     keep = None
     if args.samples:
         keep = [ln.strip() for ln in args.samples.read_text().splitlines() if ln.strip()]
     out = sys.stdout if args.out == "-" else open(args.out, "w")
     try:
-        stats = write_admixed_vcf(args.vcf, out, num_ancs=args.num_ancs, keep=keep)
+        stats = write_admixed_vcf(
+            args.vcf, out, num_ancs=args.num_ancs, keep=keep,
+            missing=args.missing, max_hap_missing=args.max_hap_missing,
+        )
     finally:
         if out is not sys.stdout:
             out.close()

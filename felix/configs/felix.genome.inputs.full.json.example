@@ -1,6 +1,9 @@
 {
-  "_comment": "FelixGenome FULL covariates (limited + coverage + GC). Same chrom / GRM notes as felix.genome.inputs.limited.json.example.",
-  "FelixGenome.chroms": ["chr21", "chr22"],
+  "_comment": "FelixGenome FULL covariates. chroms, phase_vcfs, and flare_vcfs must be parallel (same order). GRM stays small (chr1+chr22). For autosomes: python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes. Repeat dosage (ru_engine=felix, locus level): set repeat_catalog_bed + aggregate_repeat_loci_script + write_admixed_dosage_script, and pass joint_vcfs (PropagateFlareAncestry output) so the branch sees GT:AN1:AN2. Set num_ancs to the FLARE2 model's nanc. See felix/REPEAT_DOSAGE.md. ru_engine=rust is the legacy record-level encoding comparison and uses simple_repeat_bed instead.",
+  "FelixGenome.chroms": [
+    "chr21",
+    "chr22"
+  ],
   "FelixGenome.phase_vcfs": [
     "gs://BUCKET/phased/aou_lr_phase2_v1.chr21.phased.vcf.gz",
     "gs://BUCKET/phased/aou_lr_phase2_v1.chr22.phased.vcf.gz"
@@ -10,34 +13,36 @@
     "gs://BUCKET/REPLACE_chr22.anc.vcf.gz"
   ],
   "FelixGenome.num_ancs": 5,
-
   "FelixGenome.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
   "FelixGenome.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
   "FelixGenome.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
   "FelixGenome.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_full.txt",
   "FelixGenome.trait_type": "binary",
-
   "FelixGenome.grm_vcfs": [
     "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/c70fc078-7d46-4da1-8f59-30a7ebd4b738/flare/81ea1db7-94da-4a6b-b869-35b292d2f9a1/call-flare_task/aou_lr_phase2_v1.chr1.anc.vcf.gz",
     "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz"
   ],
-
   "FelixGenome.build_saige_grm_script": "gs://BUCKET/scripts/build_saige_plink_and_grm.sh",
   "FelixGenome.make_plink_keep_script": "gs://BUCKET/scripts/make_plink_keep.py",
   "FelixGenome.fit_felix_null_script": "gs://BUCKET/felix/scripts/fit_felix_null.R",
   "FelixGenome.run_felix_step2_script": "gs://BUCKET/felix/scripts/run_felix_step2.R",
   "FelixGenome.summarize_script": "gs://BUCKET/felix/scripts/summarize_felix_results.py",
-
-  "FelixGenome.simple_repeat_bed": "",
-  "FelixGenome.annotate_repeat_units_script": "gs://BUCKET/scripts/annotate_repeat_units.py",
   "FelixGenome.ru_engine": "felix",
+  "FelixGenome.repeat_catalog_bed": "gs://BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+  "FelixGenome.aggregate_repeat_loci_script": "gs://BUCKET/scripts/aggregate_repeat_loci.py",
   "FelixGenome.write_admixed_dosage_script": "gs://BUCKET/scripts/write_admixed_dosage_vcf.py",
   "FelixGenome.ru_min_carriers": 20,
-
+  "FelixGenome.ru_flank": 10,
+  "FelixGenome.ru_max_bp": 100000,
+  "FelixGenome.ru_apply_filters": "PASS,.",
+  "FelixGenome.ru_missing_policy": "ref",
+  "FelixGenome.ru_max_hap_missing": 0.1,
+  "FelixGenome.simple_repeat_bed": "",
+  "FelixGenome.annotate_repeat_units_script": "gs://BUCKET/scripts/annotate_repeat_units.py",
   "FelixGenome.relatedness_cutoff": 0.05,
   "FelixGenome.num_random_markers": 2000,
   "FelixGenome.min_mac": 50,
-  "FelixGenome.summarize_p_threshold": 0.00000005,
+  "FelixGenome.summarize_p_threshold": 5e-08,
   "FelixGenome.summarize_top_n": 50,
   "FelixGenome.pack_disk_gb_floor": 100,
   "FelixGenome.pack_disk_gb_multiplier": 3.5,

@@ -11,8 +11,12 @@ version 1.0
 #   Concat → one merged TSV per phenotype
 #   SummarizeFelixResults → phenotype-named copies, λGC / QQ / Manhattan
 #
-# Optional RU_TEST repeat-unit branch (when simple_repeat_bed is set):
-#   AnnotateRuTest → ExtractRuDosage (dosage / collapse / split) → ScoreRuDosage
+# Optional repeat-dosage branch:
+#   ru_engine="felix" (default, needs repeat_catalog_bed):
+#     AggregateRepeatLoci → WriteRuAdmixedVcf → RunFelixStep2RuVcf
+#     One test per catalog repeat locus, REF-relative units, SPA + carrier QC.
+#   ru_engine="rust" (needs simple_repeat_bed), comparison only:
+#     AnnotateRuTest → ExtractRuDosage (dosage / collapse / split) → ScoreRuDosage
 #   (tractor-mix-score --mode felix) per (phenotype × chromosome × encoding)
 #
 # Terra chrom-set launch: parallel Arrays
@@ -701,6 +705,87 @@ task ScoreRuDosage {
   }
 }
 
+# One tested unit per catalog repeat locus: every length-changing record inside a
+# TRExplorer interval contributes its signed length change to that haplotype's
+# locus dosage (scripts/aggregate_repeat_loci.py --out-vcf). This replaces the
+# record-level annotator for ru_engine="felix" — see felix/REPEAT_DOSAGE.md §6.
+task AggregateRepeatLoci {
+  input {
+    File source_vcf
+    File? source_vcf_index
+    String chrom
+    File repeat_catalog_bed
+    File analysis_samples
+    File aggregate_script
+    Int num_ancs = 5
+    Int flank = 10
+    Int max_bp = 100000
+    String apply_filters = "PASS,."
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+    Int cpu = 4
+    Int memory_gb = 16
+    Int disk_gb_floor = 100
+    Float disk_gb_multiplier = 3.0
+    Int preemptible = 1
+  }
+
+  Int disk_gb = ceil(size(source_vcf, "GB") * disk_gb_multiplier) + disk_gb_floor
+
+  command <<<
+    set -euo pipefail
+    CHROM=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{chrom}")
+    mkdir -p loci src
+
+    # The aggregator seeks with bcftools, so the source VCF needs an index next
+    # to it. Cromwell localizes the index (when given) to a different directory,
+    # so symlink both into one place; index here when none was provided.
+    SRC="src/$(basename "~{source_vcf}")"
+    ln -s "~{source_vcf}" "${SRC}"
+    IDX="~{default='' source_vcf_index}"
+    if [[ -n "${IDX}" ]]; then
+      ln -s "${IDX}" "src/$(basename "${IDX}")"
+    else
+      bcftools index -t "${SRC}" || bcftools index -c "${SRC}"
+    fi
+
+    # --num-ancs fails loudly if FLARE emitted a code the downstream tests
+    # cannot represent, instead of silently folding it into another ancestry.
+    python3 "~{aggregate_script}" \
+      --vcf "${SRC}" \
+      --catalog-bed "~{repeat_catalog_bed}" \
+      --chrom "${CHROM}" \
+      --samples "~{analysis_samples}" \
+      --apply-filters "~{apply_filters}" \
+      --flank ~{flank} \
+      --max-bp ~{max_bp} \
+      --with-ancestry \
+      --num-ancs ~{num_ancs} \
+      --out-vcf loci/loci.vcf \
+      --out-alleles loci/loci.alleles.tsv.gz \
+      --out-summary loci/loci.summary.json
+
+    bcftools view -Oz -o loci/loci.vcf.gz loci/loci.vcf
+    bcftools index -c loci/loci.vcf.gz
+    rm -f loci/loci.vcf
+    cat loci/loci.summary.json
+  >>>
+
+  output {
+    File locus_vcf = "loci/loci.vcf.gz"
+    File locus_vcf_index = "loci/loci.vcf.gz.csi"
+    File alleles_tsv = "loci/loci.alleles.tsv.gz"
+    File summary_json = "loci/loci.summary.json"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
 # Repeat-SV dosages for FELIX's admixed VCF path: DS{k} / ANC{k} from RU_TEST
 # loci (REF-relative repeat units, scaled per locus; scripts/write_admixed_dosage_vcf.py).
 task WriteRuAdmixedVcf {
@@ -710,6 +795,8 @@ task WriteRuAdmixedVcf {
     File analysis_samples
     File write_script
     Int num_ancs = 5
+    String missing_policy = "ref"
+    Float max_hap_missing = 0.1
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 2
     Int memory_gb = 8
@@ -728,6 +815,8 @@ task WriteRuAdmixedVcf {
       --vcf "~{annotated_vcf}" \
       --num-ancs ~{num_ancs} \
       --samples "~{analysis_samples}" \
+      --missing "~{missing_policy}" \
+      --max-hap-missing ~{max_hap_missing} \
       --out ru/ru.admixed.vcf \
       --stats-json ru/ru.admixed.stats.json
     bcftools view -Oz -o ru/ru.admixed.vcf.gz ru/ru.admixed.vcf
@@ -844,16 +933,30 @@ workflow FelixGenome {
     File run_felix_step2_script
     File summarize_script
 
-  # Optional RU_TEST repeat-unit branch (simpleRepeat bed). Reads GT:AN1:AN2, so
-  # pass joint_vcfs (PropagateFlareAncestry output), not phase_vcfs alone.
-    File? simple_repeat_bed
-    File? annotate_repeat_units_script
-  # "felix" (default): FELIX step 2 on a REF-relative dosage VCF with carrier QC
-  # (needs write_admixed_dosage_script and the patched image).
-  # "rust": legacy tractor-mix-score encodings (no SPA), for comparison only.
+  # Optional repeat-dosage branch. Both engines read GT:AN1:AN2, so pass
+  # joint_vcfs (PropagateFlareAncestry output), not phase_vcfs alone.
+  #
+  # "felix" (default): one test per catalog repeat locus. Needs
+  #   repeat_catalog_bed (TRExplorer intervals: chrom start end TRID motifs),
+  #   aggregate_repeat_loci_script and write_admixed_dosage_script, plus the
+  #   patched image for carrier QC. felix/REPEAT_DOSAGE.md.
+  # "rust": legacy record-level tractor-mix-score encodings (no SPA, one test
+  #   per VCF record), for the encoding comparison only. Needs
+  #   simple_repeat_bed and annotate_repeat_units_script.
     String ru_engine = "felix"
+
+    File? repeat_catalog_bed
+    File? aggregate_repeat_loci_script
     File? write_admixed_dosage_script
     Int ru_min_carriers = 20
+    Int ru_flank = 10
+    Int ru_max_bp = 100000
+    String ru_apply_filters = "PASS,."
+    String ru_missing_policy = "ref"
+    Float ru_max_hap_missing = 0.1
+
+    File? simple_repeat_bed
+    File? annotate_repeat_units_script
 
     Float relatedness_cutoff = 0.05
     Int num_random_markers = 2000
@@ -940,7 +1043,64 @@ workflow FelixGenome {
         disk_gb_multiplier = pack_disk_gb_multiplier
     }
 
-    if (defined(simple_repeat_bed) && defined(annotate_repeat_units_script)) {
+    # Locus-level dosage (default). One test per catalog repeat locus: the
+    # record-level annotator is not used here, because it tests each VCF record
+    # separately and drops records whose alleles are not a whole number of
+    # repeat units (felix/REPEAT_DOSAGE.md §6.2, felix/eval/record_vs_locus/).
+    if (ru_engine == "felix" && defined(repeat_catalog_bed)
+        && defined(aggregate_repeat_loci_script) && defined(write_admixed_dosage_script)) {
+      call AggregateRepeatLoci as RuLoci {
+        input:
+          source_vcf = phase_for_ru,
+          chrom = chrom,
+          repeat_catalog_bed = select_first([repeat_catalog_bed]),
+          analysis_samples = analysis_samples,
+          aggregate_script = select_first([aggregate_repeat_loci_script]),
+          num_ancs = num_ancs,
+          flank = ru_flank,
+          max_bp = ru_max_bp,
+          apply_filters = ru_apply_filters,
+          docker = docker,
+          disk_gb_floor = ru_disk_gb_floor,
+          disk_gb_multiplier = ru_disk_gb_multiplier
+      }
+
+      call WriteRuAdmixedVcf as RuVcf {
+        input:
+          annotated_vcf = RuLoci.locus_vcf,
+          chrom = chrom,
+          analysis_samples = analysis_samples,
+          write_script = select_first([write_admixed_dosage_script]),
+          num_ancs = num_ancs,
+          missing_policy = ru_missing_policy,
+          max_hap_missing = ru_max_hap_missing,
+          docker = docker
+      }
+
+      scatter (j in range(length(phenotypes))) {
+        call RunFelixStep2RuVcf as RuStep2 {
+          input:
+            admixed_vcf = RuVcf.admixed_vcf,
+            admixed_vcf_index = RuVcf.admixed_vcf_index,
+            chrom = chrom,
+            phenotype = phenotypes[j],
+            null_rda = Null.null_rda[j],
+            variance_ratio = Null.variance_ratio[j],
+            samples_used = Null.samples_used[j],
+            sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
+            sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
+            run_step2_script = run_felix_step2_script,
+            num_ancs = num_ancs,
+            min_carriers = ru_min_carriers,
+            pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
+            docker = docker
+        }
+      }
+    }
+
+    # Legacy record-level encodings, kept for the encoding comparison only.
+    if (ru_engine == "rust" && defined(simple_repeat_bed)
+        && defined(annotate_repeat_units_script)) {
       call AnnotateRuTest as RuAnnot {
         input:
           source_vcf = phase_for_ru,
@@ -950,66 +1110,32 @@ workflow FelixGenome {
           docker = docker
       }
 
-      if (ru_engine == "felix") {
-        call WriteRuAdmixedVcf as RuVcf {
-          input:
-            annotated_vcf = RuAnnot.annotated_vcf,
-            chrom = chrom,
-            analysis_samples = analysis_samples,
-            write_script = select_first([write_admixed_dosage_script]),
-            num_ancs = num_ancs,
-            docker = docker
-        }
-
-        scatter (j in range(length(phenotypes))) {
-          call RunFelixStep2RuVcf as RuStep2 {
-            input:
-              admixed_vcf = RuVcf.admixed_vcf,
-              admixed_vcf_index = RuVcf.admixed_vcf_index,
-              chrom = chrom,
-              phenotype = phenotypes[j],
-              null_rda = Null.null_rda[j],
-              variance_ratio = Null.variance_ratio[j],
-              samples_used = Null.samples_used[j],
-              sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
-              sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
-              run_step2_script = run_felix_step2_script,
-              num_ancs = num_ancs,
-              min_carriers = ru_min_carriers,
-              pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
-              docker = docker
-          }
-        }
+      call ExtractRuDosage as RuExtract {
+        input:
+          annotated_vcf = RuAnnot.annotated_vcf,
+          chrom = chrom,
+          analysis_samples = analysis_samples,
+          num_ancs = num_ancs,
+          docker = docker,
+          disk_gb_floor = ru_disk_gb_floor,
+          disk_gb_multiplier = ru_disk_gb_multiplier
       }
 
-      if (ru_engine == "rust") {
-        call ExtractRuDosage as RuExtract {
-          input:
-            annotated_vcf = RuAnnot.annotated_vcf,
-            chrom = chrom,
-            analysis_samples = analysis_samples,
-            num_ancs = num_ancs,
-            docker = docker,
-            disk_gb_floor = ru_disk_gb_floor,
-            disk_gb_multiplier = ru_disk_gb_multiplier
-        }
-
-        scatter (j in range(length(phenotypes))) {
-          scatter (enc in ru_encodings) {
-            call ScoreRuDosage as RuScore {
-              input:
-                phenotype = phenotypes[j],
-                chrom = chrom,
-                encoding = enc,
-                null_export_tar = Null.null_export_tar[j],
-                dosage_files = RuExtract.dosage_files,
-                collapse_files = RuExtract.collapse_files,
-                split_files = RuExtract.split_files,
-                score_threads = score_threads,
-                chunk_size = chunk_size,
-                docker = docker,
-                disk_gb = score_disk_gb
-            }
+      scatter (j in range(length(phenotypes))) {
+        scatter (enc in ru_encodings) {
+          call ScoreRuDosage as RuScore {
+            input:
+              phenotype = phenotypes[j],
+              chrom = chrom,
+              encoding = enc,
+              null_export_tar = Null.null_export_tar[j],
+              dosage_files = RuExtract.dosage_files,
+              collapse_files = RuExtract.collapse_files,
+              split_files = RuExtract.split_files,
+              score_threads = score_threads,
+              chunk_size = chunk_size,
+              docker = docker,
+              disk_gb = score_disk_gb
           }
         }
       }
@@ -1094,10 +1220,18 @@ workflow FelixGenome {
     Array[File]? ru_results_tsvs = RuConcat.merged_tsv
     Array[File?] ru_admixed_vcfs = RuVcf.admixed_vcf
     Array[File?] ru_admixed_stats = RuVcf.stats_json
+    # Locus/haplotype tallies travel with the results: missingness, possible
+    # double counts between the indel and SV calls, ancestry inconsistency.
+    Array[File?] ru_locus_summaries = RuLoci.summary_json
+    Array[File?] ru_locus_alleles = RuLoci.alleles_tsv
+    Array[File?] ru_locus_vcfs = RuLoci.locus_vcf
+    # ru_engine="rust" only: per-chrom, per-phenotype, per-encoding score TSVs
+    # for the encoding comparison. Not merged into Summarize.
+    Array[Array[Array[File]]?] ru_rust_encoding_tsvs = RuScore.results_tsv
   }
 
   meta {
-    description: "Genome-wide FELIX: shared SAIGE mtx GRM + FELIX nulls; per-chr felixla pack/step2; optional RU_TEST repeat dosages through FELIX step 2 (carrier QC)."
+    description: "Genome-wide FELIX: shared SAIGE mtx GRM + FELIX nulls; per-chr felixla pack/step2; optional locus-level repeat dosages through FELIX step 2 (carrier QC)."
     allowNestedInputs: true
   }
 }

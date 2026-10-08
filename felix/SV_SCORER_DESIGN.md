@@ -1,5 +1,15 @@
 # Design note: ancestry-aware association for repeat-mediated SVs
 
+> **Superseded by [`REPEAT_DOSAGE.md`](REPEAT_DOSAGE.md) (2026-10-07).** That
+> note is the single source of truth for the model, coding rules, the FELIX
+> patch, the locus-level input contract and the open items. This file is kept
+> for the record of how the engine choice was made (§3 options A/B/C and the
+> spike results). Two things in it are now out of date: the association input
+> is `scripts/aggregate_repeat_loci.py` at **locus** level, not
+> `annotate_repeat_units.py` at record level (see `REPEAT_DOSAGE.md` §6.1–6.2),
+> and §7 item 7 / §2's "ancestry-centered" encoding needs a redesign for the
+> reasons in `REPEAT_DOSAGE.md` §7.
+
 Status: **Option A + FELIX patch implemented and validated locally on synthetic data (2026-10-02, §3.1–3.2); not yet run on AoU data**. Owner: Kiran Garimella.
 Related docs: [`PLAN.md`](PLAN.md) (milestones), [`eval/README.md`](eval/README.md)
 (calibration gates).

@@ -47,6 +47,32 @@ Outputs:
 - `lambda_gc_wide.tsv` — wide pivot for notebooks
 - `<phenotype>/qq_matched.png` — overlay QQ for the four models
 
+## Repeat dosage — local checks (no Terra, no FELIX)
+
+Two harnesses that run on a laptop and gate changes to the repeat-dosage input.
+Both need `bcftools` on `PATH`. Design: [`../REPEAT_DOSAGE.md`](../REPEAT_DOSAGE.md).
+
+```bash
+# A-1 / A-2 at the writer boundary + end-to-end chain on a synthetic cohort.
+python3 felix/eval/dosage_qc/locus_path_smoke.py --out-dir /tmp/smoke
+
+# Record-level vs locus-level dosage on the defect fixture.
+python3 felix/eval/record_vs_locus/compare_paths.py \
+  --fixture-dir scripts/testdata/repeat_locus_assoc --scripts-dir scripts \
+  --out-dir felix/eval/record_vs_locus --work-dir /tmp/rvl
+python3 felix/eval/record_vs_locus/plot_record_vs_locus.py \
+  --in-dir felix/eval/record_vs_locus --out felix/eval/record_vs_locus/record_vs_locus.png
+```
+
+Rerun both after bumping FELIX or editing `aggregate_repeat_loci.py` /
+`write_admixed_dosage_vcf.py`. `locus_path_smoke.py` asserts its invariants, so
+a non-zero exit is the gate. Unit tests:
+
+```bash
+python3 -m pytest scripts/test_aggregate_repeat_loci.py \
+  scripts/test_write_admixed_dosage_vcf.py -q
+```
+
 ## M4 — Repeat-unit encoding comparison
 
 After `FelixGenome.wdl` RU_TEST branch (or local `tractor-mix-score --mode felix` runs):

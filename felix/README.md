@@ -29,12 +29,23 @@ tractor_mix/
 
 FELIX replaces Tractor-Mix for SNV/indel + unique-SV association (`felixla` pack +
 `step2_SPAtests` with `--is_admixed=TRUE`). Repeat-mediated SVs use the optional
-**RU_TEST** branch: annotate → `scripts/write_admixed_dosage_vcf.py` (REF-relative
-repeat units per ancestry, `DS{k}` / `ANC{k}`) → FELIX step 2 on that VCF with
-carrier-count QC, using the same FELIX null as the SNV scan
-(`ru_engine = "felix"`, default). `ru_engine = "rust"` keeps the old
-`extract-tracts-flare` → `tractor-mix-score` encodings (no SPA) for comparison.
-Design and validation: [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md).
+repeat-dosage branch, which tests **one catalog repeat locus at a time**:
+`scripts/aggregate_repeat_loci.py --out-vcf --with-ancestry` (every
+length-changing record inside a TRExplorer interval contributes its signed
+length change to that haplotype's locus dosage) →
+`scripts/write_admixed_dosage_vcf.py` (REF-relative repeat units per ancestry,
+`DS{k}` / `ANC{k}`) → FELIX step 2 on that VCF with carrier-count QC, using the
+same FELIX null as the SNV scan (`ru_engine = "felix"`, default).
+`ru_engine = "rust"` keeps the old record-level `annotate_repeat_units.py` →
+`extract-tracts-flare` → `tractor-mix-score` encodings (no SPA) for comparison
+only — it tests each VCF record separately and drops records whose alleles are
+not a whole number of repeat units.
+
+**Design, coding rules, status and open items:
+[`REPEAT_DOSAGE.md`](REPEAT_DOSAGE.md)** (single source of truth).
+Engine-choice history: [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md).
+Fixture evidence for the locus-level switch:
+[`eval/record_vs_locus/`](eval/record_vs_locus/).
 
 | Model | Covariates (2×2 calibration) |
 |-------|------------------------------|
@@ -85,8 +96,11 @@ WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_tractor_scripts.sh   # GRM, 
 3. Compare λGC vs Tractor-Mix 2×2: `felix/eval/README.md`.
 
 4. Genome-wide: **FelixGenome.wdl** + `felix/configs/felix.genome.inputs.*.json.example`.
-   Optional RU_TEST: set `simple_repeat_bed` + `annotate_repeat_units_script`
-   (`gs://BUCKET/scripts/annotate_repeat_units.py`).
+   Repeat dosage: set `repeat_catalog_bed` (TRExplorer intervals),
+   `aggregate_repeat_loci_script` and `write_admixed_dosage_script`, and pass
+   `joint_vcfs` so the branch sees `GT:AN1:AN2`. Set `num_ancs` to the FLARE2
+   model's `nanc` — `aggregate_repeat_loci.py --num-ancs` fails the task rather
+   than folding an out-of-range ancestry code into another ancestry.
 
 Resolve FLARE URIs:
 

@@ -1,0 +1,46 @@
+locus	defect	sample	ancestry	expected	locus_path	record_path	locus_ok	record_tested	record_ok
+TR_L1	1_split_across_records	S1	0	22.0	22.0	22.0	True	True	True
+TR_L1	1_split_across_records	S1	1	0.0	0.0	0.0	True	True	True
+TR_L1	1_split_across_records	S2	0	2.0	2.000000002	2.0	True	True	True
+TR_L1	1_split_across_records	S3	1	20.0	20.000000019999998	20.0	True	True	True
+TR_L1	1_split_across_records	S4	0	2.0	2.000000002	2.0	True	True	True
+TR_L1	1_split_across_records	S4	1	2.0	2.000000002	2.0	True	True	True
+TR_L1	1_split_across_records	S5	0	20.0	20.000000019999998	20.0	True	True	True
+TR_L1	1_split_across_records	S5	1	20.0	20.000000019999998	20.0	True	True	True
+TR_L1	1_split_across_records	S6	0	0.0	0.0	0.0	True	True	True
+TR_L2	2_impure_allele	S1	0	2.0	1.999999978095238		True	False	False
+TR_L2	2_impure_allele	S1	1	0.0	0.0		True	False	False
+TR_L2	2_impure_allele	S2	0	2.3333333333333335	2.3333333		True	False	False
+TR_L2	2_impure_allele	S3	1	4.333333333333334	4.33333337142857		True	False	False
+TR_L2	2_impure_allele	S4	0	0.0	0.0		True	False	False
+TR_L2	2_impure_allele	S4	1	0.0	0.0		True	False	False
+TR_L2	2_impure_allele	S5	0	0.0	0.0		True	False	False
+TR_L2	2_impure_allele	S5	1	0.0	0.0		True	False	False
+TR_L2	2_impure_allele	S6	0	0.0	0.0		True	False	False
+TR_L3	3_seqres_deletion_no_svtype	S1	0	0.0	0.0	0.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S1	1	0.0	0.0	0.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S2	0	-2.0	-2.0	-2.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S3	1	-2.0	-2.0	-2.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S4	0	-2.0	-2.0	-2.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S4	1	-2.0	-2.0	-2.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S5	0	0.0	0.0	0.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S5	1	0.0	0.0	0.0	True	True	True
+TR_L3	3_seqres_deletion_no_svtype	S6	0	0.0	0.0	0.0	True	True	True
+TR_L4	4_mixed_symbolic_record	S1	0	-3.0	-3.0	-3.0	True	True	True
+TR_L4	4_mixed_symbolic_record	S1	1	0.0	0.0	0.0	True	True	True
+TR_L4	4_mixed_symbolic_record	S2	0	3.0	3.0	-3.0	True	True	False
+TR_L4	4_mixed_symbolic_record	S3	1	0.0	0.0	-6.0	True	True	False
+TR_L4	4_mixed_symbolic_record	S4	0	0.0	0.0	0.0	True	True	True
+TR_L4	4_mixed_symbolic_record	S4	1	0.0	0.0	0.0	True	True	True
+TR_L4	4_mixed_symbolic_record	S5	0	0.0	0.0	0.0	True	True	True
+TR_L4	4_mixed_symbolic_record	S5	1	0.0	0.0	0.0	True	True	True
+TR_L4	4_mixed_symbolic_record	S6	0	0.0	0.0	0.0	True	True	True
+TR_L5	4b_mixed_seqresolved_record	S1	0	-2.0	-2.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S1	1	0.0	0.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S2	0	2.0	2.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S3	1	0.0	0.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S4	0	0.0	0.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S4	1	0.0	0.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S5	0	0.0	0.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S5	1	0.0	0.0		True	False	False
+TR_L5	4b_mixed_seqresolved_record	S6	0	0.0	0.0		True	False	False

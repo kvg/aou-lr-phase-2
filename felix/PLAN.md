@@ -18,7 +18,7 @@ SVs; see [`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md).
 | Association engine | **FELIX** (replaces Tractor-Mix) |
 | Cohort | **Whole cohort** for LAI-informed tests (all populations, including MID) |
 | Phasing | SNVs + SVs physically phased with HiPhase, then statistically phased with SHAPEIT4 (same haplotypes) |
-| Repeat SVs | Length dosage × ancestry through FELIX's own tests with SPA, via FELIX's admixed dosage-VCF input plus our carrier-QC patch (`felix/patches/0001-dosage-carrier-qc.patch`); SPA in our Rust scorer is the fallback ([`SV_SCORER_DESIGN.md`](SV_SCORER_DESIGN.md)). Upstreaming deferred until the pipeline works end to end |
+| Repeat SVs | Locus-level length dosage × ancestry through FELIX's own tests with SPA, via FELIX's admixed dosage-VCF input plus our carrier-QC patch (`felix/patches/0001-dosage-carrier-qc.patch`); SPA in our Rust scorer is the fallback. **All repeat-dosage detail now lives in [`REPEAT_DOSAGE.md`](REPEAT_DOSAGE.md)**; patch-not-fork is settled and the FELIX `repeat-sv-dosage` branch is shelved. Upstreaming deferred until the pipeline works end to end |
 | Recipe selection | Time-boxed selection v2 on chr20 (`flare/README.md` Part 8); no Tractor null-λ |
 
 ---
@@ -63,7 +63,8 @@ Joint phased VCF (GT + AN1/AN2 + SVs)
 | **M4** Encoding comparison + simulator | Done (scripts) | Simulator smoke OK; genome-wide encoding compare needs Terra |
 | **M5** `FelixGenome.wdl` (autosomes + optional RU branch) | Done | Not submitted |
 | **M0** LAI recipe (selection v2: FLARE2 vs FLARE pin, chr20) | FLARE2 WDL mode + scorers done | Build `aou-flare2` image; run `sel_chr20_*` rows; flare_02 Part 8 |
-| **M6** Repeat-SV scorer with SPA | Done: REF-relative dosage; dosage-VCF writer; FELIX carrier-QC patch (`felix/patches/`); `FelixGenome` RU branch on FELIX step 2. Validated locally on synthetic data (design note §3.1–3.2); `felix-pilot:0.2.0` pushed | Run the RU branch on chr22 `joint_vcfs` |
+| **M6** Repeat-SV scorer with SPA | Done: REF-relative dosage; dosage-VCF writer; FELIX carrier-QC patch (`felix/patches/`); `FelixGenome` RU branch on FELIX step 2. Validated locally on synthetic data; `felix-pilot:0.2.0` pushed | Run the RU branch on chr22 `joint_vcfs` |
+| **M6b** Locus-level repeat dosage | Done: RU branch rewired from the record-level annotator to `scripts/aggregate_repeat_loci.py --out-vcf` (one test per catalog locus, signed by allele length, impure alleles kept); missing-genotype policy and multi-digit ancestry in the dosage writer. See [`REPEAT_DOSAGE.md`](REPEAT_DOSAGE.md) | Same chr22 gate as M6 |
 
 Image: `us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0`
 (built FROM FELIX v0.1 pinned by digest + `felix/patches/` (carrier QC, off by default) + PLINK2 +

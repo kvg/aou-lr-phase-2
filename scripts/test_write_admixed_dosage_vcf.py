@@ -29,7 +29,8 @@ def _parse(text: str):
         if line.startswith("#CHROM"):
             header = f
             continue
-        scale = float(f[7].split("RU_SCALE=")[1])
+        info = dict(kv.split("=", 1) for kv in f[7].split(";") if "=" in kv)
+        scale = float(info["RU_SCALE"])
         keys = f[8].split(":")
         per_sample = []
         for cell in f[9:]:
@@ -50,7 +51,10 @@ def test_matches_extract_ref_baseline():
     header, rows = _parse(buf.getvalue())
     assert header[9:] == ["S1", "S2", "S3"]
     assert "snv1" not in rows, "non-RU_TEST records are skipped"
-    assert stats == {"records_in": 5, "ru_records": 4, "written": 4, "monomorphic_skipped": 0}
+    assert stats == {
+        "records_in": 5, "ru_records": 4, "written": 4, "monomorphic_skipped": 0,
+        "missingness_skipped": 0, "hap_missing": 0, "hap_total": 24,
+    }
     assert rows["vntr_ins"][1] == ["DS1", "DS2", "DS3", "ANC1", "ANC2", "ANC3"]
     # Same numbers as tests/ru_dosage.rs ru_dosage_ref_baseline_is_default.
     assert _unscaled(rows["vntr_ins"], 1) == [0, 6, 0]
@@ -94,7 +98,7 @@ def test_rejects_unphased_and_bad_ancestry():
         bad = Path(td) / "bad.vcf"
         bad.write_text(text.replace("0|1:0:1\t1|1:0:0\t0|0:1:1", "0/1:0:1\t1|1:0:0\t0|0:1:1"))
         try:
-            write_admixed_vcf(str(bad), io.StringIO(), num_ancs=3)
+            write_admixed_vcf(str(bad), io.StringIO(), num_ancs=3, missing="error")
         except ValueError as exc:
             assert "unphased" in str(exc)
         else:
@@ -105,6 +109,62 @@ def test_rejects_unphased_and_bad_ancestry():
             assert "ancestry 2 outside" in str(exc)
         else:
             raise AssertionError("expected ancestry range error")
+
+
+def _missing_fixture(td: Path) -> Path:
+    """One locus; S1 half-missing, S2 unphased-ambiguous, S3 fully called."""
+    vcf = td / "missing.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=chr22,length=100000>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\tS4\n"
+        "chr22\t900\tlocus1\tN\t<TR:+6bp>,<TR:-3bp>\t.\tPASS\tRU_TEST;RU_DOSAGE=2,-1\t"
+        "GT:AN1:AN2\t1|.:0:1\t./.:0:0\t1|2:1:1\t0|0:0:0\n"
+    )
+    return vcf
+
+
+def test_missing_ref_zeroes_dosage_and_shrinks_anc():
+    with tempfile.TemporaryDirectory() as td:
+        vcf = _missing_fixture(Path(td))
+        buf = io.StringIO()
+        stats = write_admixed_vcf(str(vcf), buf, num_ancs=2, max_hap_missing=0.5)
+    _, rows = _parse(buf.getvalue())
+    scale, _, per_sample = rows["locus1"]
+    s1, s2, s3, s4 = per_sample
+    # S1: hap1 = +2 units on ancestry 0; hap2 missing, so it leaves ANC2 as well.
+    assert _unscaled(rows["locus1"], 1) == [2, 0, 0, 0]
+    assert (s1["ANC1"], s1["ANC2"]) == ("1", "0")
+    # S2 is unphased-ambiguous: no haplotype enters either ancestry.
+    assert (s2["DS1"], s2["DS2"], s2["ANC1"], s2["ANC2"]) == ("0", "0", "0", "0")
+    # S3 is fully called on ancestry 1: +2 and -1 units sum to +1.
+    assert _unscaled(rows["locus1"], 2) == [0, 0, 1, 0]
+    assert (s3["ANC1"], s3["ANC2"]) == ("0", "2")
+    # S4 is reference on both haplotypes and still contributes its denominator.
+    assert (s4["ANC1"], s4["ANC2"]) == ("2", "0")
+    assert stats["hap_missing"] == 3 and stats["hap_total"] == 8
+    assert stats["written"] == 1 and stats["missingness_skipped"] == 0
+
+
+def test_missingness_cap_skips_locus_and_is_recorded():
+    with tempfile.TemporaryDirectory() as td:
+        vcf = _missing_fixture(Path(td))
+        buf = io.StringIO()
+        stats = write_admixed_vcf(str(vcf), buf, num_ancs=2, max_hap_missing=0.2)
+        assert stats["missingness_skipped"] == 1 and stats["written"] == 0
+        assert "locus1" not in buf.getvalue()
+
+        buf = io.StringIO()
+        write_admixed_vcf(str(vcf), buf, num_ancs=2, max_hap_missing=0.5)
+        info = [ln for ln in buf.getvalue().splitlines() if ln.startswith("chr22")][0].split("\t")[7]
+        assert "RU_HAP_MISS=0.375" in info, info
+
+        try:
+            write_admixed_vcf(str(vcf), io.StringIO(), num_ancs=2, missing="error")
+        except ValueError as exc:
+            assert "unphased" in str(exc) or "missing allele" in str(exc)
+        else:
+            raise AssertionError("expected strict-mode refusal")
 
 
 def test_sign_per_alt_and_signed_locus_dosage():
@@ -133,5 +193,7 @@ if __name__ == "__main__":
     test_matches_extract_ref_baseline()
     test_keep_list_reorders_and_errors()
     test_rejects_unphased_and_bad_ancestry()
+    test_missing_ref_zeroes_dosage_and_shrinks_anc()
+    test_missingness_cap_skips_locus_and_is_recorded()
     test_sign_per_alt_and_signed_locus_dosage()
     print("ok")

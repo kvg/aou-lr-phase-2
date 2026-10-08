@@ -1,0 +1,3 @@
+record_path_sites_emitted	4	[np.int64(1005), np.int64(1020), np.int64(3005), np.int64(4005)]
+locus_path_sites_emitted	5
+record_path_writer_error	
