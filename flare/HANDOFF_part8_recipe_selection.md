@@ -1,4 +1,33 @@
-# Handoff: LAI recipe selection v2 + FELIX (updated 2026-10-02)
+# Handoff: LAI recipe selection v2 + FELIX (updated 2026-10-08)
+
+> **2026-10-08 — read before running Part 8.** Part 8 has still never been
+> executed (every cell in `flare_02` is unrun), so there is no
+> `selection_decision.json` and `nanc` is still undecided. Two things were
+> found and fixed in the decision path; both change what Part 8 would have
+> produced. Details and numbers:
+> [`eval/mendelian_k_bias/README.md`](eval/mendelian_k_bias/README.md).
+>
+> 1. **`flare_score_mendelian_lai.py` silently discarded `nanc` 6 loci.**
+>    `ANCESTRY` hard-coded the five reference panels, so cluster 5 was read as
+>    missing and every locus touching it left the denominator — over half the
+>    loci in a synthetic check. The scorer now reads `##ANCESTRY`, takes
+>    `--num-ancs`, and refuses to score when it sees an out-of-range code.
+> 2. **The violation rate is not comparable across `nanc`.** Label
+>    compatibility survives coarsening but not refinement, so at fixed painting
+>    accuracy the rate rises with the number of labels: +7.7% for K=6 over K=5,
+>    and 2–3.4× when the extra cluster is noise. Score with
+>    `--project-labels <prefix>.labels.tsv` to put every candidate on its
+>    dominant reference panels. `select_recipe` now returns
+>    `metric_incomparable_mixed_ancestry_alphabets` instead of ranking across
+>    resolutions.
+>
+> Consequence for the decision: a raw-rate win for `nanc5` or the pin says
+> nothing about `nanc6`, because both effects push that way. Re-run Part 8 with
+> `--project-labels` on all three candidates.
+
+---
+
+# Handoff: LAI recipe selection v2 + FELIX (original, 2026-10-02)
 
 **Audience:** the next Claude / Cursor session on this work.
 **Repo:** `kvg/aou-lr-phase-2`, branch `main`.

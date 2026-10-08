@@ -538,11 +538,29 @@ def select_recipe(
         "tied": [],
         "status": "",
     }
+    # The violation rate is only comparable between recipes scored on the same
+    # ancestry alphabet: at fixed painting accuracy it rises with the number of
+    # labels, because label compatibility survives coarsening but not
+    # refinement (flare/eval/mendelian_k_bias/). Ranking nanc 5 against nanc 6
+    # on the raw rate therefore favours nanc 5 whatever the painting quality.
+    # Score with flare_score_mendelian_lai.py --project-labels to put every
+    # recipe in one alphabet before ranking.
+    alphabets = {
+        str(r.get("experiment")): tuple(r.get("projected_to") or r.get("ancestry_alphabet") or [])
+        for r in survivors
+    }
+    distinct = {a for a in alphabets.values() if a}
+    decision["ancestry_alphabets"] = {k: list(v) for k, v in alphabets.items()}
+    decision["alphabets_comparable"] = len(distinct) <= 1
     if not mendel_separates:
         decision["status"] = "metric_invalid_mendelian_does_not_beat_controls"
         return decision
     if not survivors:
         decision["status"] = "no_survivors"
+        return decision
+    if len(distinct) > 1:
+        decision["status"] = "metric_incomparable_mixed_ancestry_alphabets"
+        decision["winner"] = None
         return decision
     ranked = sorted(survivors, key=lambda r: _num(r.get("violations_per_informative_locus")))
     best = ranked[0]

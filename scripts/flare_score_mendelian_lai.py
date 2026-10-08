@@ -40,6 +40,57 @@ from typing import Any, Iterable, Optional, Sequence
 ANCESTRY = {0: "eas", 1: "amr", 2: "eur", 3: "afr", 4: "sas"}
 
 
+def vcf_header_text(vcf: str) -> str:
+    return subprocess.run(["bcftools", "view", "-h", vcf], check=True,
+                          capture_output=True, text=True).stdout
+
+
+def parse_ancestry_header(header_text: str) -> Optional[dict[int, str]]:
+    """``##ANCESTRY=<eas=0,amr=1,...>`` -> {0: "eas", ...}; None when absent.
+
+    Same convention as ``flare_score_allele_ancestry.py``. FLARE2 cluster models
+    write ``anc0_afr`` … here, and with ``nanc`` > 5 they emit ancestry codes the
+    five-panel ``ANCESTRY`` default does not contain.
+    """
+    for line in header_text.splitlines():
+        if line.startswith("##ANCESTRY=<") and line.rstrip().endswith(">"):
+            body = line.strip()[len("##ANCESTRY=<"):-1]
+            out: dict[int, str] = {}
+            for part in body.split(","):
+                name, _, idx = part.partition("=")
+                out[int(idx)] = name.strip()
+            return out or None
+    return None
+
+
+def load_projection(labels_tsv: Path) -> dict[int, int]:
+    """``index -> projected code`` from a ``flare2_build_model.py`` labels.tsv.
+
+    Each ancestry is mapped to its ``dominant_panel``, and panels are coded by
+    position in ``ANCESTRY`` so that every recipe lands in the same alphabet.
+    Scoring the Mendelian metric on the projection makes recipes with different
+    ``nanc`` comparable: the raw violation rate rises with the number of labels
+    at fixed painting accuracy, because label compatibility is preserved under
+    coarsening but not under refinement (flare/eval/mendelian_k_bias/).
+    """
+    panel_code = {v: k for k, v in ANCESTRY.items()}
+    out: dict[int, int] = {}
+    with labels_tsv.open() as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+        ii, di = header.index("index"), header.index("dominant_panel")
+        for line in fh:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) <= max(ii, di):
+                continue
+            panel = parts[di].strip().lower()
+            if panel not in panel_code:
+                raise SystemExit(f"{labels_tsv}: unknown dominant_panel {panel!r}")
+            out[int(parts[ii])] = panel_code[panel]
+    if not out:
+        raise SystemExit(f"{labels_tsv}: no ancestry rows")
+    return out
+
+
 @dataclass(frozen=True)
 class Trio:
     child: str
@@ -327,6 +378,9 @@ def load_trio_anc_grid(
     positions: Sequence[int],
     *,
     region: str,
+    allowed: Optional[set[int]] = None,
+    projection: Optional[dict[int, int]] = None,
+    stats: Optional[dict[str, int]] = None,
 ) -> dict[int, dict[str, tuple[Optional[int], Optional[int]]]]:
     """pos -> sample -> (AN1, AN2) for requested samples at (approx) grid positions.
 
@@ -360,12 +414,24 @@ def load_trio_anc_grid(
         for i in range(0, len(vals), 2):
             def _p(x: str) -> Optional[int]:
                 if x in {".", ""}:
+                    if stats is not None:
+                        stats["n_missing_calls"] = stats.get("n_missing_calls", 0) + 1
                     return None
                 try:
                     v = int(x)
                 except ValueError:
+                    if stats is not None:
+                        stats["n_unparsable_calls"] = stats.get("n_unparsable_calls", 0) + 1
                     return None
-                return v if v in ANCESTRY else None
+                if allowed is not None and v not in allowed:
+                    # Previously this silently returned None, so every locus
+                    # touching an out-of-range code was dropped from the
+                    # denominator. Count it; main() refuses to report a score.
+                    if stats is not None:
+                        stats["n_out_of_range_calls"] = stats.get("n_out_of_range_calls", 0) + 1
+                        stats["max_code_seen"] = max(stats.get("max_code_seen", -1), v)
+                    return None
+                return projection.get(v, v) if projection else v
 
             row.append((_p(vals[i]), _p(vals[i + 1])))
         lai_pos.append(pos)
@@ -408,6 +474,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--thin-every", type=int, default=1, help="Keep every Nth panel/grid locus")
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--experiment", default="")
+    p.add_argument(
+        "--num-ancs", type=int, default=0,
+        help="Number of ancestry codes (0..N-1). Default: read the ##ANCESTRY "
+             "header, else the five reference panels",
+    )
+    p.add_argument(
+        "--project-labels", type=Path, default=None,
+        help="labels.tsv from flare2_build_model.py; score on each ancestry's "
+             "dominant_panel so recipes with different nanc are comparable",
+    )
+    p.add_argument(
+        "--allow-out-of-range", action="store_true",
+        help="Score even when ancestry codes fall outside the alphabet (they "
+             "are treated as missing, which biases the denominator)",
+    )
     args = p.parse_args(argv)
 
     chrom, start, end = parse_region(args.region)
@@ -441,9 +522,44 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not positions:
         raise SystemExit("no grid positions in region")
 
+    # Ancestry alphabet comes from the VCF's own ##ANCESTRY header when present
+    # (FLARE2 cluster models with nanc > 5 emit codes the five-panel default
+    # does not contain). Without this, every locus touching such a code was
+    # read as missing and silently left out of the denominator.
+    anc_names = parse_ancestry_header(vcf_header_text(args.anc_vcf))
+    if args.num_ancs:
+        allowed = set(range(args.num_ancs))
+        source = f"--num-ancs={args.num_ancs}"
+    elif anc_names:
+        allowed = set(anc_names)
+        source = "##ANCESTRY header"
+    else:
+        allowed = set(ANCESTRY)
+        source = "five-panel default"
+    projection = load_projection(args.project_labels) if args.project_labels else None
+    if projection is not None:
+        missing = sorted(allowed - set(projection))
+        if missing:
+            raise SystemExit(
+                f"--project-labels does not cover ancestry codes {missing}"
+            )
+    grid_stats: dict[str, int] = {}
+    print(f"ancestry alphabet: {sorted(allowed)} (from {source})"
+          + (f"; projected to {sorted(set(projection.values()))}" if projection else ""),
+          file=sys.stderr)
     grid = load_trio_anc_grid(
-        args.anc_vcf, needed, positions, region=args.region
+        args.anc_vcf, needed, positions, region=args.region,
+        allowed=allowed, projection=projection, stats=grid_stats,
     )
+    n_oor = grid_stats.get("n_out_of_range_calls", 0)
+    if n_oor and not args.allow_out_of_range:
+        raise SystemExit(
+            f"{n_oor} ancestry calls outside {sorted(allowed)} "
+            f"(max code seen {grid_stats.get('max_code_seen')}). These would be "
+            "dropped as missing, shrinking the denominator and making the "
+            "violation rate incomparable across recipes. Pass --num-ancs for "
+            "this model, or --allow-out-of-range to score anyway."
+        )
     map_pts = load_map_cm(args.map, chrom)
     # try chrchrN naming if empty
     if not map_pts and not chrom.startswith("chrchr"):
@@ -487,6 +603,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     summary = {
         "experiment": args.experiment,
         "region": args.region,
+        # The violation rate is only comparable across recipes scored on the
+        # same alphabet; record it so a ranking cannot silently mix resolutions.
+        "ancestry_alphabet": sorted(allowed),
+        "ancestry_alphabet_source": source,
+        "n_ancestries": len(allowed),
+        "projected_to": sorted(set(projection.values())) if projection else None,
+        "grid_call_stats": grid_stats,
         "n_trios_scored": n_trios,
         "n_loci_grid": len(positions),
         "n_informative_locus_calls": tot_inf,

@@ -149,6 +149,38 @@ def test_select_recipe_winner_tie_and_invalid():
     assert Counter(d5["survivors"]) == Counter(["a"])
 
 
+def test_select_recipe_refuses_mixed_ancestry_alphabets():
+    """nanc 5 vs nanc 6 cannot be ranked on the raw violation rate.
+
+    At fixed painting accuracy the rate rises with the number of labels, so a
+    raw ranking favours the smaller nanc regardless of quality
+    (flare/eval/mendelian_k_bias/). Scoring both on their dominant panels puts
+    them in one alphabet and makes the ranking legitimate again.
+    """
+    ctl = {"nanc5": "neg5", "nanc6": "neg6"}
+    rows = [
+        {**_row("nanc5", 0.010, 0.008, 0.012, -0.50), "ancestry_alphabet": [0, 1, 2, 3, 4]},
+        {**_row("nanc6", 0.030, 0.025, 0.035, -0.51), "ancestry_alphabet": [0, 1, 2, 3, 4, 5]},
+        {**_row("neg5", 0.20, 0.18, 0.22, -0.70), "ancestry_alphabet": [0, 1, 2, 3, 4]},
+        {**_row("neg6", 0.21, 0.19, 0.23, -0.71), "ancestry_alphabet": [0, 1, 2, 3, 4, 5]},
+    ]
+    d = select_recipe(rows, negative_controls=ctl)
+    assert d["status"] == "metric_incomparable_mixed_ancestry_alphabets", d
+    assert d["winner"] is None and d["alphabets_comparable"] is False
+
+    # Same scores, both projected onto the reference panels -> rankable.
+    proj = [{**r, "projected_to": [0, 1, 2, 3]} for r in rows]
+    d2 = select_recipe(proj, negative_controls=ctl)
+    assert d2["alphabets_comparable"] is True
+    assert d2["status"] == "winner" and d2["winner"] == "nanc5", d2
+
+    # Rows without alphabet fields keep the old behaviour.
+    d3 = select_recipe([_row("a", 0.01, 0.008, 0.012, -0.50),
+                        _row("neg_a", 0.20, 0.18, 0.22, -0.70)],
+                       negative_controls={"a": "neg_a"})
+    assert d3["status"] == "winner" and d3["winner"] == "a"
+
+
 if __name__ == "__main__":
     test_ancestry_header_mapping()
     test_flare2_model_mixture_af()
@@ -156,4 +188,5 @@ if __name__ == "__main__":
     test_negative_control_mapping()
     test_trio_bootstrap_ci()
     test_select_recipe_winner_tie_and_invalid()
+    test_select_recipe_refuses_mixed_ancestry_alphabets()
     print("ok")
