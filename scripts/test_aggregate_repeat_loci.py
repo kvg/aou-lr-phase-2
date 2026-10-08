@@ -78,6 +78,13 @@ def _run(tmp_path: Path, *extra: str):
     return rows, out_vcf.read_text(), json.loads(summary.read_text())
 
 
+def test_symbolic_deletion_span_uses_svlen_when_end_is_absent():
+    from aggregate_repeat_loci import record_span
+    bp = allele_bp("N", ["<DEL>"], "DEL", "-400", ".", 1000)
+    assert bp.tolist() == [0, -400]
+    assert record_span(1000, "N", bp, ".") == (999, 1399)
+
+
 def test_allele_bp_signs():
     assert allele_bp("ACAG", ["A", "ACAGCAG"], ".", ".", ".", 1).tolist() == [0, -3, 3]
     assert allele_bp("N", ["<DEL>"], "DEL", "-10", "1010", 1000).tolist() == [0, -10]

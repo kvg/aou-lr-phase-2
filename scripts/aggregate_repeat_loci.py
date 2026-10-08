@@ -239,10 +239,16 @@ def allele_bp(ref: str, alts: Sequence[str], svtype: str, svlen: str, end: str, 
 
 
 def record_span(pos: int, ref: str, alt_bp: np.ndarray, end: str) -> tuple[int, int]:
+    """0-based half-open span used to assign a record to a catalog locus.
+
+    v3_main has SVLEN and SVTYPE but no INFO/END. A symbolic deletion's REF is
+    one base, so the deleted interval is POS plus the SVLEN already in alt_bp.
+    """
     start0 = pos - 1
     end0 = pos + 1
     if np.any(alt_bp < 0):
-        e = start0 + len(ref)
+        deleted = int((-alt_bp[alt_bp < 0]).max())
+        e = start0 + max(len(ref), deleted)
         if end not in ("", "."):
             e = max(e, int(end))
         end0 = max(end0, e)
