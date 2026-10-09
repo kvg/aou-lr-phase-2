@@ -22,8 +22,52 @@
 >    resolutions.
 >
 > Consequence for the decision: a raw-rate win for `nanc5` or the pin says
-> nothing about `nanc6`, because both effects push that way. Re-run Part 8 with
-> `--project-labels` on all three candidates.
+> nothing about `nanc6`, because both effects push that way.
+>
+> **How Part 8 now handles this (decision 2026-10-08).**
+>
+> - FLARE2 rows are scored with `--project-model <localized .model>`, which
+>   projects each cluster onto its dominant reference panel. Both chr20
+>   models reach only four panels (`afr, amr, eas, eas, eur, eur` for `nanc`
+>   6; no SAS-dominant cluster), so `nanc5` and `nanc6` are comparable.
+> - The original-FLARE pin has five labels (it keeps SAS) and was **not**
+>   re-scored. It is ranked against the four-label FLARE2 recipes under an
+>   explicit override (`ALLOW_MIXED_ALPHABETS = True` in cell 28). Its
+>   alphabet is established, not assumed (`backfill_mendelian_alphabet`): from
+>   the VCF `##ANCESTRY` header when there is one, otherwise (the pin VCF has
+>   none) from AN1/AN2 codes sampled in ten windows over the marker panel (all
+>   of 0-4 present, none above 4). The sample is not exhaustive; re-scoring with
+>   the current scorer is, because it refuses any out-of-range code.
+> - The override cannot make that comparison fair. At identical accuracy the
+>   five-label rate was 9–11% higher in the uniform-label simulation and
+>   23–26% higher when the same pin VCF was scored with SAS folded into EUR
+>   (`scripts/test_flare_alphabet_pipeline.py`). `select_recipe` therefore
+>   (a) reports a FLARE2 lead smaller than 26% as `tie_human_decision`
+>   (`tie_reason: within_label_count_bias`), (b) marks any lead taken by a
+>   recipe on fewer labels `provisional: true`, and (c) lets a pin lead stand,
+>   since the bias runs against the pin.
+> - **To settle a tie or confirm a provisional FLARE2 lead exactly**, set
+>   `PIN_SAS_TO = "eur"` (or `"eas"`) in cell 26 and re-run cells 26 and 28.
+>   That re-scores only the pin and `negctl_pin` Mendelian pass on the same
+>   four panels (the slowest jobs; allele scores stay cached), after which
+>   all three recipes share one alphabet and no override is needed.
+>   nanc5 places SAS participants about 81% EUR, so `"eur"` is the natural fold.
+> - **Where Part 8's code comes from.** `flare_lai_exp` and
+>   `flare_score_mendelian_lai` are imported from the directory cell 1 puts on
+>   `sys.path` (`<data_root>/scripts`), and cell 22 runs the scorer CLIs from
+>   that same directory, so a module and its CLI cannot differ. On a fresh
+>   kernel cell 1 rsyncs that directory from `$WORKSPACE_BUCKET/scripts/`. To
+>   update a script, get it into the bucket's `scripts/` and restart the kernel.
+>   Part 8 does not use the git clone. Cell 22 stops if the CLI lacks
+>   `--project-model`, `--project-labels` or `--num-ancs` (a stale clone once ran
+>   an old scorer under this notebook), and warns if the bucket copy of a script
+>   differs from the one in use.
+> - **`00_sync_repo` only delivers pushed code, and it overwrites hand uploads.**
+>   It runs `git reset --hard origin/main` and `git clean -fd` on the clone,
+>   rsyncs the clone's `scripts/` over the bucket's, and mirrors
+>   `notebooks/terra/*.ipynb` to `$WORKSPACE_BUCKET/notebooks/`. Push first, or
+>   the sync replaces files uploaded by hand with GitHub's older copies. The
+>   notebook at `767872d` still has the runaway negative-control loop in cell 24.
 
 ---
 
