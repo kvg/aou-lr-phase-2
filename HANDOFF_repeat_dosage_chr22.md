@@ -42,17 +42,28 @@ Two smaller fixes in the same area:
 
 ## Before you submit
 
-1. **Settle `num_ancs`.** The config ships `5`. Selection v2 is still choosing
-   between `sel_chr20_flare2_nanc5` and `sel_chr20_flare2_nanc6`
-   (`flare/README.md` Part 8 → `selection_v2/selection_decision.json`). `K` sets
-   the width of every per-ancestry test, so running with the wrong value
-   invalidates the comparison against the SNV scan. If the decision is `nanc 6`,
-   set `num_ancs` to 6 in the inputs JSON.
-2. **Confirm the catalog is staged.** `repeat_catalog_bed` points at
+1. **`num_ancs` is SETTLED at 5 (2026-10-09).** Selection v2 returned
+   `tie_human_decision` and the tie was resolved by hand in favour of the
+   original-FLARE pin (five reference panels: eas, amr, eur, afr, sas).
+   Rationale and the caveats to carry into the manuscript:
+   `flare/README.md` → "Recipe decision". The config already ships `5`, so
+   there is nothing to change. Do not reopen this unless an ancestry-specific
+   result turns on AMR or SAS resolution.
+2. **`joint_vcfs` must come from `PropagateFlareAncestry`, and that is the
+   current blocker.** The genome-wide pin run (`FlareByPopulationProd`, root
+   entity `flare_lai_prod`, `flare/configs/lai_prod.inputs.json`) was submitted
+   2026-10-09 and must finish first; then propagate per chromosome with
+   `propagate_annotations/configs/propagate_flare_ancestry.lai_prod.inputs.json.example`,
+   whose `annotated_vcf` output is `joint_vcfs`. Note the value currently in
+   `felix.chr22_repeat_dosage.inputs.limited.json.example` is a FLARE
+   `anc.vcf.gz`, i.e. a placeholder: it has `AN1`/`AN2` only at reference-panel
+   sites, not at the SV and repeat loci this run tests. Replace it with the
+   chr22 propagate output before submitting.
+3. **Confirm the catalog is staged.** `repeat_catalog_bed` points at
    `gs://BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz`, the same
    object `repeat_loci/configs/*.json.example` uses. Build it with
    `trgt_plvi.py catalog --vcf <one TRGT VCF>` if absent.
-3. **Stage the scripts.** `aggregate_repeat_loci.py` is new to this workflow and
+4. **Stage the scripts.** `aggregate_repeat_loci.py` is new to this workflow and
    has been added to `scripts/stage_tractor_scripts.sh`:
    ```bash
    WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_tractor_scripts.sh
@@ -83,7 +94,8 @@ Two smaller fixes in the same area:
 #   ru_engine     = "felix"
 ```
 
-Replace `BUCKET` with the workspace bucket, set `num_ancs`, and submit
+Replace `BUCKET` with the workspace bucket, replace `joint_vcfs` with the
+chr22 `PropagateFlareAncestry` output (`num_ancs` is already 5), and submit
 `FelixGenome.wdl`. The repeat branch requires `joint_vcfs` — `phase_vcfs` alone
 has no `AN1`/`AN2`.
 
