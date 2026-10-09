@@ -86,12 +86,20 @@ parse_scalar_variance_ratio <- function(path) {
   as.numeric(dt[[1]][[1]])
 }
 
+# as(<dsTMatrix>, "dgCMatrix") fails under Matrix 1.7.5 ("no method or default
+# for coercing"), the version in the felix-pilot image. readMM() returns a
+# symmetric dsTMatrix for the sparse GRM and solve() of a symmetric Sigma can
+# return dsCMatrix, so go through the virtual classes instead. generalMatrix
+# stores both triangles, which is what the old coercion produced.
+as_dgC <- function(x) as(as(as(x, "dMatrix"), "generalMatrix"), "CsparseMatrix")
+as_dgT <- function(x) as(as(as(x, "dMatrix"), "generalMatrix"), "TsparseMatrix")
+
 read_sparse_grm <- function(mtx_path, ids_path, sample_ids, relatedness_cutoff = 0) {
   if (!file.exists(mtx_path)) stop("sparse GRM not found: ", mtx_path)
   if (!file.exists(ids_path)) stop("sparse GRM IDs not found: ", ids_path)
   grm_ids <- scan(ids_path, what = character(), quiet = TRUE)
   sparse_grm <- Matrix::readMM(mtx_path)
-  sparse_grm <- as(sparse_grm, "dgCMatrix")
+  sparse_grm <- as_dgC(sparse_grm)
   if (length(grm_ids) != nrow(sparse_grm)) {
     stop(sprintf("GRM ID count %d != mtx n=%d", length(grm_ids), nrow(sparse_grm)))
   }
@@ -99,7 +107,7 @@ read_sparse_grm <- function(mtx_path, ids_path, sample_ids, relatedness_cutoff =
   if (any(is.na(idx))) {
     stop(sprintf("%d samples missing from sparse GRM", sum(is.na(idx))))
   }
-  sparse_grm <- as(sparse_grm[idx, idx, drop = FALSE], "dgTMatrix")
+  sparse_grm <- as_dgT(sparse_grm[idx, idx, drop = FALSE])
   if (relatedness_cutoff > 0) {
     drop <- which(sparse_grm@x < relatedness_cutoff)
     if (length(drop) > 0) {
@@ -112,7 +120,7 @@ read_sparse_grm <- function(mtx_path, ids_path, sample_ids, relatedness_cutoff =
       sparse_grm@j <- sparse_grm@j[-drop]
     }
   }
-  as(sparse_grm, "dgCMatrix")
+  as_dgC(sparse_grm)
 }
 
 reconstruct_nok <- function(mod, mu2) {
@@ -174,7 +182,7 @@ build_export_obj <- function(mod, sparse_grm = NA_character_, sparse_grm_ids = N
       solve(Sigma + Diagonal(n, x = 1e-8))
     }
   )
-  Sigma_i <- as(Sigma_i, "dgCMatrix")
+  Sigma_i <- as_dgC(Sigma_i)
   Sigma_iX <- as.matrix(Sigma_i %*% X)
   xtsx <- crossprod(X, Sigma_iX)
   cov_mat <- tryCatch(
