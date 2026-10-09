@@ -410,8 +410,11 @@ What this costs, and what to say in the manuscript:
 - **The SAS column is not only South Asian.** ~45% of SAS-labelled haplotypes
   come from participants outside the SAS group (MID participants carry ~0.20
   SAS, EUR ~0.10). Report the per-ancestry SAS effect with that caveat.
-- **MID has no column** under any candidate recipe: MID participants paint
-  ~67-79% EUR, so MID-specific effects appear in the EUR column.
+- **MID has no column** under any candidate recipe, so MID-specific effects
+  appear in the EUR column. Two separate measurements, not one range: the
+  chr20 FLARE2 runs painted MID participants ~75-79% EUR (above), and in the
+  production five-panel chr1 global ancestry the MID group mean is 0.67 EUR,
+  0.20 SAS, 0.11 AFR.
 - **The comparison was never decisive**, and the selection metric is part of
   why: Mendelian consistency cannot reward a novel cluster (coarsening can
   only remove violations), and the FLARE2 rates were measured after
