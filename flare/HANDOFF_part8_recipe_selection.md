@@ -205,7 +205,10 @@ time-box decision".
      Eval config with only the root entity type changed, and outputs land on
      the same table (`anc_vcf`, `anc_vcf_index`, `models_tsv`) with nothing to
      overwrite. Upsert it with `00_sync_repo` (`UPSERT_TABLES` includes
-     `flare_lai_prod`). Then propagate with
+     `flare_lai_prod`), then import `configs/lai_prod.inputs.json` as the
+     `FlareByPopulationProd` method-config inputs (root entity
+     `flare_lai_prod`; it is the Eval config verbatim, since the column names
+     match). Then propagate with
      `../propagate_annotations/configs/propagate_flare_ancestry.lai_prod.inputs.json.example`,
      also rooted on `flare_lai_prod`.
    - original-FLARE pin, rooted on `aou_lr_chrom` instead:
