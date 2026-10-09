@@ -375,3 +375,45 @@ Stage filtered-site helpers (`flare_site_stats.py`,
 builder (`flare_build_af_panel.py`) with the other scripts.
 Diagnostic per-Mb / per-marker rates still use
 `flare_lai_exp.enrich_compare_row`.
+
+### Recipe decision: the original-FLARE pin, `num_ancs` = 5 (2026-10-09)
+
+`selection_v2/selection_decision.json` returned `tie_human_decision`
+(`provisional: true`). Resolved by hand, per the rule above: **take the
+original-FLARE pin** (`chr20_flat_props_pin_t`), five reference panels
+(eas, amr, eur, afr, sas). Every FELIX config already carries `num_ancs` = 5,
+so nothing changes; the chr22 repeat-dosage run is unblocked.
+
+Why, from the chr20 selection run (61 trios):
+
+- **Mendelian violation rate by the child's global group** — pin / nanc5 /
+  nanc6: AFR 0.064 / 0.157 / 0.166; EUR 0.028 / 0.037 / 0.083;
+  AMR 0.161 / 0.086 / 0.162. Reweighted to the cohort's AFR:AMR:EUR mix,
+  pin 0.080, nanc5 0.100, nanc6 0.139. `mean_ll` also favours the pin
+  (-0.506 vs -0.543 and -0.557). Every candidate beats its own negative
+  control 3-4x, so the metric separates.
+- **Where the pin loses is the cheapest place to lose.** nanc5 wins only in
+  AMR, and AMR is 6.6% of expected haplotypes (chr1 FLARE global ancestry)
+  and ~43 testable phecodes, against EUR 41.6% / 606 and AFR 25.5% / 397.
+- **FLARE2 does not clearly win**, which is what the tie rule asks.
+- **Operational:** the pin has a genome-wide config
+  (`configs/chrom.pin.inputs.json.example`) and a production five-panel run
+  already exists. FLARE2 would need relabelling before a genome-wide apply,
+  and both FLARE2 models were trained only after relaxing the
+  autocorrelation gate to 0.2 (both failed the 0.25 default).
+
+What this costs, and what to say in the manuscript:
+
+- **No Native-American-like column.** FLARE2 did learn one (a mixed cluster
+  carrying ~24% of AMR participants' ancestry); the pin cannot express it, so
+  that ancestry is distributed over the amr/eur/afr panels.
+- **The SAS column is not only South Asian.** ~45% of SAS-labelled haplotypes
+  come from participants outside the SAS group (MID participants carry ~0.20
+  SAS, EUR ~0.10). Report the per-ancestry SAS effect with that caveat.
+- **MID has no column** under any candidate recipe: MID participants paint
+  ~67-79% EUR, so MID-specific effects appear in the EUR column.
+- **The comparison was never decisive**, and the selection metric is part of
+  why: Mendelian consistency cannot reward a novel cluster (coarsening can
+  only remove violations), and the FLARE2 rates were measured after
+  `--project-model` collapsed each cluster onto its argmax panel. Revisit in
+  review only if an ancestry-specific result turns on AMR or SAS resolution.

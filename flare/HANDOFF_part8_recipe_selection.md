@@ -24,6 +24,13 @@
 > Consequence for the decision: a raw-rate win for `nanc5` or the pin says
 > nothing about `nanc6`, because both effects push that way.
 >
+> **DECIDED 2026-10-09: the original-FLARE pin, `num_ancs` = 5.** Part 8
+> returned `tie_human_decision` / `provisional: true` and the tie was resolved
+> by hand. Rationale, numbers and the caveats to carry into the manuscript:
+> `README.md` -> "Recipe decision". Every FELIX config already has
+> `num_ancs` = 5, so the chr22 repeat-dosage run needs no change. Nothing
+> below is superseded; it is how the comparison was run.
+>
 > **How Part 8 now handles this (decision 2026-10-08).**
 >
 > - FLARE2 rows are scored with `--project-model <localized .model>`, which
