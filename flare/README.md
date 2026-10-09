@@ -407,14 +407,22 @@ What this costs, and what to say in the manuscript:
 - **No Native-American-like column.** FLARE2 did learn one (a mixed cluster
   carrying ~24% of AMR participants' ancestry); the pin cannot express it, so
   that ancestry is distributed over the amr/eur/afr panels.
-- **The SAS column is not only South Asian.** ~45% of SAS-labelled haplotypes
-  come from participants outside the SAS group (MID participants carry ~0.20
-  SAS, EUR ~0.10). Report the per-ancestry SAS effect with that caveat.
+- **The SAS column is not only South Asian.** 33% of SAS-labelled haplotypes
+  come from participants outside the SAS group (mean SAS: MID 0.18, OTH 0.09,
+  EUR 0.06). Report the per-ancestry SAS effect with that caveat. The AMR
+  equivalent is 16%.
 - **MID has no column** under any candidate recipe, so MID-specific effects
-  appear in the EUR column. Two separate measurements, not one range: the
-  chr20 FLARE2 runs painted MID participants ~75-79% EUR (above), and in the
-  production five-panel chr1 global ancestry the MID group mean is 0.67 EUR,
-  0.20 SAS, 0.11 AFR.
+  appear in the EUR column. The MID group mean is 0.72 EUR, 0.18 SAS,
+  0.09 AFR; separately, the chr20 FLARE2 runs painted MID participants
+  ~75-79% EUR.
+- **Run QC** (`lai_prod_qc_summary.tsv`, `lai_prod_qc.png`): the cohort mean
+  ancestry varies by at most 0.023 across the 22 chromosomes, per-chromosome
+  deviation is largest on the shortest chromosomes (chr21, 22, 19) as marker
+  count predicts, and chr1 reproduces the earlier EM run at r = 0.993-0.9999
+  per ancestry. The numbers above are genome-wide means over 22 chromosomes;
+  figures quoted before 2026-10-09 came from the single-chromosome chr1 EM
+  run, which separates SAS less cleanly (SAS-group mean 0.75 there, 0.90 in
+  production), so they read as a recipe difference, not chromosome noise.
 - **The comparison was never decisive**, and the selection metric is part of
   why: Mendelian consistency cannot reward a novel cluster (coarsening can
   only remove violations), and the FLARE2 rates were measured after
