@@ -27,9 +27,13 @@
 > **How Part 8 now handles this (decision 2026-10-08).**
 >
 > - FLARE2 rows are scored with `--project-model <localized .model>`, which
->   projects each cluster onto its dominant reference panel. Both chr20
->   models reach only four panels (`afr, amr, eas, eas, eur, eur` for `nanc`
->   6; no SAS-dominant cluster), so `nanc5` and `nanc6` are comparable.
+>   projects each cluster onto its dominant reference panel. `nanc6` reaches
+>   four panels (`afr, amr, eas, eas, eur, eur`; no SAS-dominant cluster).
+>   **`nanc5` reached only three: the first real run recorded
+>   `projected_to = [0, 2, 3]` (eas, eur, afr), so it has no AMR-dominant
+>   cluster.** (An earlier version of this note assumed both models reach the
+>   same four; only `nanc6` had been checked.) The three recipes are therefore
+>   on 3, 4 and 5 labels, not 4, 4 and 5.
 > - The original-FLARE pin has five labels (it keeps SAS) and was **not**
 >   re-scored. It is ranked against the four-label FLARE2 recipes under an
 >   explicit override (`ALLOW_MIXED_ALPHABETS = True` in cell 28). Its
@@ -55,10 +59,13 @@
 >   since the bias runs against the pin.
 > - **To settle a tie or confirm a provisional FLARE2 lead exactly**, set
 >   `PIN_SAS_TO = "eur"` (or `"eas"`) in cell 26 and re-run cells 26 and 28.
->   That re-scores only the pin and `negctl_pin` Mendelian pass on the same
->   four panels (the slowest jobs; allele scores stay cached), after which
->   all three recipes share one alphabet and no override is needed.
->   nanc5 places SAS participants about 81% EUR, so `"eur"` is the natural fold.
+>   That re-scores only the pin and `negctl_pin` Mendelian pass with SAS
+>   folded away. It puts the pin on the FLARE2 `nanc6` alphabet (four panels)
+>   but NOT on `nanc5`'s (three), so it does not remove the override on its
+>   own; an exact three-way comparison needs all three scored on one common
+>   alphabet (eas, eur, afr), which means also merging AMR for the pin and
+>   `nanc6`. nanc5 places SAS participants about 81% EUR, so `"eur"` is the
+>   natural SAS fold.
 > - **Where Part 8's code comes from.** `flare_lai_exp` and
 >   `flare_score_mendelian_lai` are imported from the directory cell 1 puts on
 >   `sys.path` (`<data_root>/scripts`), and cell 22 runs the scorer CLIs from
