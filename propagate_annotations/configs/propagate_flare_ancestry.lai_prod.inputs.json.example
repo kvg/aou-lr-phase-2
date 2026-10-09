@@ -1,9 +1,9 @@
 {
-  "_comment": "Per-chromosome ancestry propagation onto the phased callset (GT:AN1:AN2 at every site, incl. SVs) for FelixGenome joint_vcfs. Root entity flare_lai_prod, after FlareByPopulationProd has written anc_vcf there. Use this rather than the aou_lr_chrom variant when the LAI run was driven by flare_lai_prod, so inputs and outputs stay on one table. Map outputs annotated_vcf -> this.joint_gt_an_vcf, annotated_vcf_index -> this.joint_gt_an_vcf_index.",
+  "_comment": "Per-chromosome ancestry propagation onto the ligated phased callset (GT:AN1:AN2 at every site, incl. SVs) for FelixGenome joint_vcfs. Root entity flare_lai_prod, after FlareByPopulationProd has written anc_vcf there. target_vcf is ligated_vcf (the SHAPEIT4 ligated BCF + .csi), NOT gt_vcf: gt_vcf is the VCF conversion used as FLARE input, while the propagate target must be the callset carrying the SVs. Map outputs annotated_vcf -> this.joint_gt_an_vcf, annotated_vcf_index -> this.joint_gt_an_vcf_index.",
   "PropagateFlareAncestry.flare_vcf": "this.anc_vcf",
   "PropagateFlareAncestry.flare_vcf_index": "this.anc_vcf_index",
-  "PropagateFlareAncestry.target_vcf": "this.gt_vcf",
-  "PropagateFlareAncestry.target_vcf_index": "this.gt_vcf_index",
+  "PropagateFlareAncestry.target_vcf": "this.ligated_vcf",
+  "PropagateFlareAncestry.target_vcf_index": "this.ligated_vcf_idx",
   "PropagateFlareAncestry.region": "this.chrom",
   "PropagateFlareAncestry.prefix": "this.output_prefix",
   "PropagateFlareAncestry.propagate_script": "gs://WORKSPACE_BUCKET/scripts/propagate_flare_ancestry.py",
