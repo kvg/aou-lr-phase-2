@@ -113,6 +113,15 @@ within-recipe diagnostic only.
   concentrate between similar ancestries, which would reduce the bias somewhat
   for clusters that are genuinely distinct and increase it for clusters that
   are not.
+- **The size of the effect depends on label frequencies, not only on K.** The
+  simulation above uses uniform label frequencies (+9-11% for K=4 to 5). Scoring
+  one synthetic pin-like VCF with and without folding a rare label (SAS, 5% of
+  ancestry) into EUR gave a five-label rate 23-26% higher
+  (`fold_rare_label.py`). Part 8 uses the larger figure as the tie allowance
+  (`LABEL_COUNT_BIAS_PER_LABEL = 0.26` in `scripts/flare_lai_exp.py`) when it
+  ranks the five-label pin against the four-label FLARE2 recipes, and marks a
+  lead taken by the fewer-label recipe provisional. Scoring both on one alphabet
+  (`--project-labels`, `PIN_SAS_TO` in cell 26) is the only exact remedy.
 
 ---
 
@@ -122,7 +131,9 @@ within-recipe diagnostic only.
 python3 flare/eval/mendelian_k_bias/simulate_k_bias.py --out-dir flare/eval/mendelian_k_bias
 python3 flare/eval/mendelian_k_bias/plot_k_bias.py \
   --in-dir flare/eval/mendelian_k_bias --out flare/eval/mendelian_k_bias/mendelian_k_bias.png
-python3 -m pytest scripts/test_flare_score_mendelian_nanc.py scripts/test_flare_selection_v2.py -q
+python3 flare/eval/mendelian_k_bias/fold_rare_label.py
+python3 -m pytest scripts/test_flare_score_mendelian_nanc.py scripts/test_flare_selection_v2.py \
+  scripts/test_flare_alphabet_pipeline.py -q
 ```
 
 Outputs: `k_bias_raw.tsv`, `k_bias_summary.tsv`, `k_bias_summary.json`,
