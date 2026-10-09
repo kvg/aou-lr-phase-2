@@ -554,20 +554,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not positions:
         raise SystemExit("no grid positions in region")
 
-    # Ancestry alphabet comes from the VCF's own ##ANCESTRY header when present
-    # (FLARE2 cluster models with nanc > 5 emit codes the five-panel default
-    # does not contain). Without this, every locus touching such a code was
-    # read as missing and silently left out of the denominator.
-    anc_names = parse_ancestry_header(vcf_header_text(args.anc_vcf))
-    if args.num_ancs:
-        allowed = set(range(args.num_ancs))
-        source = f"--num-ancs={args.num_ancs}"
-    elif anc_names:
-        allowed = set(anc_names)
-        source = "##ANCESTRY header"
-    else:
-        allowed = set(ANCESTRY)
-        source = "five-panel default"
     if args.project_labels and args.project_model:
         raise SystemExit("pass --project-labels or --project-model, not both")
     if args.project_labels:
@@ -576,11 +562,37 @@ def main(argv: Optional[list[str]] = None) -> int:
         projection = projection_from_model(args.project_model)
     else:
         projection = None
+
+    # Ancestry alphabet, in order of authority:
+    #   --num-ancs                   explicit
+    #   the VCF's ##ANCESTRY header  when present
+    #   the projection's ancestries  a --project-model / --project-labels file lists every
+    #                                ancestry of the recipe it describes. Real FLARE/FLARE2
+    #                                ancestry VCFs often carry no ##ANCESTRY header, and
+    #                                the five-panel default below has no code 5, so a
+    #                                nanc 6 model would otherwise be refused.
+    #   five-panel default           eas amr eur afr sas
+    # Any call outside the alphabet is refused below rather than read as missing, which
+    # would silently shrink the denominator and make recipes incomparable.
+    anc_names = parse_ancestry_header(vcf_header_text(args.anc_vcf))
+    if args.num_ancs:
+        allowed = set(range(args.num_ancs))
+        source = f"--num-ancs={args.num_ancs}"
+    elif anc_names:
+        allowed = set(anc_names)
+        source = "##ANCESTRY header"
+    elif projection is not None:
+        allowed = set(projection)
+        source = ("projection file (--project-model/--project-labels); "
+                  "the VCF has no ##ANCESTRY header")
+    else:
+        allowed = set(ANCESTRY)
+        source = "five-panel default"
     if projection is not None:
         missing = sorted(allowed - set(projection))
         if missing:
             raise SystemExit(
-                f"--project-labels does not cover ancestry codes {missing}"
+                f"--project-labels/--project-model does not cover ancestry codes {missing}"
             )
     grid_stats: dict[str, int] = {}
     print(f"ancestry alphabet: {sorted(allowed)} (from {source})"

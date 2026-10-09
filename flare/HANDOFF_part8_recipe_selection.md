@@ -38,6 +38,13 @@
 >   none) from AN1/AN2 codes sampled in ten windows over the marker panel (all
 >   of 0-4 present, none above 4). The sample is not exhaustive; re-scoring with
 >   the current scorer is, because it refuses any out-of-range code.
+> - The real ancestry VCFs here (the pin and both chr20 FLARE2 runs) carry no
+>   `##ANCESTRY` header. The Mendelian scorer takes the alphabet from
+>   `--num-ancs`, then the header, then the `--project-model` /
+>   `--project-labels` file (which lists every ancestry of the recipe), and only
+>   then the five-panel default. Before that fallback existed, nanc 6 was refused
+>   with "N ancestry calls outside [0, 1, 2, 3, 4] (max code seen 5)". A call
+>   outside the alphabet is still refused, never read as missing.
 > - The override cannot make that comparison fair. At identical accuracy the
 >   five-label rate was 9–11% higher in the uniform-label simulation and
 >   23–26% higher when the same pin VCF was scored with SAS folded into EUR

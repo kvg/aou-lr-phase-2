@@ -405,3 +405,63 @@ def test_sampling_is_not_exhaustive_and_the_current_scorer_is(world):
          "--map", str(tmp / "chr20.map"), "--region", "chr20", "--out", str(tmp / "stray.json")],
         capture_output=True, text=True)
     assert r.returncode != 0 and "outside" in (r.stderr + r.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Real FLARE/FLARE2 ancestry VCFs often have no ##ANCESTRY header (the pin and both
+# FLARE2 chr20 VCFs on the VM). The alphabet must then come from the projection file.
+# ---------------------------------------------------------------------------
+
+def _f2_headerless(tmp, name="f2_nohdr", seed=31):
+    f2 = lambda p, rng: rng.choice(PANEL_TO_CLUSTERS[p])  # noqa: E731
+    return _write(tmp, name, f2, 0.02, range(6), "##source=flare2_no_ancestry_header", seed)
+
+
+def test_headerless_nanc6_is_scored_when_the_model_lists_its_clusters(world):
+    """The VM failure: 'N ancestry calls outside [0, 1, 2, 3, 4] (max code seen 5)'."""
+    tmp, _ = world
+    m = _score(tmp, "f2_nohdr_m", _f2_headerless(tmp), "--project-model", str(tmp / "nanc6.model"))
+    assert m["ancestry_alphabet"] == [0, 1, 2, 3, 4, 5] and m["projected_to"] == [0, 1, 2, 3]
+    assert "projection file" in m["ancestry_alphabet_source"]
+    assert m["n_informative_locus_calls"] > 0
+
+
+def test_headerless_nanc6_is_still_refused_without_a_projection(world):
+    """Nothing says the VCF has six ancestries, so code 5 must not be silently dropped."""
+    tmp, _ = world
+    r = subprocess.run(
+        [sys.executable, str(SCORER), "--anc-vcf", str(_f2_headerless(tmp, "f2_nohdr_np")),
+         "--ped", str(tmp / "trios.ped"), "--map", str(tmp / "chr20.map"), "--region", "chr20",
+         "--out", str(tmp / "np.json")], capture_output=True, text=True)
+    assert r.returncode != 0 and "outside [0, 1, 2, 3, 4]" in (r.stderr + r.stdout)
+
+
+def test_a_projection_that_omits_a_cluster_does_not_hide_its_calls(world):
+    """A labels file covering only clusters 0-4 must not make code 5 'allowed' by omission."""
+    tmp, _ = world
+    five = tmp / "five_clusters.labels.tsv"
+    five.write_text("index\tname\tupstream_label\tdominant_panel\tdominant_weight\n"
+                    + "".join(f"{i}\tc{i}\tc{i}\t{p}\t1\n"
+                              for i, p in enumerate(["afr", "amr", "eas", "eas", "eur"])))
+    r = subprocess.run(
+        [sys.executable, str(SCORER), "--anc-vcf", str(_f2_headerless(tmp, "f2_nohdr_5")),
+         "--ped", str(tmp / "trios.ped"), "--map", str(tmp / "chr20.map"), "--region", "chr20",
+         "--out", str(tmp / "five.json"), "--project-labels", str(five)],
+        capture_output=True, text=True)
+    assert r.returncode != 0 and "outside [0, 1, 2, 3, 4]" in (r.stderr + r.stdout)
+
+
+def test_the_header_still_takes_precedence_over_the_projection(world):
+    tmp, vcfs = world                                   # flare2_a carries F2_HDR (codes 0-5)
+    m = _score(tmp, "f2_hdr", vcfs["flare2_a"], "--project-model", str(tmp / "nanc6.model"))
+    assert m["ancestry_alphabet"] == [0, 1, 2, 3, 4, 5]
+    assert m["ancestry_alphabet_source"] == "##ANCESTRY header"
+
+
+def test_headerless_pin_with_five_labels_is_unchanged(world):
+    tmp, _ = world
+    gz = _headerless(tmp, "pin_nohdr_proj", range(5), seed=33)
+    m = _score(tmp, "pin_nohdr_p", gz, "--project-labels", str(tmp / "pin_sas_eur.labels.tsv"))
+    assert m["ancestry_alphabet"] == [0, 1, 2, 3, 4] and m["projected_to"] == [0, 1, 2, 3]
+    plain = _score(tmp, "pin_nohdr_u", gz)
+    assert plain["ancestry_alphabet"] == [0, 1, 2, 3, 4] and plain["ancestry_alphabet_source"] == "five-panel default"
