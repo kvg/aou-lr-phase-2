@@ -12,7 +12,8 @@ and Firecloud/FISS credentials already exist. Typical flow:
    workspace; add or replace it through the Terra Methods Repository UI (the
    printed manual import checklist lists the changed ones). Pushing method
    snapshots from here is optional and usually 403 on AoU namespaces.
-5. Upsert data tables (default: ``flare_lai_exp`` from ``flare/configs/lai_exp.tsv``) via FISS
+5. Upsert data tables (default: ``flare_lai_exp`` from ``flare/configs/lai_exp.tsv``
+   and ``flare_lai_prod`` from ``flare/configs/lai_prod.tsv``) via FISS
 
 Example (Terra notebook)::
 
@@ -75,6 +76,7 @@ DEFAULT_EXTRA_ASSETS: tuple[tuple[str, str], ...] = (
 # entity_type -> repo-relative TSV (Terra flexible import; first column entity:…_id)
 DEFAULT_TABLE_TSVS: dict[str, str] = {
     "flare_lai_exp": "flare/configs/lai_exp.tsv",
+    "flare_lai_prod": "flare/configs/lai_prod.tsv",
 }
 
 DEFAULT_NAMESPACE = "allofus-drc-wgs-LR-prodData"

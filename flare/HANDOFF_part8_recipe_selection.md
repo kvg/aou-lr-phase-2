@@ -198,7 +198,18 @@ time-box decision".
    Leave `pop_column` at its default `ancestry_pred`, which yields the six
    shards `gen_by_pop` names; `ancestry_pred_other` would add an OTH shard and
    fail `gen_by_pop_allow_default=false`.
-   - original-FLARE pin: `configs/chrom.pin.inputs.json.example`
+   - original-FLARE pin, preferred route: root entity **`flare_lai_prod`**
+     (`configs/lai_prod.tsv`, 22 rows, one per chromosome). It carries the
+     pinned recipe and the per-chromosome file pointers under the same column
+     names `flare_lai_exp` uses, so the `FlareByPopulationProd` config is the
+     Eval config with only the root entity type changed, and outputs land on
+     the same table (`anc_vcf`, `anc_vcf_index`, `models_tsv`) with nothing to
+     overwrite. Upsert it with `00_sync_repo` (`UPSERT_TABLES` includes
+     `flare_lai_prod`). Then propagate with
+     `../propagate_annotations/configs/propagate_flare_ancestry.lai_prod.inputs.json.example`,
+     also rooted on `flare_lai_prod`.
+   - original-FLARE pin, rooted on `aou_lr_chrom` instead:
+     `configs/chrom.pin.inputs.json.example`
    - FLARE2: relabel the trained chr20 model first (names mislead for mixed
      clusters), then `configs/flare2.apply.inputs.json.example`.
 4. Propagate ancestry onto the joint phased callset per chromosome:
