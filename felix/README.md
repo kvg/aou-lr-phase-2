@@ -113,4 +113,11 @@ python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes --grm-chroms 
 
 - Joint p-value for calibration: `P_cct_admixed_c` (FELIX) vs `P` (Tractor-Mix).
 - `fit_null.R --step1-rda` delegates to `felix/scripts/export_felix_null.R` for local dev.
+- `export_felix_null.R` normally runs from the copy baked into the image
+  (`/opt/felix_scripts`), because Cromwell localizes only declared inputs and the
+  bucket copy beside `fit_felix_null.R` is never mounted. To run a staged copy instead
+  (script fixes without an image rebuild), set the optional `export_null_script` input
+  of `FelixPilot` / `FelixGenome` to `gs://BUCKET/felix/scripts/export_felix_null.R`.
+  `felix-pilot:0.2.0` needs this: its copy fails under Matrix 1.7.5 on
+  `as(<dsTMatrix>, "dgCMatrix")`.
 - Do not headline encoding comparisons without matched λGC (`felix/eval/README.md`).

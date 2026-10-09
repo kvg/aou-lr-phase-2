@@ -140,6 +140,10 @@ task FitFelixNull {
     File sparse_grm_mtx
     File sparse_grm_sample_ids
     File fit_null_script
+    # Optional override for export_felix_null.R. Unset, fit_felix_null.R runs the copy
+    # baked into the image (/opt/felix_scripts), because Cromwell localizes only declared
+    # inputs. Set it to a staged copy to pick up script fixes without an image rebuild.
+    File? export_null_script
     String trait_type = "binary"
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 8
@@ -165,6 +169,7 @@ task FitFelixNull {
       --sparse-grm-ids "~{sparse_grm_sample_ids}" \
       --trait-type "~{trait_type}" \
       --step1-r /usr/local/bin/step1_fitNULLGLMM.R \
+      ~{"--export-r " + export_null_script} \
       --n-threads ~{cpu} \
       --out-prefix "null/~{phenotype}"
 
@@ -930,6 +935,7 @@ workflow FelixGenome {
     File build_saige_grm_script
     File make_plink_keep_script
     File fit_felix_null_script
+    File? export_null_script
     File run_felix_step2_script
     File summarize_script
 
@@ -1016,6 +1022,7 @@ workflow FelixGenome {
         sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
         sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
         fit_null_script = fit_felix_null_script,
+        export_null_script = export_null_script,
         trait_type = trait_type,
         docker = docker
     }

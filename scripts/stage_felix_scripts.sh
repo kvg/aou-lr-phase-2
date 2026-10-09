@@ -49,6 +49,7 @@ echo "FELIX docker: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot
 echo ""
 echo "FelixPilot.wdl / FelixGenome.wdl:"
 echo "  fit_felix_null_script    -> ${DEST}/fit_felix_null.R"
+echo "  export_null_script       -> ${DEST}/export_felix_null.R   (optional; overrides the copy baked into the image)"
 echo "  run_felix_step2_script   -> ${DEST}/run_felix_step2.R"
 echo "  summarize_script         -> ${DEST}/summarize_felix_results.py"
 echo ""
