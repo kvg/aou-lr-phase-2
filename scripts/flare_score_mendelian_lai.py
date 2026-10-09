@@ -63,6 +63,32 @@ def parse_ancestry_header(header_text: str) -> Optional[dict[int, str]]:
     return None
 
 
+def projection_from_model(model_path: Path) -> dict[int, int]:
+    """``ancestry index -> dominant-panel code`` straight from a FLARE2 .model.
+
+    Same rule as ``flare2_build_model.canonical_labels``: an ancestry's
+    dominant panel is the argmax of its copying-probability row. Taking it from
+    the model avoids plumbing a second workflow output (``flare2_labels``)
+    through the notebook, since the model is already localized for
+    ``flare_score_allele_ancestry.py --model``.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from flare_model import parse_model  # noqa: PLC0415
+
+    model = parse_model(model_path)
+    panel_code = {v: k for k, v in ANCESTRY.items()}
+    out: dict[int, int] = {}
+    for i, row in enumerate(model.panel_weights):
+        j = max(range(len(row)), key=lambda c: row[c])
+        panel = model.panels[j].strip().lower()
+        if panel not in panel_code:
+            raise SystemExit(f"{model_path}: unknown panel {panel!r}")
+        out[i] = panel_code[panel]
+    if not out:
+        raise SystemExit(f"{model_path}: no ancestries")
+    return out
+
+
 def load_projection(labels_tsv: Path) -> dict[int, int]:
     """``index -> projected code`` from a ``flare2_build_model.py`` labels.tsv.
 
@@ -485,6 +511,12 @@ def main(argv: Optional[list[str]] = None) -> int:
              "dominant_panel so recipes with different nanc are comparable",
     )
     p.add_argument(
+        "--project-model", type=Path, default=None,
+        help="FLARE2 .model; project each ancestry onto its dominant panel "
+             "(argmax copying probability). Same effect as --project-labels "
+             "without needing the labels.tsv",
+    )
+    p.add_argument(
         "--allow-out-of-range", action="store_true",
         help="Score even when ancestry codes fall outside the alphabet (they "
              "are treated as missing, which biases the denominator)",
@@ -536,7 +568,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         allowed = set(ANCESTRY)
         source = "five-panel default"
-    projection = load_projection(args.project_labels) if args.project_labels else None
+    if args.project_labels and args.project_model:
+        raise SystemExit("pass --project-labels or --project-model, not both")
+    if args.project_labels:
+        projection = load_projection(args.project_labels)
+    elif args.project_model:
+        projection = projection_from_model(args.project_model)
+    else:
+        projection = None
     if projection is not None:
         missing = sorted(allowed - set(projection))
         if missing:
