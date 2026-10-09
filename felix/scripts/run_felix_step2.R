@@ -14,6 +14,16 @@
 #
 # FELIX step2 only parallelizes when --idstoIncludeFile is set; a full-chrom
 # FELIXla scan must use --nThreads=1 (the nThreads>1 branch otherwise no-ops).
+#
+# Sparse GRM: by default it is NOT passed to step2 (--use-sparse-grm false).
+# Step 1 fits the null with --useSparseGRMtoFitNULL=TRUE, and in FELIX's
+# fitNULLGLMM that setting resets useSparseGRMforVarRatio, so varianceRatio.txt
+# holds only 'null' rows. Passing --sparseGRMFile to step2 then stops in
+# Get_Variance_Ratio ("sparse GRM is specified but the variance ratio for sparse
+# GRM was not estimated in Step 1"), which is what failed every FelixPilot Step2
+# shard on 2026-10-09. Without it step2 uses the null variance ratio, as in the
+# FELIX tutorial. --use-sparse-grm true restores the old call and fails fast,
+# before FELIX starts, if the variance ratio file has no 'sparse' row.
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -32,6 +42,7 @@ parse_args <- function(args) {
     sample_file = NA_character_,
     sparse_grm = NA_character_,
     sparse_grm_ids = NA_character_,
+    use_sparse_grm = FALSE,
     min_mac = 50L,
     n_ancestries = 5L,
     pvalcutoff_of_haplotype = 0.05,
@@ -54,6 +65,10 @@ parse_args <- function(args) {
     else if (key == "--sample-file") out$sample_file <- val
     else if (key == "--sparse-grm") out$sparse_grm <- val
     else if (key == "--sparse-grm-ids") out$sparse_grm_ids <- val
+    else if (key == "--use-sparse-grm") {
+      if (!tolower(val) %in% c("true", "false", "1", "0")) stop("--use-sparse-grm must be true or false")
+      out$use_sparse_grm <- tolower(val) %in% c("true", "1")
+    }
     else if (key == "--min-mac") out$min_mac <- as.integer(val)
     else if (key == "--n-ancestries") out$n_ancestries <- as.integer(val)
     else if (key == "--pvalcutoff-of-haplotype") {
@@ -66,7 +81,8 @@ parse_args <- function(args) {
     else stop(paste("Unknown arg:", key))
     i <- i + 2
   }
-  req <- c("chrom", "null_prefix", "out_tsv", "sparse_grm", "sparse_grm_ids")
+  req <- c("chrom", "null_prefix", "out_tsv")
+  if (out$use_sparse_grm) req <- c(req, "sparse_grm", "sparse_grm_ids")
   for (r in req) {
     if (is.na(out[[r]]) || !nzchar(out[[r]])) stop(paste("Missing required", r))
   }
@@ -138,9 +154,29 @@ if (!file.exists(var_ratio)) {
   var_ratio <- cands[[1]]
 }
 
-if (!file.exists(opt$sparse_grm)) stop(paste("sparse GRM not found:", opt$sparse_grm))
-if (!file.exists(opt$sparse_grm_ids)) {
-  stop(paste("sparse GRM sample IDs not found:", opt$sparse_grm_ids))
+sparse_args <- character(0)
+if (opt$use_sparse_grm) {
+  if (!file.exists(opt$sparse_grm)) stop(paste("sparse GRM not found:", opt$sparse_grm))
+  if (!file.exists(opt$sparse_grm_ids)) {
+    stop(paste("sparse GRM sample IDs not found:", opt$sparse_grm_ids))
+  }
+  vr <- data.table::fread(var_ratio, header = FALSE, data.table = FALSE)
+  if (ncol(vr) >= 3 && !any(vr[[2]] == "sparse")) {
+    stop(paste0(
+      "--use-sparse-grm true, but ", var_ratio, " has no 'sparse' variance ratio row ",
+      "(Step 1 with --useSparseGRMtoFitNULL=TRUE writes only 'null' rows); ",
+      "step2 would stop in Get_Variance_Ratio. Run with --use-sparse-grm false."
+    ))
+  }
+  sparse_args <- c(
+    paste0("--sparseGRMFile=", shQuote(opt$sparse_grm)),
+    paste0("--sparseGRMSampleIDFile=", shQuote(opt$sparse_grm_ids))
+  )
+} else {
+  message(
+    "Sparse GRM not passed to step2 (--use-sparse-grm false): using the 'null' variance ratio from ",
+    var_ratio
+  )
 }
 
 # Full-chrom FELIXla scan: step2's nThreads>1 path requires --idstoIncludeFile
@@ -180,8 +216,7 @@ cmd <- paste(
   paste0("--GMMATmodelFile=", shQuote(gmmat)),
   paste0("--varianceRatioFile=", shQuote(var_ratio)),
   paste0("--SAIGEOutputFile=", shQuote(opt$out_raw)),
-  paste0("--sparseGRMFile=", shQuote(opt$sparse_grm)),
-  paste0("--sparseGRMSampleIDFile=", shQuote(opt$sparse_grm_ids)),
+  paste(sparse_args, collapse = " "),
   subsample_arg,
   "--nThreads=1",
   "--is_Firth_beta=TRUE",

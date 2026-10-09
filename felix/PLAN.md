@@ -117,6 +117,7 @@ that pilot, so the 2×2 compares like with like.
 |----------|--------|-----|
 | FELIX source | Published image; fork allowed if needed | Prefer FELIX's own inputs (FELIXla, admixed dosage VCF) over code changes; FELIX is GPL-3.0 |
 | GRM | SAIGE mtx via `build_saige_plink_and_grm.sh` | Same as SaigePilot; FELIX Step 1 with `--useSparseGRMtoFitNULL=TRUE` |
+| Step 2 variance ratio | `null` ratio; sparse GRM not passed to `step2_SPAtests.R` (`run_felix_step2.R --use-sparse-grm false`, the default) | Follows FELIX's tutorial and its own `Get_Variance_Ratio` message. Step 1 with `--useSparseGRMtoFitNULL=TRUE` resets `useSparseGRMforVarRatio`, so `varianceRatio.txt` has no `sparse` row and a step 2 given `--sparseGRMFile` stops. Tractor-Mix's SAIGE arm uses the sparse GRM and sparse ratio at step 2, so the M1 gate compares calibration, not identical machinery. Decided 2026-10-09 |
 | Primary p-column | `P_cct_admixed_c` | FELIX admixed Cauchy combination (conditional columns mirror unconditional for now) |
 | Unique SVs | FELIXla 0/1 split-biallelic | Same path as SNV/indel |
 | Repeat SVs | Length dosage through FELIX tests with SPA | Length-additive biology; compare vs collapse/split; see `SV_SCORER_DESIGN.md` |

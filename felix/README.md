@@ -120,4 +120,12 @@ python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes --grm-chroms 
   of `FelixPilot` / `FelixGenome` to `gs://BUCKET/felix/scripts/export_felix_null.R`.
   `felix-pilot:0.2.0` needs this: its copy fails under Matrix 1.7.5 on
   `as(<dsTMatrix>, "dgCMatrix")`.
+- `run_felix_step2.R` does not pass the sparse GRM to `step2_SPAtests.R` by default
+  (`--use-sparse-grm false`). Step 1 fits the null with `--useSparseGRMtoFitNULL=TRUE`, which in
+  FELIX's `fitNULLGLMM` resets `useSparseGRMforVarRatio`, so `varianceRatio.txt` has only `null`
+  rows and a step 2 given `--sparseGRMFile` stops in `Get_Variance_Ratio`. The WDLs still
+  localize and pass `--sparse-grm`; the wrapper ignores them unless `--use-sparse-grm true`,
+  which checks for a `sparse` row first. Tractor-Mix's SAIGE runs use the sparse GRM and its
+  sparse variance ratio at step 2, so the two arms of the M1 gate differ here; this was accepted
+  on 2026-10-09 in favour of following FELIX's guidance (see the design table in `PLAN.md`).
 - Do not headline encoding comparisons without matched λGC (`felix/eval/README.md`).
