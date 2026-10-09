@@ -128,6 +128,11 @@ python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes --grm-chroms 
   which checks for a `sparse` row first. Tractor-Mix's SAIGE runs use the sparse GRM and its
   sparse variance ratio at step 2, so the two arms of the M1 gate differ here; this was accepted
   on 2026-10-09 in favour of following FELIX's guidance (see the design table in `PLAN.md`).
+- `wdl/FelixPilotStep2Resume.wdl` is a temporary workflow that restarts at Step2 from the
+  `call-MakeGRM`, `call-Pack` and `call-Null` outputs of an earlier FelixPilot run, so a Step2 fix
+  can be tested without the GRM build. Its three downstream tasks are copied verbatim from
+  `FelixPilot.wdl`; build its inputs with `scripts/make_resume_inputs.py` (`--limit N` for a quick
+  test). Delete it once a full run is cached.
 - The two WDLs summarize with different scripts. FelixPilot's Summarize task passes `--p-column`, `--named-suffix`
   and `--report-title` and declares `calibration_summary.md`, `lambda_gc_wide.tsv`, `phewas_genomewide_hits.tsv` and
   `qc/*/qq_joint_acpass.png` as outputs: the CLI and output set of `scripts/summarize_tractor_genome_results.py`, so
