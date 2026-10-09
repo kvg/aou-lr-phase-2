@@ -55,3 +55,5 @@ tractor_mix/extract_tracts_flare/target/
 aou2_100k.tsv.gz
 aou2_100k_sample.tsv.gz
 aou2_100k_sex_at_birth.tsv
+# FLARE global ancestry: one row per participant with their ancestry proportions
+*.global.anc.gz
