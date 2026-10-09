@@ -91,7 +91,7 @@ WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_tractor_scripts.sh   # GRM, 
    Workflow: **Check** → **MakeGRM** (`build_saige_plink_and_grm.sh`) → **FitFelixNull**
    (`fit_felix_null.R` → FELIX step1 + `export_felix_null.R`) → **Pack** (`felixla`) →
    **Step2** (`run_felix_step2.R` / `step2_SPAtests.R`, `--is_admixed=TRUE`) → summarize
-   (`summarize_felix_results.py`, p-column `P_cct_admixed_c`).
+   (FelixPilot: `summarize_tractor_genome_results.py --p-column P_cct_admixed_c`; FelixGenome: `summarize_felix_results.py`; see Notes).
 
 3. Compare λGC vs Tractor-Mix 2×2: `felix/eval/README.md`.
 
@@ -128,4 +128,11 @@ python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes --grm-chroms 
   which checks for a `sparse` row first. Tractor-Mix's SAIGE runs use the sparse GRM and its
   sparse variance ratio at step 2, so the two arms of the M1 gate differ here; this was accepted
   on 2026-10-09 in favour of following FELIX's guidance (see the design table in `PLAN.md`).
+- The two WDLs summarize with different scripts. FelixPilot's Summarize task passes `--p-column`, `--named-suffix`
+  and `--report-title` and declares `calibration_summary.md`, `lambda_gc_wide.tsv`, `phewas_genomewide_hits.tsv` and
+  `qc/*/qq_joint_acpass.png` as outputs: the CLI and output set of `scripts/summarize_tractor_genome_results.py`, so
+  its configs use that as `summarize_script` (both arms of the M1 gate then share the λGC code). FelixGenome's
+  Summarize task makes the six-argument call and declares `qq_cct.png` / `manhattan_cct.png`, which is
+  `felix/scripts/summarize_felix_results.py`. Pointing FelixPilot at the FELIX script failed the 2026-10-09 run with
+  `unrecognized arguments`; pointing FelixGenome at the Tractor script would default `--p-column` to `P`.
 - Do not headline encoding comparisons without matched λGC (`felix/eval/README.md`).

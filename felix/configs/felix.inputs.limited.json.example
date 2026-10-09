@@ -19,7 +19,7 @@
   "FelixPilot.fit_felix_null_script": "gs://BUCKET/felix/scripts/fit_felix_null.R",
   "FelixPilot.export_null_script": "gs://BUCKET/felix/scripts/export_felix_null.R",
   "FelixPilot.run_felix_step2_script": "gs://BUCKET/felix/scripts/run_felix_step2.R",
-  "FelixPilot.summarize_script": "gs://BUCKET/felix/scripts/summarize_felix_results.py",
+  "FelixPilot.summarize_script": "gs://BUCKET/scripts/summarize_tractor_genome_results.py",
 
   "FelixPilot.relatedness_cutoff": 0.05,
   "FelixPilot.num_random_markers": 2000,

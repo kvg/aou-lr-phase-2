@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Summarize FELIX step2 / FelixGenome merged result TSVs.
 
+Used by FelixGenome.wdl (six-argument call, qq_cct.png / manhattan_cct.png outputs). FelixPilot.wdl's
+Summarize task passes --p-column, --named-suffix and --report-title and expects the output set of
+scripts/summarize_tractor_genome_results.py instead; see felix/README.md.
+
 Handles FELIX admixed columns including:
   P_cct_admixed_c, P_hom_admixed_c, P_het_admixed_c, BETA_c_anc*, p.value_c_anc*, etc.
 """

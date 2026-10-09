@@ -130,5 +130,5 @@ felix/build_docker.sh
 
 - FELIX joint p-value for calibration: `P_cct_admixed_c`
 - Tractor-Mix joint p-value: `P`
-- Genome-wide hit tables come from `felix/scripts/summarize_felix_results.py` inside the WDL summarize task
+- Genome-wide hit tables come from the WDL summarize task (`scripts/summarize_tractor_genome_results.py` in FelixPilot, `felix/scripts/summarize_felix_results.py` in FelixGenome)
 - Do not headline encoding “more hits” without matched λGC

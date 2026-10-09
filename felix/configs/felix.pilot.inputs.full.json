@@ -16,7 +16,7 @@
   "FelixPilot.fit_felix_null_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/fit_felix_null.R",
   "FelixPilot.export_null_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/export_felix_null.R",
   "FelixPilot.run_felix_step2_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/run_felix_step2.R",
-  "FelixPilot.summarize_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/summarize_felix_results.py",
+  "FelixPilot.summarize_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/summarize_tractor_genome_results.py",
   "FelixPilot.relatedness_cutoff": 0.05,
   "FelixPilot.min_mac": 50,
   "FelixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
