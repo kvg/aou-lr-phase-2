@@ -189,7 +189,15 @@ time-box decision".
    - `metric_invalid_…` → the Mendelian metric cannot beat the negative
      control; default to the original-FLARE pin and note it.
 3. Genome-wide on `aou_lr_chrom` (map `anc_vcf` → `lai_anc_vcf`,
-   `anc_vcf_index` → `lai_anc_vcf_index`, `models_tsv` → `lai_models_tsv`):
+   `anc_vcf_index` → `lai_anc_vcf_index`, `models_tsv` → `lai_models_tsv`;
+   those three are new columns, so the chr1 and chr22 `anc_vcf` / `models_tsv`
+   from earlier runs are preserved). Input column names on that table, checked
+   against the live copy 2026-10-09: `vcf_gz`, `vcf_gz_tbi`, `ref_vcf`,
+   `ref_vcf_idx` (not `_index`), `map_file`, `ref_panel`, `output_prefix`.
+   Pass `em` as a literal `false`: the table's `em` column is `true` for chr1.
+   Leave `pop_column` at its default `ancestry_pred`, which yields the six
+   shards `gen_by_pop` names; `ancestry_pred_other` would add an OTH shard and
+   fail `gen_by_pop_allow_default=false`.
    - original-FLARE pin: `configs/chrom.pin.inputs.json.example`
    - FLARE2: relabel the trained chr20 model first (names mislead for mixed
      clusters), then `configs/flare2.apply.inputs.json.example`.
