@@ -579,8 +579,15 @@ def _annotate_phase1(ax, tips, halo, *, lower_panel=False) -> None:
     )
 
 
-def _clines_view(ax, pcs, labels, ref, ref_labels, i, j, notes, phase1=None, phase1_labels=None) -> None:
-    """One PC projection: participants by ancestry, references in black, labeled."""
+def _clines_view(
+    ax, pcs, labels, ref, ref_labels, i, j, notes,
+    phase1=None, phase1_labels=None, show_ref: bool = True,
+) -> None:
+    """One PC projection: participants by ancestry, references in black, labeled.
+
+    ``show_ref`` draws the 1kGP controls and lets them widen the axis limits.
+    With it off the view is set by the participants alone.
+    """
     for name in _draw_order(labels):
         mask = labels == name
         ax.scatter(
@@ -596,10 +603,11 @@ def _clines_view(ax, pcs, labels, ref, ref_labels, i, j, notes, phase1=None, pha
                 edgecolors="#111111", linewidths=0.3, marker="o",
                 rasterized=True, zorder=3,
             )
-    ax.scatter(ref[:, i], ref[:, j], s=2.0, c="#111111", linewidths=0, zorder=4)
+    if show_ref:
+        ax.scatter(ref[:, i], ref[:, j], s=2.0, c="#111111", linewidths=0, zorder=4)
     pad = 0.05
     for axis, k in ((ax.set_xlim, i), (ax.set_ylim, j)):
-        cols = [pcs[:, k], ref[:, k]]
+        cols = [pcs[:, k]] + ([ref[:, k]] if show_ref else [])
         if phase1 is not None and len(phase1):
             cols.append(phase1[:, k])
         lo = min(float(np.min(c)) for c in cols)
@@ -624,8 +632,20 @@ def _clines_view(ax, pcs, labels, ref, ref_labels, i, j, notes, phase1=None, pha
     ax.set_yticks([])
 
 
-def _panel_pcs_clines2(ax, rows, phase1_xy: np.ndarray | None = None, phase1_labels: np.ndarray | None = None) -> tuple:
-    """PC1 against PC2 and PC3: continental clines, then the Indigenous American axis."""
+def _panel_pcs_clines2(
+    ax,
+    rows,
+    phase1_xy: np.ndarray | None = None,
+    phase1_labels: np.ndarray | None = None,
+    with_reference: bool = False,
+) -> tuple:
+    """PC1 against PC2 and PC3: continental clines, then the Indigenous American axis.
+
+    ``with_reference`` overlays the 291 1kGP controls in black and labels their
+    cluster cores. The participants already carry their similarity group in
+    colour, so the default view leaves them out; set it True to show where the
+    reference populations sit in this PC space.
+    """
     pcs, labels, ref, ref_labels = _clines_data(rows, ("lr_PC1", "lr_PC2", "lr_PC3"))
     ax.axis("off")
     top = ax.inset_axes([0, 0.52, 1, 0.48])
@@ -639,7 +659,8 @@ def _panel_pcs_clines2(ax, rows, phase1_xy: np.ndarray | None = None, phase1_lab
     _clines_view(top, pcs, labels, ref, ref_labels, 0, 1, [
         (text, _tip_toward(ref[ref_labels == name], axes, offset), offset, ha, va, color)
         for text, axes, offset, ha, va, color, name in top_notes
-    ], phase1=phase1_xy, phase1_labels=phase1_labels)
+    ] if with_reference else [], phase1=phase1_xy, phase1_labels=phase1_labels,
+        show_ref=with_reference)
     amr = ref[ref_labels == "AMR"]
     amr_offset = (-14, 0)
     _clines_view(bottom, pcs, labels, ref, ref_labels, 0, 2, [
@@ -653,7 +674,8 @@ def _panel_pcs_clines2(ax, rows, phase1_xy: np.ndarray | None = None, phase1_lab
             _tip_toward(amr, (0, 2), amr_offset),
             amr_offset, "right", "center", ANC_TEXT["AMR"],
         ),
-    ], phase1=phase1_xy, phase1_labels=phase1_labels)
+    ] if with_reference else [], phase1=phase1_xy, phase1_labels=phase1_labels,
+        show_ref=with_reference)
     top.set_ylabel("PC2")
     bottom.set_ylabel("PC3")
     bottom.set_xlabel("Long-read PC1")
@@ -665,7 +687,7 @@ def _panel_pcs_clines2(ax, rows, phase1_xy: np.ndarray | None = None, phase1_lab
         # labelspacing). Column-major fill for ncol=4:
         #   AFR  AMR  EAS  OTH
         #   MID  SAS  EUR
-        #  1kGP  Phase 1
+        #  1kGP  Phase 1     (1kGP only when with_reference)
         blank = Line2D([0], [0], ls="none", marker="", label=" ")
         comparison = {
             "1kGP": Line2D(
@@ -677,10 +699,15 @@ def _panel_pcs_clines2(ax, rows, phase1_xy: np.ndarray | None = None, phase1_lab
                 markersize=4.2, markeredgewidth=0.7, label="Phase 1",
             ),
         }
+        bottom_row = (
+            [comparison["1kGP"], comparison["Phase 1"], blank]
+            if with_reference
+            else [comparison["Phase 1"], blank, blank]
+        )
         handles = [
-            by_label["AFR"], by_label["MID"], comparison["1kGP"],
-            by_label["AMR"], by_label["SAS"], comparison["Phase 1"],
-            by_label["EAS"], by_label["EUR"], blank,
+            by_label["AFR"], by_label["MID"], bottom_row[0],
+            by_label["AMR"], by_label["SAS"], bottom_row[1],
+            by_label["EAS"], by_label["EUR"], bottom_row[2],
             by_label["OTH"], blank, blank,
         ]
         ax.legend(
@@ -1309,7 +1336,9 @@ def _layout(fig, rows_of_panels, heights) -> list[tuple[str, float, float]]:
     return letters
 
 
-def render(pc_style: str = "clines2", *, with_phase1: bool = True) -> tuple:
+def render(
+    pc_style: str = "clines2", *, with_phase1: bool = True, with_reference: bool = False,
+) -> tuple:
     pyr = _pyramid()
     illumina_f, illumina_m, illumina_n = _load_illumina_reference()
     rows = _load_model_rows()
@@ -1360,6 +1389,7 @@ def render(pc_style: str = "clines2", *, with_phase1: bool = True) -> tuple:
         phase1_xy, phase1_labels = _project_phase1_lr_pcs(rows, phase1_rows)
         pc_extras = _panel_pcs_clines2(
             ax_pc, rows, phase1_xy=phase1_xy, phase1_labels=phase1_labels,
+            with_reference=with_reference,
         )
     else:
         pc_extras = _PC_PANELS[pc_style](ax_pc, rows)
