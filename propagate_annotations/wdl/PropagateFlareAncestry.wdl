@@ -243,18 +243,23 @@ PY
     subset_region "~{flare_vcf}" "~{flare_vcf_index}" flare.region.vcf.gz "${FLARE_REGION}"
     subset_region "~{target_vcf}" "~{target_vcf_index}" target.region.vcf.gz "${REGION}"
 
+    # Stream the annotated records straight into bgzip. The uncompressed VCF is
+    # ~8 bytes x samples per record (~100 kB/record at 12k samples), far larger
+    # than the compressed inputs, so it must never be written to local disk.
+    N_TARGET="$(bcftools index -n target.region.vcf.gz)"
     python3 "~{propagate_script}" \
       --flare flare.region.vcf.gz \
       --target target.region.vcf.gz \
-      --output annotated.vcf \
+      --output - \
       --stats-json "~{prefix}.propagate_stats.json" \
       --stats-tsv "~{prefix}.propagate_stats.tsv" \
       --missing-tsv "~{prefix}.missing.tsv" \
       --tags "~{format_tags}" \
-      --min-sample-overlap ~{min_sample_overlap}
-
-    bcftools view -Oz --threads ~{bcftools_threads} -o "~{prefix}.ancestry.vcf.gz" annotated.vcf
-    rm -f annotated.vcf flare.region.vcf.gz flare.region.vcf.gz.tbi target.region.vcf.gz target.region.vcf.gz.tbi
+      --min-sample-overlap ~{min_sample_overlap} \
+      --expected-sites "${N_TARGET}" \
+      --progress-every 50000 \
+      | bcftools view -Oz --threads ~{bcftools_threads} -o "~{prefix}.ancestry.vcf.gz" -
+    rm -f flare.region.vcf.gz flare.region.vcf.gz.tbi target.region.vcf.gz target.region.vcf.gz.tbi
     bcftools index -t "~{prefix}.ancestry.vcf.gz"
     test -s "~{prefix}.ancestry.vcf.gz"
     ls -lh "~{prefix}.ancestry.vcf.gz"* "~{prefix}.propagate_stats."* "~{prefix}.missing.tsv" || true

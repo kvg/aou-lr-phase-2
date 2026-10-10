@@ -13,7 +13,11 @@ SCRIPTS = REPO / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from propagate_flare_ancestry import (  # noqa: E402
+    PropagateStats,
     Region,
+    _marker_annotations,
+    _progress_line,
+    _write_annotated,
     flare_query_region,
     main,
     propagate_ancestry,
@@ -260,3 +264,68 @@ def test_flare_query_region_left_pads():
     assert flare_query_region("chr22:16000000-17000000") == "chr22:1-17000000"
     assert Region.parse("chr22:16000000-17000000").contains("chr22", 16000000)
     assert not Region.parse("chr22:16000000-17000000").contains("chr22", 15999999)
+
+
+@pytest.mark.parametrize("fmt", ["GT", "GT:PS", "GT:AN1", "GT:DP:AN2"])
+def test_fast_path_matches_per_sample_path(fmt: str):
+    """The per-marker suffix fast path must equal annotate_sample for every sample."""
+    import io
+
+    nkeys = len(fmt.split(":"))
+    samples = [
+        ":".join(["0|1"] + ["7"] * (nkeys - 1)),  # well formed
+        "1|0",  # too few fields
+        ":".join(["0|0"] + ["7"] * nkeys),  # too many fields
+        ".",  # missing
+        ":".join(["1|1"] + ["7"] * (nkeys - 1)),
+    ]
+    tags = ("AN1", "AN2")
+    flare_cols = ["chr22", "100", ".", "A", "G", ".", ".", ".", "GT:AN1:AN2", "0|1:2:3", "0|1:4:.", ".|.:.:."]
+    flare_to_target = [0, 1, None, 2, 0]
+    extras, suffixes = _marker_annotations(flare_cols, flare_to_target, tags)
+    cols = ["chr22", "150", ".", "C", "T", ".", ".", "AC=1", fmt] + samples
+    fast, slow = io.StringIO(), io.StringIO()
+    _write_annotated(fast, cols, extras, tags, covering_pos=100, suffixes=suffixes)
+    _write_annotated(slow, cols, extras, tags, covering_pos=100, suffixes=None)
+    assert fast.getvalue() == slow.getvalue()
+    assert "FLARE_POS=100" in fast.getvalue()
+
+
+def test_contig_without_markers_and_marker_cache(tmp_path: Path):
+    """chr22 reuses one marker for many sites; the later contig has none (missing ancestry).
+
+    The FLARE cursor only moves forward, so contigs are processed in file order
+    and a target contig absent from FLARE must come after the ones that have markers.
+    """
+    flare = tmp_path / "flare.vcf"
+    target = tmp_path / "target.vcf"
+    _write_vcf(flare, "S1\tS2", "chr22\t100\t.\tA\tG\t.\t.\t.\tGT:AN1:AN2\t0|1:2:3\t1|1:4:0\n")
+    _write_vcf(
+        target,
+        "S1\tS2\tS3",
+        "chr22\t60\t.\tA\tG\t.\t.\t.\tGT\t0|1\t0|0\t1|1\n"
+        "chr22\t70\t.\tA\tG\t.\t.\t.\tGT\t1|0\t0|0\t1|1\n"
+        "chr22\t100\t.\tA\tG\t.\t.\t.\tGT\t0|1\t0|0\t1|1\n"
+        "chr23\t50\t.\tA\tG\t.\t.\t.\tGT\t0|1\t0|0\t1|1\n"
+        "chr23\t80\t.\tA\tG\t.\t.\t.\tGT\t1|1\t0|0\t1|1\n",
+    )
+    out = tmp_path / "out.vcf"
+    stats = propagate_ancestry(flare, target, out, progress_every=0)
+    rows = [ln.split("\t") for ln in _records(out.read_text())]
+    assert [r[9:] for r in rows] == [
+        ["0|1:2:3", "0|0:4:0", "1|1:.:."],  # S3 is not in FLARE
+        ["1|0:2:3", "0|0:4:0", "1|1:.:."],
+        ["0|1:2:3", "0|0:4:0", "1|1:.:."],
+        ["0|1:.:.", "0|0:.:.", "1|1:.:."],  # no marker on chr23
+        ["1|1:.:.", "0|0:.:.", "1|1:.:."],
+    ]
+    assert [r[7] for r in rows] == ["FLARE_POS=100"] * 3 + [".", "."]
+    assert stats.sites_missing_ancestry == 2 and stats.annotated_sites == 3
+
+
+def test_progress_line_reports_rate_and_eta():
+    stats = PropagateStats(tags=["AN1", "AN2"])
+    stats.target_sites, stats.annotated_sites = 50_000, 49_000
+    line = _progress_line(stats, t0=__import__("time").monotonic() - 600.0, expected_sites=200_000)
+    assert "50,000 target sites" in line and "25.0% of 200,000" in line and "ETA" in line
+    assert "ETA" not in _progress_line(stats, t0=__import__("time").monotonic() - 600.0, expected_sites=None)

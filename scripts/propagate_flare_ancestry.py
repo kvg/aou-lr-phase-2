@@ -28,6 +28,7 @@ import argparse
 import gzip
 import json
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional, TextIO
@@ -303,6 +304,40 @@ def _extras_for_target(
     return extras
 
 
+def _marker_annotations(
+    flare_cols: Optional[list[str]],
+    flare_to_target: list[Optional[int]],
+    tags: tuple[str, ...],
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Per-sample extras and the ``:v1:v2`` suffix for one FLARE marker.
+
+    Every target record between two FLARE markers gets the same per-sample
+    values, so this is computed once per marker rather than once per record.
+    """
+    extras = _extras_for_target(flare_cols, flare_to_target, tags)
+    suffixes = [":" + ":".join(e.get(tag, ".") for tag in tags) for e in extras]
+    return extras, suffixes
+
+
+def _progress_line(
+    stats: "PropagateStats", t0: float, expected_sites: Optional[int]
+) -> str:
+    elapsed = max(time.monotonic() - t0, 1e-9)
+    rate = stats.target_sites / elapsed
+    line = (
+        f"[propagate_flare_ancestry] {stats.target_sites:,} target sites "
+        f"({stats.annotated_sites:,} with ancestry); {elapsed / 60:.1f} min, "
+        f"{rate:,.0f} sites/s"
+    )
+    if expected_sites:
+        left = max(expected_sites - stats.target_sites, 0)
+        line += (
+            f"; {100.0 * stats.target_sites / expected_sites:.1f}% of "
+            f"{expected_sites:,}, ETA {left / rate / 60:.1f} min"
+        )
+    return line
+
+
 def _append_info(info: str, key: str, value: str) -> str:
     extra = f"{key}={value}"
     if not info or info == ".":
@@ -319,6 +354,7 @@ def propagate_ancestry(
     region: Optional[Region] = None,
     progress_every: int = 100_000,
     missing_tsv: Optional[Path] = None,
+    expected_sites: Optional[int] = None,
 ) -> PropagateStats:
     flare = VcfStream(flare_vcf, "flare")
     target = VcfStream(target_vcf, "target")
@@ -350,6 +386,10 @@ def propagate_ancestry(
             missing_fh.write("chrom\tpos\tref\talt\n")
 
         cursor = FlareCursor(flare)
+        t0 = time.monotonic()
+        cached_marker: object = None  # identity of the FLARE record the cache was built from
+        cached_ann: tuple[list[dict[str, str]], list[str]] = ([], [])
+        no_marker = object()
         try:
             _write_header(out_fh, target.header, target.samples, flare.header, tags)
             while True:
@@ -370,10 +410,15 @@ def propagate_ancestry(
                 covering = cursor.covering(chrom, pos)
                 if covering is None:
                     stats.sites_missing_ancestry += 1
-                    extras = _extras_for_target(None, flare_to_target, tags)
+                    if cached_marker is not no_marker:
+                        cached_ann = _marker_annotations(None, flare_to_target, tags)
+                        cached_marker = no_marker
                     if missing_fh is not None:
                         missing_fh.write(f"{cols[0]}\t{cols[1]}\t{cols[3]}\t{cols[4]}\n")
-                    _write_annotated(out_fh, cols, extras, tags, covering_pos=None)
+                    _write_annotated(
+                        out_fh, cols, cached_ann[0], tags, covering_pos=None,
+                        suffixes=cached_ann[1],
+                    )
                 else:
                     stats.annotated_sites += 1
                     cover_pos = covering[1]
@@ -385,12 +430,16 @@ def propagate_ancestry(
                         stats.sites_before_first_flare += 1
                     if last is not None and pos > last:
                         stats.sites_after_last_flare += 1
-                    extras = _extras_for_target(covering[2], flare_to_target, tags)
-                    _write_annotated(out_fh, cols, extras, tags, covering_pos=cover_pos)
+                    if cached_marker is not covering[2]:
+                        cached_ann = _marker_annotations(covering[2], flare_to_target, tags)
+                        cached_marker = covering[2]
+                    _write_annotated(
+                        out_fh, cols, cached_ann[0], tags, covering_pos=cover_pos,
+                        suffixes=cached_ann[1],
+                    )
                 if progress_every and stats.target_sites % progress_every == 0:
                     print(
-                        f"[propagate_flare_ancestry] {stats.target_sites:,} target sites "
-                        f"({stats.annotated_sites:,} with ancestry)",
+                        _progress_line(stats, t0, expected_sites),
                         file=sys.stderr,
                         flush=True,
                     )
@@ -451,17 +500,36 @@ def _write_annotated(
     extras_by_sample: list[dict[str, str]],
     tags: tuple[str, ...],
     covering_pos: Optional[int],
+    suffixes: Optional[list[str]] = None,
 ) -> None:
+    """Write one annotated record.
+
+    ``suffixes`` (``:v1:v2`` per sample, from ``_marker_annotations``) enables the
+    fast path: when no ancestry tag is already in the target FORMAT, each sample
+    is its original string plus the suffix. A sample whose field count differs
+    from the FORMAT (malformed or truncated) goes through ``annotate_sample``,
+    which pads or truncates it, so the output is identical to the slow path.
+    """
     target_fmt = cols[8] if len(cols) > 8 else "GT"
+    fmt_keys = target_fmt.split(":") if target_fmt else []
     new_fmt = output_format_keys(target_fmt, tags)
     n_samp = len(extras_by_sample)
     samples = cols[9 : 9 + n_samp]
     if len(samples) < n_samp:
         samples = samples + ["."] * (n_samp - len(samples))
-    new_samples = [
-        annotate_sample(target_fmt.split(":") if target_fmt else [], samp, extra, tags)
-        for samp, extra in zip(samples, extras_by_sample)
-    ]
+    if suffixes is not None and fmt_keys and not any(t in fmt_keys for t in tags):
+        nsep = len(fmt_keys) - 1
+        new_samples = [
+            samp + suf
+            if samp.count(":") == nsep
+            else annotate_sample(fmt_keys, samp, extra, tags)
+            for samp, suf, extra in zip(samples, suffixes, extras_by_sample)
+        ]
+    else:
+        new_samples = [
+            annotate_sample(fmt_keys, samp, extra, tags)
+            for samp, extra in zip(samples, extras_by_sample)
+        ]
     info = cols[7] if len(cols) > 7 else "."
     if covering_pos is not None:
         info = _append_info(info, "FLARE_POS", str(covering_pos))
@@ -548,6 +616,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Fail if shared samples / target samples is below this fraction",
     )
     p.add_argument("--progress-every", type=int, default=100_000)
+    p.add_argument(
+        "--expected-sites",
+        type=int,
+        default=None,
+        help="Target record count (e.g. bcftools index -n); adds percent and ETA to progress lines",
+    )
     args = p.parse_args(argv)
 
     tags = tuple(t.strip() for t in args.tags.split(",") if t.strip())
@@ -562,6 +636,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         region=region,
         progress_every=args.progress_every,
         missing_tsv=args.missing_tsv,
+        expected_sites=args.expected_sites,
     )
     write_stats(stats, args.stats_json, args.stats_tsv)
     rate = "NA" if stats.coverage_rate is None else f"{stats.coverage_rate * 100:.2f}%"
