@@ -109,7 +109,30 @@ except ImportError:
         plt.close(fig)
 
     def phenotype_counts(pheno_cov: Path | None, phenotype: str) -> dict:
-        return {"n_samples": np.nan, "n_cases": np.nan, "n_controls": np.nan}
+        # Kept byte-for-byte equivalent to summarize_tractor_genome_results.
+        # On Terra only one script is localized, so this fallback is ALWAYS the
+        # one that runs; returning NaN here put NaN in calibration_summary.tsv
+        # even though the WDL passes --pheno-cov.
+        out = {
+            "n_samples": np.nan,
+            "n_cases": np.nan,
+            "n_controls": np.nan,
+            "n_missing_pheno": np.nan,
+        }
+        if pheno_cov is None or not Path(pheno_cov).exists():
+            return out
+        df = pd.read_csv(
+            pheno_cov, sep="\t", usecols=lambda c: c in {"ID", phenotype}
+        )
+        if phenotype not in df.columns:
+            return out
+        y = pd.to_numeric(df[phenotype], errors="coerce")
+        out["n_missing_pheno"] = int(y.isna().sum())
+        y = y.dropna()
+        out["n_samples"] = int(len(y))
+        out["n_cases"] = int((y == 1).sum())
+        out["n_controls"] = int((y == 0).sum())
+        return out
 
 
 FELIX_JOINT_P_COLS = [
