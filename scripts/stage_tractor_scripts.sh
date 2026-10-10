@@ -28,6 +28,7 @@ REQUIRED=(
   make_plink_keep.py
   run_saige_step2.R
   build_saige_plink_and_grm.sh
+  build_saige_plink_and_grm_lowdisk.sh
   summarize_tractor_genome_results.py
   annotate_repeat_units.py
   aggregate_repeat_loci.py
