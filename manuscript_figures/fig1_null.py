@@ -663,8 +663,8 @@ def _panel_pcs_clines2(ax, rows, phase1_xy: np.ndarray | None = None, phase1_lab
     if phase1_xy is not None:
         # Three rows, bottoms aligned with panel A's legend (bbox y=1.08, default
         # labelspacing). Column-major fill for ncol=4:
-        #   AFR  AMR  EAS  EUR
-        #   MID  SAS  OTH
+        #   AFR  AMR  EAS  OTH
+        #   MID  SAS  EUR
         #  1kGP  Phase 1
         blank = Line2D([0], [0], ls="none", marker="", label=" ")
         comparison = {
@@ -680,8 +680,8 @@ def _panel_pcs_clines2(ax, rows, phase1_xy: np.ndarray | None = None, phase1_lab
         handles = [
             by_label["AFR"], by_label["MID"], comparison["1kGP"],
             by_label["AMR"], by_label["SAS"], comparison["Phase 1"],
-            by_label["EAS"], by_label["OTH"], blank,
-            by_label["EUR"], blank, blank,
+            by_label["EAS"], by_label["EUR"], blank,
+            by_label["OTH"], blank, blank,
         ]
         ax.legend(
             handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=4,
@@ -1215,18 +1215,45 @@ def _panel_pedigrees(ax, rows: list[dict[str, str]]) -> None:
 # (tick labels, axis labels, legends), not between axes frames.
 _MARGIN = 0.06
 _GUTTER = 0.22
+# Panel B's width as a multiple of the row height. It was square (1.0) while
+# the ancestry legend read AFR/AMR/...; the longer population descriptors
+# ("AFR-like", "Unassigned") push that four-column legend to about 2.28 in,
+# which would overhang a 2.00 in panel. The extra width comes out of panel A,
+# whose own legends leave roughly 0.9 in of slack between their two blocks.
+_PC_ASPECT = 1.18
 _ROW_GAP = 0.16
 _LETTER_GAP = 0.04
 _LETTER_SIZE = 9
 
 
 class _Panel:
-    def __init__(self, letter: str, ax, extra=(), weight: float = 1.0, square: bool = False):
+    """One panel in a row.
+
+    ``weight`` shares out the row's flexible width. ``square`` instead fixes
+    the width from the row height; ``aspect`` (width / height) widens or
+    narrows that fixed box, which is how panel B buys room for a legend
+    wider than its plot. Fixed width is taken out before the flexible
+    panels are sized, so widening B narrows A by the same amount.
+    """
+
+    def __init__(
+        self,
+        letter: str,
+        ax,
+        extra=(),
+        weight: float = 1.0,
+        square: bool = False,
+        aspect: float = 1.0,
+    ):
         self.letter = letter
         self.ax = ax
         self.axes = [ax, *extra]
         self.weight = weight
         self.square = square
+        self.aspect = aspect
+
+    def fixed_width(self, height: float) -> float:
+        return height * self.aspect
 
     def pads(self, renderer, dpi: float, fig_w: float, fig_h: float):
         ink = Bbox.union([a.get_tightbbox(renderer) for a in self.axes])
@@ -1256,7 +1283,7 @@ def _layout(fig, rows_of_panels, heights) -> list[tuple[str, float, float]]:
         letters = []
         for panels, height in zip(rows_of_panels, heights):
             pads = [p.pads(renderer, dpi, fig_w, fig_h) for p in panels]
-            fixed = sum(height for p in panels if p.square)
+            fixed = sum(p.fixed_width(height) for p in panels if p.square)
             flexible = (
                 fig_w - 2 * _MARGIN
                 - _GUTTER * (len(panels) - 1)
@@ -1268,7 +1295,11 @@ def _layout(fig, rows_of_panels, heights) -> list[tuple[str, float, float]]:
             row_top = y + height + max(top for _l, _r, _b, top in pads)
             cursor = _MARGIN
             for panel, (left, right, _b, _t) in zip(panels, pads):
-                width = height if panel.square else flexible * panel.weight / total_weight
+                width = (
+                    panel.fixed_width(height)
+                    if panel.square
+                    else flexible * panel.weight / total_weight
+                )
                 panel.ax.set_position([
                     (cursor + left) / fig_w, y / fig_h, width / fig_w, height / fig_h,
                 ])
@@ -1351,7 +1382,7 @@ def render(pc_style: str = "clines2", *, with_phase1: bool = True) -> tuple:
     ]
     top_row = [
         _Panel("A", ax_pyr, extra=(ax_ref,)),
-        _Panel("B", ax_pc, extra=pc_extras, square=True),
+        _Panel("B", ax_pc, extra=pc_extras, square=True, aspect=_PC_ASPECT),
     ]
     fig_w, fig_h = fig.get_size_inches()
     for letter, x, y in _layout(fig, [bottom_row, top_row], heights=[1.15, 2.00]):
