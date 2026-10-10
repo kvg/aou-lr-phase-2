@@ -1,5 +1,5 @@
 {
-  "_comment": "FelixGenome chr22 repeat-dosage shakedown (M6b), LIMITED covariates. One chromosome, locus-level repeat dosage through FELIX step 2 with carrier QC. Replace BUCKET and confirm num_ancs against the FLARE2 selection-v2 decision (5 or 6) before submitting. joint_vcfs must be the PropagateFlareAncestry output (FORMAT GT:AN1:AN2). See HANDOFF_repeat_dosage_chr22.md and felix/REPEAT_DOSAGE.md.",
+  "_comment": "FelixGenome chr22 repeat-dosage shakedown (M6b), LIMITED covariates. One chromosome, locus-level repeat dosage through FELIX step 2 with carrier QC. num_ancs is settled at 5 (the original-FLARE pin) - nothing to change. Replace BUCKET. joint_vcfs must be the PropagateFlareAncestry output (FORMAT GT:AN1:AN2), NOT a FLARE anc.vcf.gz: FLARE paints only at gnomAD-LAI panel sites, so a FLARE VCF would carry almost no SV repeat records and the run would test few or no loci without failing. See HANDOFF_repeat_dosage_chr22.md and felix/REPEAT_DOSAGE.md.",
   "FelixGenome.chroms": [
     "chr22"
   ],
@@ -32,8 +32,6 @@
   "FelixGenome.ru_apply_filters": "PASS,.",
   "FelixGenome.ru_missing_policy": "ref",
   "FelixGenome.ru_max_hap_missing": 0.1,
-  "FelixGenome.simple_repeat_bed": "",
-  "FelixGenome.annotate_repeat_units_script": "gs://BUCKET/scripts/annotate_repeat_units.py",
   "FelixGenome.relatedness_cutoff": 0.05,
   "FelixGenome.num_random_markers": 2000,
   "FelixGenome.min_mac": 50,
