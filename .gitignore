@@ -57,3 +57,6 @@ aou2_100k_sample.tsv.gz
 aou2_100k_sex_at_birth.tsv
 # FLARE global ancestry: one row per participant with their ancestry proportions
 *.global.anc.gz
+
+# Figure render scratch (outputs belong in the manuscript repo)
+manuscript_figures/__pycache__/
