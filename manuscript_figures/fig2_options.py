@@ -53,7 +53,17 @@ LAI = ["AFR", "AMR", "EUR", "EAS", "SAS"]  # FLARE 5-way paint order
 DISCOVERY_BLOCKS = ("EUR", "EAS", "MID", "SAS", "AMR", "OTH", "AFR")
 # MID is ~3% of the cohort; push its neighbours' labels outward so the row stays legible.
 STRIP_LABEL_NUDGE = {"EAS": -0.012, "SAS": 0.012}
-GLOBAL_ANC = ROOT / "aou_lr_phase2_v1.chr1.global.anc.gz"
+# FLARE global ancestry. Prefer the genome-wide estimate (hg38 length-weighted
+# mean over the 22 autosomes from the production run); fall back to the earlier
+# chr1-only file. Single-chromosome noise depresses each participant's maximum
+# component, so chr1 overstates how admixed the cohort is.
+GLOBAL_ANC_CANDIDATES = (
+    ROOT / "aou_lr_phase2_v1.genomewide.global.anc.gz",
+    ROOT / "aou_lr_phase2_v1.chr1.global.anc.gz",
+)
+GLOBAL_ANC = next(
+    (p for p in GLOBAL_ANC_CANDIDATES if p.is_file()), GLOBAL_ANC_CANDIDATES[-1]
+)
 
 CTX = ("US", "RM", "SD", "SR")
 CTX_COLORS = {"US": "#D4D4D4", "RM": "#7F9DC1", "SD": "#D49A55", "SR": "#4E9A80"}
