@@ -1,0 +1,14 @@
+{
+  "PropagateFlareAncestry.docker": "${}",
+  "PropagateFlareAncestry.fail_on_low_coverage": "${false}",
+  "PropagateFlareAncestry.flare_vcf": "${this.anc_vcf}",
+  "PropagateFlareAncestry.flare_vcf_index": "${this.anc_vcf_index}",
+  "PropagateFlareAncestry.format_tags": "AN1,AN2",
+  "PropagateFlareAncestry.gcs_project": "${}",
+  "PropagateFlareAncestry.min_coverage_rate": "${0.95}",
+  "PropagateFlareAncestry.prefix": "${this.output_prefix}",
+  "PropagateFlareAncestry.propagate_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/propagate_flare_ancestry.py",
+  "PropagateFlareAncestry.region": "${this.chrom}",
+  "PropagateFlareAncestry.target_vcf": "${this.ligated_vcf}",
+  "PropagateFlareAncestry.target_vcf_index": "${this.ligated_vcf_idx}"
+}
