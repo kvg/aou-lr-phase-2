@@ -96,6 +96,7 @@ FLARE annotation QC:
 | `flare_01_switch_gq_dp.ipynb` | Ancestry-switch GQ/DP QC, plus old vs new FLARE switch rates / tract lengths |
 | `flare_02_lai_exp_compare.ipynb` | Firecloud-fetch `flare_lai_exp` method grid; switch-QC diagnostics; Part 8 recipe selection v2 (FLARE2 vs FLARE pin, negative controls, Mendelian ranking) |
 | `felix_01_pilot_gate.ipynb` | FELIX chr22 pilot M1 gate: fetch FELIX + Tractor-Mix limited/full results, run `compare_felix_tractor_calibration.py` |
+| `fig3_01_real_panels.ipynb` | Turn a `FelixGenome` run into Figure 3 inputs: writes `fig3_ancestry_vs_pooled.tsv.gz`, `fig3_dosage_vs_biallelic.tsv.gz`, `fig3_hits.tsv` and `fig3_locus_cards.tsv` into the manuscript repo's `data/`, which `manuscript_figures/fig3_sim.py` loads in place of its simulated placeholders. `FIG3_SIM_ONLY=1` forces simulation |
 | `felix_02_genome_review.ipynb` | Review one `FelixGenome` run: unpack `run_summary_tar`, compare λGC across the per-record / repeat-dosage / biallelic arms, check the per-chromosome repeat QC, show QQ and Manhattan plots, and stream named loci out of the per-phenotype TSVs. Set `FELIX_RUN_ROOT` (or `FELIX_SUBMISSION_ID` + `FELIX_WORKFLOW_ID`) and `FELIX_PHENOTYPES` |
 | `flare_03_stage_site_filters.ipynb` | Stage Part 4 context mask + Part 7 call-QC `include_sites` (+ optional concordance) |
 

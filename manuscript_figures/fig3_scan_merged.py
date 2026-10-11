@@ -295,14 +295,17 @@ def render():
     _legend_strip(fig, x_right, A_HEAD_Y, "Significant associations")  # on the title's baseline, right-aligned to the table
 
     # ---- B-D: calibration and method comparisons (layout 1's C-E)
-    for ch, ttl, fn, x_title, w in (  # each y-axis sits at the left edge of its panel title
-        ("B", "Calibration on null phenotypes", panel_null_qq, 0.30, 2.08),
-        ("C", "Dosage vs biallelic coding", lambda ax: panel_dosage(ax, SHOWN), 2.74, 1.93),
-        ("D", "Ancestry-aware vs pooled", lambda ax: panel_ancestry(ax, SHOWN), 5.04, 1.93),
+    # "*" marks a panel the footnote calls simulated; a panel reading an observed
+    # data file (fig3_sim.real_path) loses it.
+    for ch, ttl, fn, x_title, w, src in (  # each y-axis sits at the left edge of its panel title
+        ("B", "Calibration on null phenotypes", panel_null_qq, 0.30, 2.08, None),
+        ("C", "Dosage vs biallelic coding", lambda ax: panel_dosage(ax, SHOWN), 2.74, 1.93, "dosage"),
+        ("D", "Ancestry-aware vs pooled", lambda ax: panel_ancestry(ax, SHOWN), 5.04, 1.93, "ancestry"),
     ):
         ax = add(fig, x_title, r2_top, w, r2_h)
         fn(ax)
-        _head(fig, ch, ttl + "*", x_title - HEAD_DX, r2_top - 0.27)
+        star = "" if (src and S.real_path(src)) else "*"
+        _head(fig, ch, ttl + star, x_title - HEAD_DX, r2_top - 0.27)
 
     # ---- E: loci
     f_top = r2_top + r2_h + 0.72

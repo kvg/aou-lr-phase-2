@@ -404,7 +404,9 @@ def render():
         ax = add(fig, x0, r2_top, w, r2_h)
         fn(ax)
         letter(fig, ch, x0 - 0.50 if i == 0 else x0 - 0.52, r2_top - 0.37)
-        title(fig, ttl, x0 - 0.30, r2_top - 0.36, tag="simulated")
+        title(fig, ttl, x0 - 0.30, r2_top - 0.36,
+              tag=S.panel_tag("dosage" if fn is panel_dosage else "ancestry")
+              if fn in (panel_dosage, panel_ancestry) else "simulated")
 
     # Row 3
     f_top = r2_top + r2_h + 0.72

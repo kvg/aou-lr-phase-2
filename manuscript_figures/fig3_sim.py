@@ -40,9 +40,12 @@ Simulated (placeholder) until the Terra scan is run
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import math
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -112,6 +115,43 @@ def load_case_counts():
                 "hap": {k: float(r[f"hap_{k}"]) for k in LOCAL_ANC},
             }
     return out
+
+
+# ---------------------------------------------------------------- real panels
+# Association panels read data/fig3_<name>.tsv.gz when it exists and simulate
+# otherwise, the same rule load_case_counts() already uses. Set FIG3_SIM_ONLY=1
+# to force simulation even when the files are present, for layout work.
+REAL_FILES = {
+    "dosage": "fig3_dosage_vs_biallelic.tsv.gz",
+    "ancestry": "fig3_ancestry_vs_pooled.tsv.gz",
+}
+SIM_ONLY = os.environ.get("FIG3_SIM_ONLY", "") not in ("", "0", "false", "False")
+
+
+def real_path(name: str) -> Path | None:
+    """Path to the observed data for a panel, or None when it should be simulated."""
+    if SIM_ONLY:
+        return None
+    path = ROOT / "data" / REAL_FILES[name]
+    return path if path.is_file() else None
+
+
+def panel_tag(name: str) -> str:
+    """Title tag for a panel: observed data, or simulated placeholder."""
+    return "observed" if real_path(name) else "simulated"
+
+
+def _read_tsv_gz(path: Path) -> dict[str, np.ndarray]:
+    with gzip.open(path, "rt", newline="") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    if not rows:
+        raise ValueError(f"{path} has no rows")
+    return {k: np.array([r[k] for r in rows]) for k in rows[0]}
+
+
+def _neglog10(col: np.ndarray) -> np.ndarray:
+    p = np.clip(col.astype(float), 1e-300, 1.0)
+    return -np.log10(p)
 
 
 def ancestry_keys(mode: str | None = None) -> list[str]:
@@ -351,7 +391,15 @@ def cct(p1: np.ndarray, p2: np.ndarray) -> np.ndarray:
 
 
 def sim_dosage_vs_biallelic(n: int = 720):
-    """-log10 P at repeat loci: biallelic-split coding vs repeat-length dosage."""
+    """-log10 P at repeat loci: biallelic-split coding vs repeat-length dosage.
+
+    Observed columns p_biallelic and p_dosage when data/fig3_dosage_vs_biallelic.tsv.gz
+    is present; simulated otherwise. Returns (x = biallelic, y = dosage).
+    """
+    path = real_path("dosage")
+    if path is not None:
+        d = _read_tsv_gz(path)
+        return _neglog10(d["p_biallelic"]), _neglog10(d["p_dosage"])
     rng = np.random.default_rng(SEED + 3)
     z0 = rng.normal(size=n)
     zs = 0.55 * z0 + np.sqrt(1 - 0.55 ** 2) * rng.normal(size=n)
@@ -365,7 +413,17 @@ def sim_dosage_vs_biallelic(n: int = 720):
 
 
 def sim_ancestry_vs_pooled(n: int = 4200):
-    """-log10 P: pooled test vs FELIX Cauchy combination of shared and heterogeneity tests."""
+    """-log10 P: pooled test vs FELIX Cauchy combination of shared and heterogeneity tests.
+
+    Observed columns p_pooled, p_ancestry_cct and p_het when
+    data/fig3_ancestry_vs_pooled.tsv.gz is present; simulated otherwise. Returns
+    (pooled, ancestry-aware, heterogeneity), all as -log10 P; the panel colours a
+    point by the third.
+    """
+    path = real_path("ancestry")
+    if path is not None:
+        d = _read_tsv_gz(path)
+        return _neglog10(d["p_pooled"]), _neglog10(d["p_ancestry_cct"]), _neglog10(d["p_het"])
     rng = np.random.default_rng(SEED + 4)
     z = rng.normal(size=n)
     sig = np.zeros(n)
