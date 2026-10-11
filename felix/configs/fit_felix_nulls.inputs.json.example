@@ -1,0 +1,23 @@
+{
+  "_comment": "FitFelixNulls: one SAIGE step-1 null per phenotype, reusable by every association run on the same cohort and covariate arm. Replace BUCKET. The GRM inputs are grm/wdl/BuildSparseGRM.wdl outputs (or the MakeGRM outputs of an earlier FelixGenome run). selected_phenotypes and covariate_columns must be the SAME files the consuming run uses: the output arrays are ordered by this list, and FelixGenome indexes them positionally. Feed the outputs to FelixGenome as precomputed_null_rdas / precomputed_variance_ratios / precomputed_samples_used / precomputed_null_export_tars. A null fit is cache-keyed on pheno_cov, covariate_columns, analysis_samples, the GRM files and fit_felix_null_script, so switching covariate arms refits all of them - settle limited vs full first.",
+  "FitFelixNulls.pheno_cov": "gs://BUCKET/tractor_mix_pilot/pheno_cov.tsv",
+  "FitFelixNulls.selected_phenotypes": "gs://BUCKET/tractor_mix_pilot/selected_phenotypes.txt",
+  "FitFelixNulls.covariate_columns": "gs://BUCKET/tractor_mix_pilot/covariate_columns_limited.txt",
+  "FitFelixNulls.analysis_samples": "gs://BUCKET/tractor_mix_pilot/analysis_samples.txt",
+
+  "FitFelixNulls.plink_bed": "gs://BUCKET/grm/saige_plink.bed",
+  "FitFelixNulls.plink_bim": "gs://BUCKET/grm/saige_plink.bim",
+  "FitFelixNulls.plink_fam": "gs://BUCKET/grm/saige_plink.fam",
+  "FitFelixNulls.sparse_grm_mtx": "gs://BUCKET/grm/saige_sparseGRM.mtx",
+  "FitFelixNulls.sparse_grm_sample_ids": "gs://BUCKET/grm/saige_sparseGRM.sampleIDs.txt",
+
+  "FitFelixNulls.fit_felix_null_script": "gs://BUCKET/felix/scripts/fit_felix_null.R",
+  "FitFelixNulls.export_null_script": "gs://BUCKET/felix/scripts/export_felix_null.R",
+  "FitFelixNulls.trait_type": "binary",
+
+  "FitFelixNulls.null_cpu": 8,
+  "FitFelixNulls.null_memory_gb": 32,
+  "FitFelixNulls.null_disk_gb": 100,
+  "FitFelixNulls.null_preemptible": 0,
+  "FitFelixNulls.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+}

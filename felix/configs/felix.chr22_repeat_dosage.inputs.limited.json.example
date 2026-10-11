@@ -1,5 +1,5 @@
 {
-  "_comment": "FelixGenome chr22 repeat-dosage shakedown (M6b), LIMITED covariates. One chromosome, locus-level repeat dosage through FELIX step 2 with carrier QC. num_ancs is settled at 5 (the original-FLARE pin) - nothing to change. Replace BUCKET. joint_vcfs must be the PropagateFlareAncestry output (FORMAT GT:AN1:AN2), NOT a FLARE anc.vcf.gz: FLARE paints only at gnomAD-LAI panel sites, so a FLARE VCF would carry almost no SV repeat records and the run would test few or no loci without failing. See HANDOFF_repeat_dosage_chr22.md and felix/REPEAT_DOSAGE.md.",
+  "_comment": "FelixGenome chr22 repeat-dosage shakedown (M6b), LIMITED covariates: sex, age, PC1-PC10. Same cohort, GRM VCFs, kinship 0.05 and MAC 50 as felix.pilot.inputs.limited.json. num_ancs=5 (original-FLARE pin). THREE VCF INPUTS, each with a different job. joint_vcfs = a chr22 PropagateFlareAncestry annotated_vcf (GT:AN1:AN2 on every record); only the repeat branch reads it. phase_vcfs = the chr22 SHAPEIT4 ligated BCF and flare_vcfs = the chr22 FLARE anc VCF; felixla Pack reads these and assigns each phase record to its covering FLARE marker itself. (If phase_vcfs and flare_vcfs are omitted, Pack reads joint_vcfs for both, which parses every annotated record as a FLARE marker and is much slower.) All three placeholders below are deliberately invalid URIs so an accidental submit fails at localization instead of silently testing no loci. Requires the FelixGenome.wdl snapshot that declares export_null_script and decouples Pack from the repeat source, and both stage scripts run (aggregate_repeat_loci.py lives in scripts/, not felix/scripts/).",
   "FelixGenome.chroms": [
     "chr22"
   ],
@@ -28,7 +28,7 @@
   "FelixGenome.write_admixed_dosage_script": "gs://BUCKET/scripts/write_admixed_dosage_vcf.py",
   "FelixGenome.ru_biallelic_arm": true,
   "FelixGenome.compare_ru_arms_script": "gs://BUCKET/felix/scripts/compare_ru_arms.py",
-  "FelixGenome.ru_arm_p_threshold": 5e-08,
+  "FelixGenome.ru_arm_p_threshold": 0.00000005,
   "FelixGenome.ru_min_carriers": 20,
   "FelixGenome.ru_flank": 10,
   "FelixGenome.ru_max_bp": 100000,
@@ -38,9 +38,15 @@
   "FelixGenome.relatedness_cutoff": 0.05,
   "FelixGenome.num_random_markers": 2000,
   "FelixGenome.min_mac": 50,
-  "FelixGenome.summarize_p_threshold": 5e-08,
+  "FelixGenome.summarize_p_threshold": 0.00000005,
   "FelixGenome.summarize_top_n": 50,
   "FelixGenome.pack_disk_gb_floor": 100,
   "FelixGenome.pack_disk_gb_multiplier": 3.5,
-  "FelixGenome.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+  "FelixGenome.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0",
+  "FelixGenome.phase_vcfs": [
+    "gs://PENDING-LIGATED-BCF/chr22.shapeit4.ligated.bcf"
+  ],
+  "FelixGenome.flare_vcfs": [
+    "gs://PENDING-FLARE/chr22.anc.vcf.gz"
+  ]
 }

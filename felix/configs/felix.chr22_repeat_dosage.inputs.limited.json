@@ -1,10 +1,10 @@
 {
-  "_comment": "FelixGenome chr22 repeat-dosage shakedown (M6b), LIMITED covariates: sex, age, PC1-PC10. Same cohort, GRM VCFs, kinship 0.05 and MAC 50 as felix.pilot.inputs.limited.json. num_ancs=5 (original-FLARE pin). BEFORE SUBMITTING set FelixGenome.joint_vcfs to the chr22 PropagateFlareAncestry annotated_vcf (flare_lai_prod.joint_gt_an_vcf); the placeholder below is a deliberately invalid URI so an accidental submit fails at localization instead of silently testing no loci. Requires the FelixGenome.wdl snapshot that declares export_null_script, and both stage scripts run (aggregate_repeat_loci.py lives in scripts/, not felix/scripts/).",
+  "_comment": "FelixGenome chr22 repeat-dosage shakedown (M6b), LIMITED covariates: sex, age, PC1-PC10. Same cohort, GRM VCFs, kinship 0.05 and MAC 50 as the FelixPilotLimited config. num_ancs=5 (original-FLARE pin). THREE VCF ARRAYS, each with a different job. phase_vcfs = flare_lai_prod.gt_vcf and flare_vcfs = the production chr22 anc VCF: felixla Pack reads these for the ordinary per-record scan and matches each phase record to its covering FLARE marker itself (same pair as FelixPilotSVLimited). joint_vcfs = the chr22 PropagateFlareAncestry annotated VCF (GT:AN1:AN2 on every record); ONLY the repeat branch reads it, because aggregate_repeat_loci.py needs per-record ancestry at indels and SVs inside repeat loci, which the FLARE anc VCF has only at panel sites. Requires a FelixGenome.wdl snapshot that declares export_null_script and decouples Pack from the repeat source, plus both stage scripts run (aggregate_repeat_loci.py lives in scripts/, not felix/scripts/). The repeat branch has never run on Terra: read ru_locus_summaries and ru_admixed_stats before any p-value, starting with the locus count in loci.summary.json.",
   "FelixGenome.chroms": [
     "chr22"
   ],
   "FelixGenome.joint_vcfs": [
-    "gs://PENDING-PROPAGATE/chr22.ancestry.vcf.gz"
+    "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/submissions/5587dfff-6a06-46f3-97d2-28a738c308ce/PropagateFlareAncestry/2c311ddc-2b98-4632-b48d-3cb3c8c92caf/call-AnnotateTarget/lai_prod.aou_lr_phase2_v1.chr22.ancestry.vcf.gz"
   ],
   "FelixGenome.num_ancs": 5,
   "FelixGenome.analysis_samples": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/tractor_mix_pilot/analysis_samples.txt",
@@ -28,7 +28,7 @@
   "FelixGenome.write_admixed_dosage_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/write_admixed_dosage_vcf.py",
   "FelixGenome.ru_biallelic_arm": true,
   "FelixGenome.compare_ru_arms_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/compare_ru_arms.py",
-  "FelixGenome.ru_arm_p_threshold": 5e-08,
+  "FelixGenome.ru_arm_p_threshold": 0.00000005,
   "FelixGenome.ru_min_carriers": 20,
   "FelixGenome.ru_flank": 10,
   "FelixGenome.ru_max_bp": 100000,
@@ -38,9 +38,15 @@
   "FelixGenome.relatedness_cutoff": 0.05,
   "FelixGenome.num_random_markers": 2000,
   "FelixGenome.min_mac": 50,
-  "FelixGenome.summarize_p_threshold": 5e-08,
+  "FelixGenome.summarize_p_threshold": 0.00000005,
   "FelixGenome.summarize_top_n": 50,
   "FelixGenome.pack_disk_gb_floor": 100,
   "FelixGenome.pack_disk_gb_multiplier": 3.5,
-  "FelixGenome.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+  "FelixGenome.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0",
+  "FelixGenome.phase_vcfs": [
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/4b6cbdb4-448d-4cf0-a13d-5b5189dc58bf/bcftools_bcf_to_vcf/10ac3d87-e9e5-48f7-aee0-e2c18f6ef531/call-bcftools_bcf_to_vcf_task/aou_lr_phase2_v1.chr22.vcf.gz"
+  ],
+  "FelixGenome.flare_vcfs": [
+    "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/submissions/6db7352b-1190-4cd4-8fc4-4e768786f4e7/FlareByPopulation/28261289-4f28-4fb4-8ecb-5ff00432695f/call-MergePopulationFlare/lai_prod.aou_lr_phase2_v1.chr22.anc.vcf.gz"
+  ]
 }
