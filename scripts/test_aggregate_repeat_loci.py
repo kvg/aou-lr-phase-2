@@ -231,7 +231,7 @@ def test_locus_vcf_feeds_dosage_writer(tmp_path: Path):
     stats = write_admixed_vcf(str(path), buf, num_ancs=3)
     assert stats["written"] == 1
     cells = [ln for ln in buf.getvalue().splitlines() if not ln.startswith("#")][0].split("\t")
-    assert cells[7] == "RU_SCALE=21;RU_HAP_MISS=0"
+    assert cells[7] == "RU_SCALE=21;RU_CODING=ru;RU_HAP_MISS=0"
     s1 = dict(zip(cells[8].split(":"), cells[9].split(":")))
     assert round(float(s1["DS1"]) * 21, 6) == 21 and round(float(s1["DS2"]) * 21, 6) == 20
 
@@ -333,3 +333,46 @@ def test_ambiguous_locus_survives_the_writer(tmp_path: Path):
         assert "unphased" in str(exc) or "missing allele" in str(exc)
     else:
         raise AssertionError("expected strict-mode refusal")
+
+
+def test_overlapping_catalog_loci_emit_in_position_order(tmp_path: Path):
+    """Output must stay POS-sorted when a nested locus is claimed before its container.
+
+    Record-to-locus assignment prefers the SMALLEST overlapping locus, so a record
+    can activate a nested locus while the container that starts a few bp earlier is
+    only activated by a later record. Emitting on the active set alone then writes
+    the nested locus first and the container after it, and `bcftools index` rejects
+    the file ("Unsorted positions on sequence #1"). Taken from the real chr22 run,
+    which inverted 17125440 and 17125437.
+    """
+    vcf = tmp_path / "in.vcf.gz"
+    plain = tmp_path / "in.vcf"
+    plain.write_text(
+        HEADER.rstrip("\n") + "\n"
+        + "\t".join(["chr22", "17125445", "a", "ACAC", "A", ".", "PASS", ".", "GT:AN1:AN2",
+                     "0|1:0:1", "0|0:1:1", "0|0:2:2", "0|0:0:0", "0|0:0:0"]) + "\n"
+        + "\t".join(["chr22", "17125550", "b", "A", "AACAC", ".", "PASS", ".", "GT:AN1:AN2",
+                     "1|0:0:1", "0|0:1:1", "0|0:2:2", "0|0:0:0", "0|0:0:0"]) + "\n"
+    )
+    subprocess.run(["bcftools", "view", "-Oz", "-o", str(vcf), str(plain)], check=True)
+    subprocess.run(["bcftools", "index", "-t", str(vcf)], check=True)
+    bed = tmp_path / "catalog.bed"
+    bed.write_text("chr22\t17125436\t17125600\tX\tAC\nchr22\t17125439\t17125460\tY\tAC\n")
+    out_vcf = tmp_path / "loci.vcf"
+    alleles = tmp_path / "alleles.tsv.gz"
+    main([
+        "--vcf", str(vcf), "--catalog-bed", str(bed), "--chrom", "chr22", "--exclude-prefixes", "HG",
+        "--out-vcf", str(out_vcf), "--out-alleles", str(alleles), "--with-ancestry", "--num-ancs", "5",
+        "--out-summary", str(tmp_path / "summary.json"),
+    ])
+    records = [ln.split("\t") for ln in out_vcf.read_text().splitlines() if not ln.startswith("#")]
+    assert [r[2] for r in records] == ["X", "Y"]
+    positions = [int(r[1]) for r in records]
+    assert positions == sorted(positions) == [17125437, 17125440]
+    with gzip.open(alleles, "rt") as fh:
+        starts = [int(row["start"]) for row in csv.DictReader(fh, delimiter="\t")]
+    assert starts == sorted(starts)
+    # the emitted file must be indexable, which is what failed on Terra
+    gz = tmp_path / "loci.vcf.gz"
+    subprocess.run(["bcftools", "view", "-Oz", "-o", str(gz), str(out_vcf)], check=True)
+    subprocess.run(["bcftools", "index", "-c", str(gz)], check=True)

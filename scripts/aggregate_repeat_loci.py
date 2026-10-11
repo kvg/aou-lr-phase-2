@@ -420,11 +420,32 @@ class Aggregator:
         self.counts["anc_code_max"] = -1
         self.counts["loci_in_catalog"] = len(loci)
 
+    #: how many catalog loci ``assign`` walks back from the bisect point. Also
+    #: bounds how far left a FUTURE record can reach, which ``emit_pending``
+    #: needs to know (see ``catalog_floor``).
+    LOOKBACK = 8
+
+    def catalog_floor(self, start0: int) -> Optional[int]:
+        """Smallest locus start any record at or after ``start0`` could still claim.
+
+        ``assign`` starts at ``bisect_right(starts, end0 + flank) - 1`` and walks
+        back at most ``LOOKBACK`` loci. ``end0 >= start0`` and bisect is monotonic,
+        so no future record can reach an index below
+        ``bisect_right(starts, start0 + flank) - LOOKBACK``. A locus that is not
+        yet active can therefore still be created with a start below one already
+        queued (overlapping or nested catalog loci), which is why the emit floor
+        cannot be taken from the active set alone.
+        """
+        if not self.loci:
+            return None
+        i = max(0, bisect.bisect_right(self.starts, start0 + self.flank) - self.LOOKBACK)
+        return self.starts[i]
+
     def assign(self, start0: int, end0: int) -> Optional[int]:
         i = bisect.bisect_right(self.starts, end0 + self.flank) - 1
         best, best_key = None, None
         steps = 0
-        while i >= 0 and steps < 8:
+        while i >= 0 and steps < self.LOOKBACK:
             L = self.loci[i]
             if L.end + self.flank >= start0:
                 overlap = min(L.end, end0) - max(L.start, start0)
@@ -440,12 +461,13 @@ class Aggregator:
         done = [i for i, st in self.active.items() if st.locus.end + self.flank < start0]
         for i in done:
             self.finish(self.active.pop(i))
-        self.emit_pending()
+        self.emit_pending(floor=self.catalog_floor(start0))
 
-    def emit_pending(self, final: bool = False) -> None:
+    def emit_pending(self, final: bool = False, floor: Optional[int] = None) -> None:
         if not self.pending:
             return
-        floor = min((st.locus.start for st in self.active.values()), default=None)
+        for st in self.active.values():
+            floor = st.locus.start if floor is None else min(floor, st.locus.start)
         while self.pending and (final or floor is None or self.pending[0][0] <= floor):
             _start, _seq, allele_rows, vcf_line = heapq.heappop(self.pending)
             self.alleles_out.write(allele_rows)
@@ -463,7 +485,7 @@ class Aggregator:
             st = LocusState(L, self.n, self.with_ancestry)
             st.add(rec)
             self.finish(st)
-            self.emit_pending()
+            self.emit_pending(floor=min(rec.start0, self.catalog_floor(rec.start0) or rec.start0))
             return
         self.counts["records_assigned"] += 1
         st = self.active.get(idx)
