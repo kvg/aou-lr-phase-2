@@ -109,6 +109,76 @@ rescales its variance matrix to agree with the SPA-corrected single tests
 (`get_newPhi_scaleFactor_cpp`, FELIX `src/Main.cpp`). Nothing here is
 reimplemented; the dosage simply enters FELIX where a 0/1 genotype would.
 
+### 3.1 Baseline arms — what each benefit claim isolates
+
+Two things are being claimed in the manuscript: local ancestry helps, and
+repeat-unit coding helps on top of it. They are separate axes, so the
+comparison is a four-arm grid (not to be confused with the covariate 2×2 in
+§8), and the benefit of each axis is read along its own edge:
+
+| | pooled | local ancestry |
+|---|---|---|
+| **biallelic** | **A** conventional SV GWAS baseline | **B** Tractor as published |
+| **repeat dosage** | **C** | **D** FELIX as run now |
+
+Local ancestry = B vs A and D vs C; repeat dosage = C vs A and D vs B. The
+grid costs two FELIX runs, not four:
+
+- **Coding axis** is `write_admixed_dosage_vcf.py --coding ru|carrier`.
+  `carrier` gives every non-reference repeat haplotype `x = 1`. Identical loci,
+  identical carrier haplotypes, identical `ANC{k}` and identical missingness
+  handling — only the weighting by repeat count changes.
+- **Ancestry axis** needs no second run. Each admixed run already tests the
+  ancestry-collapsed dosage on its last pass (`p.value_ancALL`, reported again
+  as `P_hom_admixed`): a 1-df score test on `sum_k DS{k}` with null model, GRM,
+  variance ratio and marker set held fixed. That is a cleaner pooled
+  comparator than a separate run, which would also vary the software.
+
+So arms A and C are columns of the `carrier` and `ru` runs; arms B and D are
+the `P_cct_admixed_c` columns of the same two runs. `FELIX_DOSAGE_QC=carrier`
+is kept on for **both** runs, which keeps the locus sets nearly identical but
+not provably so: the carrier *haplotypes* are the same under either coding, but
+the patch counts samples with a non-zero `DS{k}`, and a sample carrying a gain
+and a loss of equal size on the same ancestry has `DS{k} = 0` under `ru` and
+`2` under `carrier`. So the QC denominators differ a little and a locus sitting
+on `--min-mac` can pass in one arm only. On the `locus_path_smoke` cohort
+(210 loci, K=3, 500 samples) 116 of 630 locus×ancestry panels had different
+carrier counts (max 16 samples; pooled max 75) and **no** locus changed status
+at a threshold of 10, 20 or 50. `compare_ru_arms.py` reports the residual as
+`n_loci_biallelic_only` / `n_loci_dosage_only` and compares on the
+intersection — read those two numbers before the grid.
+
+**Do not build arm C by running step 2 with `--is_admixed=FALSE` on the dosage
+VCF.** The non-admixed marker path calls `imputeGenoAndFlip`, which flips
+`G → 2 − G` when `altFreq > 0.5` and zeroes dosages below
+`dosage_zerod_cutoff`, then filters on `MAF = min(altFreq, 1 − altFreq)` and
+`MAC = min(altCounts, 2N − altCounts)`. REF-relative repeat dosage is signed,
+so `altCounts` is not an allele count: a contraction-dominated locus gets a
+negative "frequency" and is dropped, and the flip is meaningless. The admixed
+path avoids exactly this (`imputeGenoAndFlip_fakeflip` plus the carrier-QC
+patch), which is why the pooled arm must come from inside the admixed run.
+`--is_admixed=FALSE` *is* the right switch for a biallelic 0/1 baseline run,
+and is the standard SAIGE marker path (`SAIGE.Marker` → `mainMarkerInCPP`,
+untouched by FELIX); the arm-A column above is preferred only because it keeps
+the locus set and QC identical to the other three arms.
+
+Running it: `FelixGenome.ru_biallelic_arm` (default true) adds
+`WriteRuAdmixedVcf as BaVcf` (`coding = "carrier"`) and `BaStep2`, and
+`CompareRuArms` writes the grid per phenotype
+(`ru_arm_tables` / `ru_arm_summaries` / `ru_arm_markdown`) when
+`compare_ru_arms_script` is supplied. Locally:
+
+```
+python3 felix/scripts/compare_ru_arms.py \
+  --dosage-tsv PHENO.ru.felix.tsv --biallelic-tsv PHENO.ru_biallelic.felix.tsv \
+  --phenotype PHENO --out-tsv arms.tsv --out-summary-json arms.json --out-md arms.md
+```
+
+Read the counts with the usual caution: the local-ancestry arms combine K
+per-ancestry tests through CCT, so their p-values are not 1-df and the λ the
+summary reports for them is a distributional summary, not a genomic-control
+factor. "More hits" is not a benefit claim without matched λGC (§8).
+
 ---
 
 ## 4. Why the patch is needed
@@ -333,6 +403,8 @@ Fixture evidence: `eval/record_vs_locus/`.
 | Per-locus Mendelian length inconsistency | not measured. Long VNTR alleles have length-calling noise; record it and drop or flag loci above a threshold |
 | Ancestry-centred sensitivity encoding | needs a redesign. Centring is a shift (§2.1) **and** makes every haplotype non-zero, so it is incompatible with carrier QC as written |
 | Segmental-duplication CNVs through the same path | undecided; they are copy-number dosages too, but phasing and ancestry assignment are less reliable |
+| Biallelic comparator arm (§3.1) on real data | not run; wired as `ru_biallelic_arm`, exercised only on the writer fixtures |
+| FELIX `--is_admixed=FALSE` vs stock SAIGE 1.4.9 | not run. One chromosome of biallelic markers, same null and GRM, p-values expected to agree to machine precision — the evidence for calling arm A a standard-SAIGE baseline in the text |
 | RU results in `SummarizeFelixResults` | not wired; written separately |
 | Upstreaming the carrier-QC switch | deferred until the pipeline works end to end on AoU data |
 

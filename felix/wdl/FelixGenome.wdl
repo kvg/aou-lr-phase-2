@@ -15,6 +15,12 @@ version 1.0
 #   ru_engine="felix" (default, needs repeat_catalog_bed):
 #     AggregateRepeatLoci → WriteRuAdmixedVcf → RunFelixStep2RuVcf
 #     One test per catalog repeat locus, REF-relative units, SPA + carrier QC.
+#     ru_biallelic_arm (default true) runs the same loci a second time with
+#     coding="carrier" (one unit per non-reference haplotype), and CompareRuArms
+#     builds the 2x2 — pooled/local-ancestry x biallelic/repeat-dosage — from
+#     the two merged TSVs. The pooled column is FELIX's own ancestry-collapsed
+#     pass (p.value_ancALL = P_hom_admixed), not a separate run, so all four
+#     arms share one Step 1 null, GRM, sample set and locus set.
 #   ru_engine="rust" (needs simple_repeat_bed), comparison only:
 #     AnnotateRuTest → ExtractRuDosage (dosage / collapse / split) → ScoreRuDosage
 #   (tractor-mix-score --mode felix) per (phenotype × chromosome × encoding)
@@ -46,19 +52,23 @@ task CheckChromVcfPairs {
       exit 1
     fi
 
-    if [[ "${N_JOINT}" -gt 0 ]]; then
-      if [[ "${N_JOINT}" -ne "${N_CHROM}" ]]; then
-        echo "joint_vcfs length (${N_JOINT}) != chroms length (${N_CHROM})" >&2
-        exit 1
-      fi
-      echo "OK: ${N_CHROM} chrom × joint VCF pairs"
-    else
+    # Pack reads phase_vcfs + flare_vcfs when given, else joint_vcfs; the repeat
+    # branch reads joint_vcfs when given, else phase_vcfs. Any given array must
+    # match chroms, and phase_vcfs and flare_vcfs come as a pair.
+    if [[ "${N_JOINT}" -gt 0 && "${N_JOINT}" -ne "${N_CHROM}" ]]; then
+      echo "joint_vcfs length (${N_JOINT}) != chroms length (${N_CHROM})" >&2
+      exit 1
+    fi
+    if [[ "${N_PHASE}" -gt 0 || "${N_FLARE}" -gt 0 ]]; then
       if [[ "${N_PHASE}" -ne "${N_CHROM}" || "${N_FLARE}" -ne "${N_CHROM}" ]]; then
         echo "phase_vcfs (${N_PHASE}) and flare_vcfs (${N_FLARE}) must both match chroms (${N_CHROM})" >&2
         exit 1
       fi
-      echo "OK: ${N_CHROM} chrom × (phase + FLARE) pairs"
+    elif [[ "${N_JOINT}" -eq 0 ]]; then
+      echo "Supply joint_vcfs, or both phase_vcfs and flare_vcfs" >&2
+      exit 1
     fi
+    echo "OK: ${N_CHROM} chrom; joint=${N_JOINT} phase=${N_PHASE} flare=${N_FLARE}"
   >>>
 
   output {
@@ -793,6 +803,12 @@ task AggregateRepeatLoci {
 
 # Repeat-SV dosages for FELIX's admixed VCF path: DS{k} / ANC{k} from RU_TEST
 # loci (REF-relative repeat units, scaled per locus; scripts/write_admixed_dosage_vcf.py).
+#
+# coding = "ru"      repeat units relative to REF (the test arm)
+# coding = "carrier" 1 per non-reference repeat haplotype (the biallelic
+#                    comparator arm). Same loci, same carriers, same ANC{k} —
+#                    only the weighting by repeat count differs, so the two
+#                    runs differ in exactly one thing.
 task WriteRuAdmixedVcf {
   input {
     File annotated_vcf
@@ -802,6 +818,7 @@ task WriteRuAdmixedVcf {
     Int num_ancs = 5
     String missing_policy = "ref"
     Float max_hap_missing = 0.1
+    String coding = "ru"
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 2
     Int memory_gb = 8
@@ -822,6 +839,7 @@ task WriteRuAdmixedVcf {
       --samples "~{analysis_samples}" \
       --missing "~{missing_policy}" \
       --max-hap-missing ~{max_hap_missing} \
+      --coding "~{coding}" \
       --out ru/ru.admixed.vcf \
       --stats-json ru/ru.admixed.stats.json
     bcftools view -Oz -o ru/ru.admixed.vcf.gz ru/ru.admixed.vcf
@@ -848,12 +866,21 @@ task WriteRuAdmixedVcf {
 
 # FELIX step 2 on the repeat dosage VCF with carrier-count QC
 # (FELIX_DOSAGE_QC=carrier; needs the patched image, felix/patches/).
+#
+# dosage_qc stays "carrier" for the biallelic comparator arm as well: both
+# codings mark the same carrier haplotypes, so one threshold keeps the two runs
+# on nearly the same locus set (they can still differ where a sample's gain and
+# loss cancel under the repeat-unit coding; CompareRuArms reports that as
+# n_loci_*_only). "none" restores FELIX's allele-count QC, which is meaningful
+# only for the carrier coding — sum(DS) is not an allele count under
+# REF-relative repeat units — and widens the gap between the arms' locus sets.
 task RunFelixStep2RuVcf {
   input {
     File admixed_vcf
     File admixed_vcf_index
     String chrom
     String phenotype
+    String dosage_qc = "carrier"
     File null_rda
     File variance_ratio
     File samples_used
@@ -884,7 +911,7 @@ task RunFelixStep2RuVcf {
     Rscript "~{run_step2_script}" \
       --vcf-file ru.admixed.vcf.gz \
       --vcf-index ru.admixed.vcf.gz.csi \
-      --dosage-qc carrier \
+      --dosage-qc "~{dosage_qc}" \
       --chrom "${CHROM}" \
       --null-prefix "step2/${PHENO}" \
       --sample-file "~{samples_used}" \
@@ -913,12 +940,70 @@ task RunFelixStep2RuVcf {
   }
 }
 
+# 2x2 comparison table for one phenotype: local ancestry x repeat-dosage
+# coding, from the two merged result TSVs (felix/scripts/compare_ru_arms.py).
+task CompareRuArms {
+  input {
+    String phenotype
+    File dosage_tsv
+    File biallelic_tsv
+    File compare_script
+    Int num_ancs = 5
+    Float p_threshold = 0.00000005
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+    Int cpu = 1
+    Int memory_gb = 8
+    Int disk_gb_floor = 20
+    Float disk_gb_multiplier = 3.0
+    Int preemptible = 1
+  }
+
+  Int disk_gb = ceil((size(dosage_tsv, "GB") + size(biallelic_tsv, "GB")) * disk_gb_multiplier) + disk_gb_floor
+
+  command <<<
+    set -euo pipefail
+    PHENO=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{phenotype}")
+    mkdir -p arms
+    python3 "~{compare_script}" \
+      --dosage-tsv "~{dosage_tsv}" \
+      --biallelic-tsv "~{biallelic_tsv}" \
+      --phenotype "${PHENO}" \
+      --num-ancs ~{num_ancs} \
+      --p-threshold ~{p_threshold} \
+      --out-tsv "arms/${PHENO}.ru_arms.tsv" \
+      --out-summary-json "arms/${PHENO}.ru_arms.summary.json" \
+      --out-md "arms/${PHENO}.ru_arms.md"
+
+    cp "arms/${PHENO}.ru_arms.tsv" arms_table.tsv
+    cp "arms/${PHENO}.ru_arms.summary.json" arms_summary.json
+    cp "arms/${PHENO}.ru_arms.md" arms_table.md
+  >>>
+
+  output {
+    File arm_table = "arms_table.tsv"
+    File arm_summary = "arms_summary.json"
+    File arm_markdown = "arms_table.md"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
 workflow FelixGenome {
   input {
     Array[String] chroms
 
   # Parallel per-chrom VCFs (same length / order as chroms).
-  # Supply joint_vcfs OR both phase_vcfs and flare_vcfs.
+  # Supply joint_vcfs OR both phase_vcfs and flare_vcfs, or all three. felixla
+  # (Pack) assigns each phase record to its covering FLARE marker itself, so the
+  # ordinary scan needs only the raw phased callset plus the FLARE anc VCF. When
+  # phase_vcfs and flare_vcfs are given they are what Pack reads; the repeat
+  # branch reads joint_vcfs (GT:AN1:AN2) when given, else phase_vcfs.
     Array[File]? joint_vcfs
     Array[File]? phase_vcfs
     Array[File]? flare_vcfs
@@ -954,6 +1039,17 @@ workflow FelixGenome {
     File? repeat_catalog_bed
     File? aggregate_repeat_loci_script
     File? write_admixed_dosage_script
+
+  # Biallelic comparator arm (ru_engine="felix" only). A second pass of the
+  # same loci through the same Step 1 null, GRM and samples, with DS{k} coded
+  # as the non-reference haplotype count instead of repeat units. Together with
+  # FELIX's own ancestry-collapsed test (p.value_ancALL = P_hom_admixed) it
+  # fills the 2x2: pooled/local-ancestry x biallelic/repeat-dosage, where
+  # pooled+biallelic is the conventional-GWAS baseline. Needs
+  # compare_ru_arms_script for the summary table.
+    Boolean ru_biallelic_arm = true
+    File? compare_ru_arms_script
+    Float ru_arm_p_threshold = 0.00000005
     Int ru_min_carriers = 20
     Int ru_flank = 10
     Int ru_max_bp = 100000
@@ -1032,8 +1128,8 @@ workflow FelixGenome {
     String chrom = chroms[i]
     # Cromwell cannot index an optional array; select_first unwraps it
     # (CheckChromVcfPairs has already checked which inputs were given).
-    File phase_for_pack = if defined(joint_vcfs) then select_first([joint_vcfs])[i] else select_first([phase_vcfs])[i]
-    File flare_for_pack = if defined(joint_vcfs) then select_first([joint_vcfs])[i] else select_first([flare_vcfs])[i]
+    File phase_for_pack = if defined(phase_vcfs) then select_first([phase_vcfs])[i] else select_first([joint_vcfs])[i]
+    File flare_for_pack = if defined(flare_vcfs) then select_first([flare_vcfs])[i] else select_first([joint_vcfs])[i]
     File phase_for_ru = if defined(joint_vcfs) then select_first([joint_vcfs])[i] else select_first([phase_vcfs])[i]
 
     call PackFelixla as Pack {
@@ -1101,6 +1197,42 @@ workflow FelixGenome {
             min_carriers = ru_min_carriers,
             pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
             docker = docker
+        }
+      }
+
+      # Baseline arm: same loci, same null, same carriers; carrier coding.
+      if (ru_biallelic_arm) {
+        call WriteRuAdmixedVcf as BaVcf {
+          input:
+            annotated_vcf = RuLoci.locus_vcf,
+            chrom = chrom,
+            analysis_samples = analysis_samples,
+            write_script = select_first([write_admixed_dosage_script]),
+            num_ancs = num_ancs,
+            missing_policy = ru_missing_policy,
+            max_hap_missing = ru_max_hap_missing,
+            coding = "carrier",
+            docker = docker
+        }
+
+        scatter (j in range(length(phenotypes))) {
+          call RunFelixStep2RuVcf as BaStep2 {
+            input:
+              admixed_vcf = BaVcf.admixed_vcf,
+              admixed_vcf_index = BaVcf.admixed_vcf_index,
+              chrom = chrom,
+              phenotype = phenotypes[j],
+              null_rda = Null.null_rda[j],
+              variance_ratio = Null.variance_ratio[j],
+              samples_used = Null.samples_used[j],
+              sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
+              sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
+              run_step2_script = run_felix_step2_script,
+              num_ancs = num_ancs,
+              min_carriers = ru_min_carriers,
+              pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
+              docker = docker
+          }
         }
       }
     }
@@ -1187,6 +1319,37 @@ workflow FelixGenome {
     }
   }
 
+  # Biallelic comparator arm, merged the same way, then the 2x2 table.
+  Array[Array[File]] ba_by_chrom = select_all(BaStep2.results_tsv)
+  Boolean has_ba = length(ba_by_chrom) > 0
+
+  if (has_ba) {
+    Array[Array[File]] ba_by_pheno = transpose(ba_by_chrom)
+    scatter (i in range(length(phenotypes))) {
+      call ConcatPhenotypeScores as BaConcat {
+        input:
+          phenotype = phenotypes[i] + ".ru_biallelic",
+          shard_tsvs = ba_by_pheno[i],
+          docker = docker
+      }
+    }
+
+    if (defined(compare_ru_arms_script)) {
+      scatter (i in range(length(phenotypes))) {
+        call CompareRuArms as ArmCompare {
+          input:
+            phenotype = phenotypes[i],
+            dosage_tsv = select_first([RuConcat.merged_tsv])[i],
+            biallelic_tsv = BaConcat.merged_tsv[i],
+            compare_script = select_first([compare_ru_arms_script]),
+            num_ancs = num_ancs,
+            p_threshold = ru_arm_p_threshold,
+            docker = docker
+        }
+      }
+    }
+  }
+
   scatter (i in range(length(phenotypes))) {
     call ConcatPhenotypeScores as Concat {
       input:
@@ -1227,6 +1390,15 @@ workflow FelixGenome {
     Array[File]? ru_results_tsvs = RuConcat.merged_tsv
     Array[File?] ru_admixed_vcfs = RuVcf.admixed_vcf
     Array[File?] ru_admixed_stats = RuVcf.stats_json
+    # Biallelic comparator arm (ru_biallelic_arm) and the 2x2 table per
+    # phenotype: arm p-values per locus, lambda / significant-locus counts and
+    # the gained/lost contrasts behind the manuscript's benefit claims.
+    Array[File]? ru_biallelic_results_tsvs = BaConcat.merged_tsv
+    Array[File?] ru_biallelic_admixed_vcfs = BaVcf.admixed_vcf
+    Array[File?] ru_biallelic_admixed_stats = BaVcf.stats_json
+    Array[File]? ru_arm_tables = ArmCompare.arm_table
+    Array[File]? ru_arm_summaries = ArmCompare.arm_summary
+    Array[File]? ru_arm_markdown = ArmCompare.arm_markdown
     # Locus/haplotype tallies travel with the results: missingness, possible
     # double counts between the indel and SV calls, ancestry inconsistency.
     Array[File?] ru_locus_summaries = RuLoci.summary_json
