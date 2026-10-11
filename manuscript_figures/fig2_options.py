@@ -57,7 +57,11 @@ STRIP_LABEL_NUDGE = {"EAS": -0.012, "SAS": 0.012}
 # mean over the 22 autosomes from the production run); fall back to the earlier
 # chr1-only file. Single-chromosome noise depresses each participant's maximum
 # component, so chr1 overstates how admixed the cohort is.
+# Both files live under data/; the repo-root paths are where they sat before
+# the 2026-10-10 tidy-up and are kept so an older checkout still resolves.
 GLOBAL_ANC_CANDIDATES = (
+    ROOT / "data" / "aou_lr_phase2_v1.genomewide.global.anc.gz",
+    ROOT / "data" / "aou_lr_phase2_v1.chr1.global.anc.gz",
     ROOT / "aou_lr_phase2_v1.genomewide.global.anc.gz",
     ROOT / "aou_lr_phase2_v1.chr1.global.anc.gz",
 )
@@ -1146,11 +1150,21 @@ def discovery_order(q: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.n
     return order, block[order]
 
 
-def panel_discovery_structure(fig, cell, rng: np.random.Generator) -> plt.Axes:
+def panel_discovery_structure(
+    fig, cell, rng: np.random.Generator, *,
+    strip_labels: dict[str, str] | None = None,
+    strip_label_rotation: float = 0.0,
+    strip_label_pad: float = 12,
+) -> plt.Axes:
     """Butterfly of cumulative SVs absent from HPRC/HGSVC3 (INS +y, DEL −y) over the ancestry strip.
 
     Grouping matches Figure 1 (ancestry_pred_other); the paint is real FLARE
-    chr1 global ancestry. The discovery curves and control catalog are mocked.
+    global ancestry. The discovery curves and control catalog are mocked.
+
+    ``strip_labels`` renames the blocks under the strip (for the genetic-
+    similarity descriptors), ``strip_label_rotation`` turns them so a long
+    name fits under a narrow block, and ``strip_label_pad`` moves the axis
+    label clear of them. The defaults leave the Figure 2 plate unchanged.
     """
     loaded = load_discovery_cohort()
     if loaded is not None:
@@ -1237,12 +1251,21 @@ def panel_discovery_structure(fig, cell, rng: np.random.Generator) -> plt.Axes:
     ax_q.set_yticks([0, 1])
     ax_q.set_ylabel("Global\nancestry")
     ax_q.set_xticks([])
+    # Rotated labels separate on the perpendicular, so the nudge that pushes
+    # EAS and SAS clear of the 3%-wide MID segment is only needed flat.
+    nudge = STRIP_LABEL_NUDGE if not strip_label_rotation else {}
+    turned = dict(ha="right", rotation=strip_label_rotation, rotation_mode="anchor")
     for b, i0, i1, off in segments:
         name = DISCOVERY_BLOCKS[b]
-        cx = (i0 + i1) / 2 + 0.5 + off + STRIP_LABEL_NUDGE.get(name, 0.0) * n
-        ax_q.text(cx, -0.08, name, transform=ax_q.get_xaxis_transform(), ha="center", va="top", fontsize=FS - 0.5, color=ANC_TEXT_COLORS.get(name, "#111111"))
+        cx = (i0 + i1) / 2 + 0.5 + off + nudge.get(name, 0.0) * n
+        ax_q.text(
+            cx, -0.08, (strip_labels or {}).get(name, name),
+            transform=ax_q.get_xaxis_transform(), va="top",
+            fontsize=FS - 0.5, color=ANC_TEXT_COLORS.get(name, "#111111"),
+            **(turned if strip_label_rotation else dict(ha="center")),
+        )
     ax_q.set_xlim(0.5, n + 0.5 + segments[-1][3])
-    ax_q.set_xlabel(f"Participants in discovery order (n = {n:,})", labelpad=12)
+    ax_q.set_xlabel(f"Participants in discovery order (n = {n:,})", labelpad=strip_label_pad)
     despine(ax_q)
     ax_q.spines["bottom"].set_color("black")
     return ax
@@ -1900,7 +1923,7 @@ def render_main() -> tuple[Path, Path]:
         examples=load_chosen_loci(),
         stem="fig2_option_b_symlog",
         ratios=(0.48, 1.62),
-        summary="new",
+        summary="carrier_unit",
         row_scales="symlog",
         note=None,
     ):

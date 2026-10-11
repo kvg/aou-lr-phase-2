@@ -22,7 +22,7 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 
 from .fig2_options import LAI, MANUSCRIPT_ROOT, P1_HAP_ANC_P, P2_HAP_ANC_P
-from .style import MIN_FONT, OUTDIR, P1_N, P2_N, despine, new_figure, save, stamp_mockup
+from .style import MIN_FONT, OUTDIR, P1_N, P2_N, despine, new_figure, save, save_panel, stamp_mockup
 
 FS = MIN_FONT
 PANEL_W, PANEL_H = 3.55, 3.2
@@ -278,6 +278,59 @@ def draw_new_by_frequency(ax, *, shared_legend: bool = False) -> None:
         columnspacing=0.8,
     )
     despine(ax)
+
+
+CARRIER_HIST_PATH = MANUSCRIPT_ROOT / "data" / "fig2_panel_c_carrier_hist.json"
+CARRIER_LAST = 60
+
+
+def draw_carrier_unit_log(ax, last: int = CARRIER_LAST) -> None:
+    """One bar per carrying-haplotype count: every Phase 2 allele, and the new ones inside it.
+
+    Counts, not shares, so the bars keep their meaning on the log axis the tail
+    needs; the gray bar is the total at that count and the slate bar the part of
+    it Phase 1 did not have, drawn in front rather than stacked.
+    """
+    d = json.loads(CARRIER_HIST_PATH.read_text())
+    seen = np.array(d["seen_in_phase1"][1:last + 1], float)
+    new = np.array(d["new_in_phase2"][1:last + 1], float)
+    x = np.arange(1, last + 1, dtype=float)
+    ax.bar(x, seen + new, width=0.85, color=C_IN_P1_FILL, edgecolor="none", zorder=2)
+    ax.bar(x, new, width=0.85, color=C_NEW, edgecolor="none", zorder=3)
+    ax.set_yscale("log")
+    ax.set_ylim(300, 3e7)
+    ax.set_yticks([1e3, 1e5, 1e7])
+    ax.set_yticklabels(["10$^3$", "10$^5$", "10$^7$"])
+    ax.set_xlim(0.3, last + 0.7)
+    ax.set_xticks([1, 10, 20, 30, 40, 50, 60])
+    ax.set_ylabel("Alleles")
+    ax.set_xlabel("Haplotypes carrying the allele")
+    _legend(
+        ax,
+        [
+            Patch(facecolor=C_IN_P1_FILL, edgecolor=C_IN_P1, linewidth=0.6, label="All Phase 2 alleles"),
+            Patch(facecolor=C_NEW, edgecolor=C_NEW, linewidth=0.6, label="New in Phase 2"),
+        ],
+        loc="lower right",
+        bbox_to_anchor=(1.0, 1.02),
+        ncol=2,
+        handlelength=0.8,
+        borderaxespad=0,
+        columnspacing=0.8,
+    )
+    despine(ax)
+
+
+def render_carrier_panel(stem: str = "fig2c_carrier_unit_log") -> tuple[Path, Path]:
+    """Write panel C on its own, unlabeled, at the axes size it gets in the plate.
+
+    Real data, so no MOCK-UP stamp. Lands in mockup_figures/panels/ with the
+    other remixable panels.
+    """
+    fig = new_figure(1.24, width=3.66)
+    ax = fig.add_axes([0.60 / 3.66, 0.40 / 1.24, 3.01 / 3.66, 0.554 / 1.24])
+    draw_carrier_unit_log(ax)
+    return save_panel(fig, stem, stamp=False)
 
 
 def draw_plvi_contrast(ax) -> None:
@@ -813,6 +866,8 @@ def panel_rarefaction_examples(
         draw_carrier_spectrum(ax)
     elif summary == "new":
         draw_new_by_frequency(ax, shared_legend=row_scales == "symlog")
+    elif summary == "carrier_unit":
+        draw_carrier_unit_log(ax)
     elif summary == "plvi":
         draw_plvi_contrast(ax)
     elif summary == "concordance":
