@@ -24,6 +24,13 @@ workflow PropagateFlareAncestry {
     File target_vcf
     File target_vcf_index
     String region
+    # Optional bcftools -i expression applied to the TARGET only, so records that
+    # are not tested never cost the per-sample annotate pass. Empty = keep every
+    # record. Alleles are fully sequence-resolved, so use ILEN (ALT length minus REF
+    # length, per allele; a multi-allelic record is kept if any allele matches):
+    #   SVs (|change| >= 50 bp):  ILEN<=-50 || ILEN>=50
+    #   every indel and SV:       ILEN!=0
+    String target_filter = ""
     String prefix = "flare_ancestry"
     File propagate_script
     String gcs_project = ""
@@ -52,6 +59,7 @@ workflow PropagateFlareAncestry {
       target_vcf = target_vcf,
       target_vcf_index = target_vcf_index,
       region = region,
+      target_filter = target_filter,
       prefix = prefix,
       propagate_script = propagate_script,
       gcs_project = gcs_project,
@@ -91,6 +99,7 @@ task AnnotateTarget {
     File target_vcf
     File target_vcf_index
     String region
+    String target_filter
     String prefix
     File propagate_script
     String gcs_project
@@ -134,6 +143,11 @@ task AnnotateTarget {
     set -euo pipefail
     python3 -c "import pathlib,sys; pathlib.Path('region.txt').write_text(sys.argv[1].strip().strip(chr(34)).strip(chr(39)) + chr(10))" "~{region}"
     REGION="$(cat region.txt)"
+    cat > target_filter.txt <<'TARGET_FILTER_EOF'
+~{target_filter}
+TARGET_FILTER_EOF
+    TARGET_FILTER="$(tr '\n\r' '  ' < target_filter.txt | sed 's/^ *//; s/ *$//')"
+    echo "target filter: ${TARGET_FILTER:-<none>}" >&2
     python3 - <<'PY'
 from pathlib import Path
 spec = Path("region.txt").read_text().strip()
@@ -232,16 +246,21 @@ PY
       local idx="$2"
       local dst="$3"
       local query="$4"
+      local filt="${5:-}"
+      local -a filt_args=()
+      if [[ -n "${filt}" ]]; then
+        filt_args=(-i "${filt}")
+      fi
       echo "Subset ${query}: ${src}" >&2
-      bcftools_view_retry "${dst}" -r "${query}" -Oz --threads ~{bcftools_threads} \
-        "${src}##idx##${idx}"
+      bcftools_view_retry "${dst}" -r "${query}" ${filt_args[@]+"${filt_args[@]}"} -Oz \
+        --threads ~{bcftools_threads} "${src}##idx##${idx}"
       bcftools index -t "${dst}"
       echo -n "$(basename "${dst}") records: "
       bcftools index -n "${dst}" 2>/dev/null || bcftools view -H "${dst}" | wc -l
     }
 
     subset_region "~{flare_vcf}" "~{flare_vcf_index}" flare.region.vcf.gz "${FLARE_REGION}"
-    subset_region "~{target_vcf}" "~{target_vcf_index}" target.region.vcf.gz "${REGION}"
+    subset_region "~{target_vcf}" "~{target_vcf_index}" target.region.vcf.gz "${REGION}" "${TARGET_FILTER}"
 
     # Stream the annotated records straight into bgzip. The uncompressed VCF is
     # ~8 bytes x samples per record (~100 kB/record at 12k samples), far larger
