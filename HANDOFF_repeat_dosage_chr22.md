@@ -64,13 +64,21 @@ Two smaller fixes in the same area:
    object `repeat_loci/configs/*.json.example` uses. Build it with
    `trgt_plvi.py catalog --vcf <one TRGT VCF>` if absent.
 4. **Stage the scripts.** `aggregate_repeat_loci.py` is new to this workflow and
-   has been added to `scripts/stage_tractor_scripts.sh`:
+   has been added to `scripts/stage_tractor_scripts.sh`; `compare_ru_arms.py`
+   is new and has been added to `scripts/stage_felix_scripts.sh`. Both stagers
+   must run — the comparator arm's `--coding` flag lives in the staged
+   `write_admixed_dosage_vcf.py`, so an old copy in the bucket fails the
+   `BaVcf` task:
    ```bash
    WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_tractor_scripts.sh
    WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_felix_scripts.sh
    ```
    Or run `notebooks/terra/00_sync_repo.ipynb` on the Terra VM. Re-register
    `FelixGenome.wdl` in the Terra Methods Repository — its input set changed.
+   In the Terra launcher, write `p_threshold` floats out in full
+   (`0.00000005`): the `${...}` body is parsed as a WDL expression and `5e-08`
+   fails to lex, with an error that reads like a type mismatch
+   (`felix/configs/terra/README.md`).
 4. **Run the local gates first.** They need only `bcftools`:
    ```bash
    python3 -m pytest scripts/test_aggregate_repeat_loci.py \
@@ -103,10 +111,19 @@ Workflow path for this run:
 
 ```
 Check → MakeGRM → FitFelixNull (per phenotype)
-      → AggregateRepeatLoci → WriteRuAdmixedVcf → RunFelixStep2RuVcf (per phenotype)
-      → RuConcat
+      → AggregateRepeatLoci → WriteRuAdmixedVcf (coding=ru)      → RuStep2 → RuConcat
+                            → WriteRuAdmixedVcf (coding=carrier) → BaStep2 → BaConcat
+                            → CompareRuArms (per phenotype)
       (and the ordinary FELIXla Pack → Step2 → Summarize for SNVs/indels/unique SVs)
 ```
+
+The second writer/step-2 pair is the biallelic comparator arm
+(`ru_biallelic_arm`, default true). Same loci, same null, same GRM, same
+samples; `DS{k}` counts carrier haplotypes instead of repeat units. With
+FELIX's own ancestry-collapsed column (`p.value_ancALL`) that fills the 2×2 —
+pooled/local-ancestry × biallelic/repeat-dosage — whose pooled+biallelic cell
+is the conventional-GWAS baseline (`felix/REPEAT_DOSAGE.md` §3.1). Set
+`ru_biallelic_arm` false to run the dosage arm alone.
 
 Outputs to pull back:
 
@@ -116,6 +133,11 @@ Outputs to pull back:
 | `ru_locus_summaries` | locus/haplotype tallies — read these before the p-values |
 | `ru_admixed_stats` | writer stats: `hap_missing`, `missingness_skipped`, `written` |
 | `ru_locus_alleles` | per-locus allele spectrum (no sample ids) |
+| `ru_biallelic_results_tsvs` | the comparator arm's results (arms A and B) |
+| `ru_biallelic_admixed_stats` | writer stats for the comparator arm; `written` must match the dosage arm |
+| `ru_arm_summaries` | per-arm λ and significant-locus counts, the gained/lost contrasts, and `n_loci_*_only` |
+| `ru_arm_tables` | per-locus four-arm p-values for the figure |
+| `ru_arm_markdown` | the same summary as a manuscript-ready table |
 | `results_tsvs` | the SNV/indel scan from the **same null**, for the λGC comparison |
 
 ---
@@ -134,6 +156,8 @@ data.
 | `hap_unphased_ambiguous` | locus summary | Samples set missing because two or more unphased heterozygous changes could not be assigned to haplotypes. Should be small on a phased callset; a large value points at phasing, not at the aggregator |
 | `missingness_skipped` | writer stats | Loci dropped by `--max-hap-missing 0.1`. If this is large, raise the cap deliberately and record it rather than quietly |
 | `hap_missing / hap_total` | writer stats | Overall dropout absorbed by `--missing ref` |
+| `n_loci_biallelic_only` / `n_loci_dosage_only` | arm summary | Loci that passed QC in one arm only. Expected to be small: both codings mark the same carrier haplotypes, but carrier QC counts samples with a non-zero `DS{k}`, so a sample whose gain and loss cancel counts in the biallelic arm only. A large value means the arms are not comparable and the 2×2 is being read off different locus sets |
+| `sources.*.pooled_p_column` | arm summary | Which column each arm actually used. Must be `p.value_ancALL` for the pooled arms and `P_cct_admixed_c` for the local-ancestry arms; a fallback choice means FELIX's output schema changed |
 
 ---
 
@@ -156,7 +180,11 @@ Pass requires all of:
    should lose an ancestry test because its summed dosage was negative. Compare
    the number of per-ancestry tests reported against `num_ancs` × loci tested;
    stock FELIX dropped ~14% of them on synthetic contraction-heavy data.
-5. Positive-control loci checked if present in the callset: HTT, FMR1, FXN,
+5. **The four arms sit on one locus set.** `n_loci_biallelic_only` and
+   `n_loci_dosage_only` near zero, and the two arms' `written` counts equal. The
+   benefit claims are per-locus contrasts; they mean nothing across different
+   locus sets.
+6. Positive-control loci checked if present in the callset: HTT, FMR1, FXN,
    C9orf72, RFC1, plus the published STR–trait pairs (APOB CTG, CBL CGG, TAOK1
    polyA; Margoliash et al. 2023) against nearby blood traits.
 

@@ -16,6 +16,7 @@ felix/
   docker/cloudbuild.yaml
   wdl/FelixPilot.wdl           # chr22: mtx GRM + felixla + admixed step2
   wdl/FelixGenome.wdl          # autosomes: shared null, per-chr pack/step2, optional RU_TEST scorer
+  wdl/FitFelixNulls.wdl        # standalone step-1 nulls, one per phenotype, reusable across runs
   configs/felix*.json.example
   scripts/                     # FELIX-specific CLIs (staged to gs://BUCKET/felix/scripts/)
   eval/README.md               # M1/M4 calibration gates
@@ -101,6 +102,32 @@ WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_tractor_scripts.sh   # GRM, 
    `joint_vcfs` so the branch sees `GT:AN1:AN2`. Set `num_ancs` to the FLARE2
    model's `nanc` — `aggregate_repeat_loci.py --num-ancs` fails the task rather
    than folding an out-of-range ancestry code into another ancestry.
+
+5. Long phenotype lists: fit the step-1 nulls once with **FitFelixNulls.wdl**
+   (`felix/configs/fit_felix_nulls.inputs.json.example`) and pass its
+   `null_rdas` / `variance_ratios` / `samples_used` / `null_export_tars` arrays
+   to FelixGenome as `precomputed_null_*`. A null depends only on the GRM, the
+   covariates and the phenotype column, so the same fits serve every
+   chromosome, both repeat-coding arms and every resubmission — at P
+   phenotypes the scan is P null fits plus 66P step-2 shards (22 chromosomes ×
+   SNV + two repeat arms), and only the first term is avoidable.
+
+   Order is the contract: the arrays are indexed against
+   `read_lines(selected_phenotypes)`, so give both workflows the same
+   phenotype file and check `null_manifest` before reusing the arrays
+   elsewhere. `CheckNullArrays` fails the run on a length mismatch before any
+   step-2 shard starts. Nulls are cache-keyed on `pheno_cov`,
+   `covariate_columns`, `analysis_samples`, the GRM files and
+   `fit_felix_null.R`, so settle the covariate arm before fitting hundreds.
+
+   Build the list with `scripts/select_phenotypes.py`. Past the pilot's top-10
+   it needs its scale flags: `--n-phenotypes 0` (keep everything passing),
+   `--sex-specific restrict` with `--phecode-sex-tsv` so a sex-specific phecode
+   does not carry the other sex as controls, `--nesting leaves` or `roots` for
+   the parent/child hierarchy, and `--max-r2 0.5` to prune near-duplicate
+   phecodes (what All by All used). Counts are of phecodes, not independent
+   traits; `phenotype_selection_audit.tsv` records why each candidate is in or
+   out, and `--tier-sizes` writes smaller prefixes for a shakedown run.
 
 Resolve FLARE URIs:
 

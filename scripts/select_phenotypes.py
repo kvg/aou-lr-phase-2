@@ -144,6 +144,84 @@ def one_hot_categorical(
     return out, str(ref), dummy_cols, pd.DataFrame(docs)
 
 
+def phecode_of(column: str) -> str:
+    """Phecode from a phenotype column name: CM_761_13 / CM_761.13 -> 761.13."""
+    body = re.sub(r"^(CM|PH|PHECODE)[_.]", "", column.strip(), flags=re.IGNORECASE)
+    m = re.match(r"^(\d+)(?:[._](\d+))?$", body)
+    if not m:
+        return ""
+    return m.group(1) if m.group(2) is None else f"{m.group(1)}.{m.group(2)}"
+
+
+def phecode_parent(code: str) -> str:
+    """Parent in the phecode hierarchy: 761.13 -> 761.1 -> 761 -> ''."""
+    if not code or "." not in code:
+        return ""
+    head, dec = code.split(".", 1)
+    return f"{head}.{dec[:-1]}" if len(dec) > 1 else head
+
+
+def read_phecode_sex(path: Path) -> dict[str, str]:
+    """phecode -> Male|Female|Both from a phecode definitions table."""
+    df = pd.read_csv(path, sep=None, engine="python", dtype=str)
+    cols = {c.lower().strip(): c for c in df.columns}
+    code_col = next((cols[c] for c in ("phecode", "phenotype", "code") if c in cols), None)
+    sex_col = next((cols[c] for c in ("sex", "sex_specific") if c in cols), None)
+    if code_col is None or sex_col is None:
+        raise SystemExit(
+            f"{path}: need a phecode/phenotype column and a sex column; have {list(df.columns)}"
+        )
+    out: dict[str, str] = {}
+    for code, sex in zip(df[code_col], df[sex_col]):
+        if pd.isna(code) or pd.isna(sex):
+            continue
+        norm = phecode_of(str(code)) or str(code).strip()
+        s = str(sex).strip().lower()
+        out[norm] = "Female" if s.startswith("f") else "Male" if s.startswith("m") else "Both"
+    return out
+
+
+def observed_case_sex(enc: pd.Series, sex: pd.Series) -> tuple[float, str]:
+    """Fraction of cases in the majority sex, and which sex that is.
+
+    sex is encoded 0 = female, 1 = male (``encode_sex``).
+    """
+    case_sex = sex[enc == 1.0].dropna()
+    if case_sex.empty:
+        return float("nan"), ""
+    frac_male = float((case_sex == 1.0).mean())
+    return (frac_male, "Male") if frac_male >= 0.5 else (1.0 - frac_male, "Female")
+
+
+def prune_correlated(
+    encoded: pd.DataFrame, order: list[str], max_r2: float
+) -> dict[str, tuple[str, float]]:
+    """Greedy prune in ``order`` (best first). Returns dropped -> (kept, r2).
+
+    Pearson r on 0/1 vectors with pairwise-complete observations; r2 above the
+    cutoff means the two phecodes carry nearly the same case set, which is what
+    a parent/child pair or a synonym pair looks like.
+    """
+    dropped: dict[str, tuple[str, float]] = {}
+    kept: list[str] = []
+    corr = encoded[order].corr(min_periods=50)
+    for col in order:
+        hit = ""
+        best = 0.0
+        for k in kept:
+            r = corr.at[col, k]
+            if pd.isna(r):
+                continue
+            r2 = float(r) ** 2
+            if r2 > best:
+                best, hit = r2, k
+        if hit and best >= max_r2:
+            dropped[col] = (hit, best)
+        else:
+            kept.append(col)
+    return dropped
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--phenotype-csv", required=True, type=Path)
@@ -155,8 +233,44 @@ def main() -> None:
         help="Sample IDs present in the FLARE VCF (bcftools query -l), in VCF order.",
     )
     p.add_argument("--out-dir", required=True, type=Path)
-    p.add_argument("--n-phenotypes", type=int, default=10)
+    p.add_argument(
+        "--n-phenotypes", type=int, default=10,
+        help="Number to keep after filtering, ranked by min(n_cases, n_controls). "
+             "0 keeps every phenotype that passes (use for the full phecode list).",
+    )
     p.add_argument("--min-cases", type=int, default=100)
+    p.add_argument(
+        "--phecode-sex-tsv", type=Path, default=None,
+        help="Phecode definitions table with a sex column (Male/Female/Both). Authoritative "
+             "for --sex-specific; without it the call is made from the observed case sex ratio",
+    )
+    p.add_argument(
+        "--sex-specific", choices=("flag", "restrict"), default="flag",
+        help="flag (default): report sex-specific phecodes in the stats table and leave the "
+             "phenotype alone. restrict: set the other sex to NA so they are not counted as "
+             "controls. fit_felix_null.R drops `sex` from the model where it goes constant",
+    )
+    p.add_argument(
+        "--sex-case-fraction", type=float, default=0.99,
+        help="A phecode whose cases are at least this fraction one sex is called sex-specific "
+             "when no definitions table is given [default 0.99]",
+    )
+    p.add_argument(
+        "--nesting", choices=("keep", "leaves", "roots"), default="keep",
+        help="keep (default): parent and child phecodes are separate phenotypes. leaves: drop a "
+             "phecode that has a descendant in the set. roots: keep only integer-level codes. "
+             "Counts are always of phecodes, not independent traits",
+    )
+    p.add_argument(
+        "--max-r2", type=float, default=None,
+        help="Greedily drop a phenotype whose r2 with an already-kept, better-powered one is at "
+             "least this (All of Us All by All used 0.5). Off by default",
+    )
+    p.add_argument(
+        "--tier-sizes", default="",
+        help="Comma-separated prefix sizes, e.g. 10,100: also writes "
+             "selected_phenotypes.top10.txt etc. from the head of the final ranking",
+    )
     p.add_argument("--n-pcs", type=int, default=10)
     p.add_argument(
         "--covariate-id-col",
@@ -326,20 +440,104 @@ def main() -> None:
     analysis_ids = table["ID"].tolist()
     pheno_complete = pheno_i.loc[analysis_ids]
 
-    ranks = []
+    sex_by_id = pd.Series(table["sex"].to_numpy(), index=analysis_ids)
+    phecode_sex = read_phecode_sex(args.phecode_sex_tsv) if args.phecode_sex_tsv else {}
+    if args.phecode_sex_tsv:
+        print(f"Read sex restrictions for {len(phecode_sex):,} phecodes from {args.phecode_sex_tsv}")
+
+    encoded = pd.DataFrame(index=pheno_complete.index)
+    audit: dict[str, dict] = {}
     for col in candidate_cols:
         enc = encode_binary(pheno_complete[col])
-        n_case = int((enc == 1.0).sum())
-        n_ctrl = int((enc == 0.0).sum())
-        if n_case < args.min_cases:
-            continue
-        balance = min(n_case, n_ctrl)
-        ranks.append((balance, n_case, n_ctrl, col))
-    ranks.sort(reverse=True)
-    selected = [r[3] for r in ranks[: args.n_phenotypes]]
-    if len(selected) < args.n_phenotypes:
+        code = phecode_of(col)
+        frac, majority = observed_case_sex(enc, sex_by_id)
+        from_table = phecode_sex.get(code, "")
+        if from_table in ("Male", "Female"):
+            sex_specific, restrict_to, basis = True, from_table, "definitions"
+        elif from_table == "Both":
+            sex_specific, restrict_to, basis = False, "", "definitions"
+        else:
+            sex_specific = bool(majority) and frac >= args.sex_case_fraction
+            restrict_to = majority if sex_specific else ""
+            basis = "observed" if sex_specific else ""
+        row = {
+            "phenotype": col,
+            "phecode": code,
+            "parent_phecode": phecode_parent(code),
+            "n_cases_raw": int((enc == 1.0).sum()),
+            "n_controls_raw": int((enc == 0.0).sum()),
+            "case_sex_fraction": None if pd.isna(frac) else round(frac, 4),
+            "case_sex_majority": majority,
+            "sex_specific": sex_specific,
+            "sex_specific_basis": basis,
+            "sex_restricted_to": "",
+            "excluded_reason": "",
+            "r2_with": "",
+            "r2": None,
+        }
+        if sex_specific and args.sex_specific == "restrict":
+            other = 0.0 if restrict_to == "Male" else 1.0
+            enc = enc.mask(sex_by_id.reindex(enc.index) == other, pd.NA)
+            row["sex_restricted_to"] = restrict_to
+        encoded[col] = enc
+        row["n_cases"] = int((enc == 1.0).sum())
+        row["n_controls"] = int((enc == 0.0).sum())
+        row["n_missing"] = int(enc.isna().sum())
+        audit[col] = row
+
+    n_sex_specific = sum(1 for r in audit.values() if r["sex_specific"])
+    print(
+        f"{n_sex_specific:,} of {len(audit):,} candidate phenotypes called sex-specific "
+        f"({args.sex_specific})"
+    )
+
+    passing = [c for c in candidate_cols if audit[c]["n_cases"] >= args.min_cases]
+    for col in candidate_cols:
+        if col not in passing:
+            audit[col]["excluded_reason"] = f"n_cases<{args.min_cases}"
+
+    if args.nesting != "keep":
+        codes = {audit[c]["phecode"]: c for c in passing if audit[c]["phecode"]}
+        drop = set()
+        for code, col in codes.items():
+            if args.nesting == "roots" and "." in code:
+                drop.add(col)
+            elif args.nesting == "leaves" and any(
+                other != code and other.startswith(code + ".") for other in codes
+            ):
+                drop.add(col)
+        for col in drop:
+            audit[col]["excluded_reason"] = f"nesting={args.nesting}"
+        passing = [c for c in passing if c not in drop]
+        print(f"Nesting filter '{args.nesting}' dropped {len(drop):,} phecodes")
+
+    # Rank by the smaller arm: that is what drives power for a binary trait.
+    # Name is the last key so the order is total and reproducible across runs.
+    passing.sort(
+        key=lambda c: (
+            min(audit[c]["n_cases"], audit[c]["n_controls"]),
+            audit[c]["n_cases"],
+            audit[c]["n_controls"],
+            c,
+        ),
+        reverse=True,
+    )
+
+    if args.max_r2 is not None:
+        dropped = prune_correlated(encoded, passing, args.max_r2)
+        for col, (kept, r2) in dropped.items():
+            audit[col]["excluded_reason"] = f"r2>={args.max_r2}"
+            audit[col]["r2_with"] = kept
+            audit[col]["r2"] = round(r2, 4)
+        passing = [c for c in passing if c not in dropped]
+        print(f"Correlation pruning at r2>={args.max_r2} dropped {len(dropped):,} phenotypes")
+
+    selected = passing if args.n_phenotypes <= 0 else passing[: args.n_phenotypes]
+    for col in passing[len(selected):]:
+        audit[col]["excluded_reason"] = f"rank>{args.n_phenotypes}"
+    if args.n_phenotypes > 0 and len(selected) < args.n_phenotypes:
         print(
-            f"WARNING: only {len(selected)} phenotypes met min_cases={args.min_cases}; "
+            f"WARNING: only {len(selected)} phenotypes met the filters; "
             f"requested {args.n_phenotypes}"
         )
     if not selected:
@@ -347,16 +545,23 @@ def main() -> None:
 
     selected_stats = []
     for col in selected:
-        enc = encode_binary(pheno_complete[col])
+        enc = encoded[col]
         safe = col.replace(".", "_").replace("-", "_").replace(" ", "_")
         table[safe] = enc.to_numpy()
+        row = audit[col]
         selected_stats.append(
             {
                 "phenotype": col,
                 "safe_name": safe,
-                "n_cases": int((enc == 1.0).sum()),
-                "n_controls": int((enc == 0.0).sum()),
-                "n_missing": int(enc.isna().sum()),
+                "n_cases": row["n_cases"],
+                "n_controls": row["n_controls"],
+                "n_missing": row["n_missing"],
+                "phecode": row["phecode"],
+                "parent_phecode": row["parent_phecode"],
+                "sex_specific": row["sex_specific"],
+                "sex_specific_basis": row["sex_specific_basis"],
+                "sex_restricted_to": row["sex_restricted_to"],
+                "case_sex_fraction": row["case_sex_fraction"],
             }
         )
 
@@ -379,6 +584,32 @@ def main() -> None:
     table[["ID", *full_cols]].to_csv(out_full_matrix, sep="\t", index=False, na_rep="NA")
     Path(out_selected).write_text("\n".join(s["safe_name"] for s in selected_stats) + "\n")
     pd.DataFrame(selected_stats).to_csv(out_stats, sep="\t", index=False)
+
+    # Every candidate with the reason it is in or out, so a phenotype count in
+    # the manuscript can be traced to a filter rather than re-derived.
+    out_audit = args.out_dir / "phenotype_selection_audit.tsv"
+    selected_set = {s["phenotype"] for s in selected_stats}
+    audit_rows = []
+    for col in candidate_cols:
+        row = dict(audit[col])
+        row["selected"] = col in selected_set
+        audit_rows.append(row)
+    audit_df = pd.DataFrame(audit_rows).sort_values(
+        ["selected", "n_cases"], ascending=[False, False]
+    )
+    audit_df.to_csv(out_audit, sep="\t", index=False)
+
+    tier_paths = []
+    tier_sizes = [int(t) for t in args.tier_sizes.split(",") if t.strip()]
+    for n in tier_sizes:
+        if n <= 0:
+            continue
+        head = [s["safe_name"] for s in selected_stats[:n]]
+        if len(head) < n:
+            print(f"WARNING: tier {n} requested but only {len(head)} phenotypes selected")
+        tier_path = args.out_dir / f"selected_phenotypes.top{n}.txt"
+        Path(tier_path).write_text("\n".join(head) + "\n")
+        tier_paths.append(tier_path)
     Path(out_limited).write_text("\n".join(limited_cols) + "\n")
     Path(out_full).write_text("\n".join(full_cols) + "\n")
     # Back-compat default points at limited covariates
@@ -403,18 +634,23 @@ def main() -> None:
         out_full,
         out_legacy,
         out_levels,
+        out_audit,
+        *tier_paths,
     ]:
         print(f"  {path}")
     print(f"Limited covariates: {limited_cols}")
     print(f"Full covariates: {full_cols}")
     print(f"GC reference={gc_ref}")
     print(f"coverage standardized: mean={cov_mean:.4f}, sd={cov_sd:.4f}")
-    print("Selected phenotypes:")
-    for s in selected_stats:
+    print(f"Selected {len(selected_stats):,} phenotypes (phecodes, not independent traits):")
+    for s in selected_stats[:20]:
         print(
             f"  {s['phenotype']} -> {s['safe_name']}: "
             f"cases={s['n_cases']}, controls={s['n_controls']}, missing={s['n_missing']}"
+            + (f", sex-restricted to {s['sex_restricted_to']}" if s["sex_restricted_to"] else "")
         )
+    if len(selected_stats) > 20:
+        print(f"  ... {len(selected_stats) - 20:,} more; see {out_stats}")
 
 
 if __name__ == "__main__":

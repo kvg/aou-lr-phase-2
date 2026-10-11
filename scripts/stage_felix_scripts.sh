@@ -28,6 +28,7 @@ REQUIRED=(
   summarize_felix_results.py
   compare_felix_tractor_calibration.py
   compare_repeat_encodings.py
+  compare_ru_arms.py
   simulate_repeat_dosage.py
 )
 
@@ -51,6 +52,7 @@ echo "FelixPilot.wdl / FelixGenome.wdl:"
 echo "  fit_felix_null_script    -> ${DEST}/fit_felix_null.R"
 echo "  export_null_script       -> ${DEST}/export_felix_null.R   (optional; overrides the copy baked into the image)"
 echo "  run_felix_step2_script   -> ${DEST}/run_felix_step2.R"
+echo "  compare_ru_arms_script   -> ${DEST}/compare_ru_arms.py   (FelixGenome ru_biallelic_arm 2x2 table)"
 echo "  summarize_script         -> FelixGenome: ${DEST}/summarize_felix_results.py"
 echo "                              FelixPilot: ${BUCKET}/scripts/summarize_tractor_genome_results.py (stage_tractor_scripts.sh)"
 echo ""

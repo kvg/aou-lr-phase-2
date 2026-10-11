@@ -86,6 +86,25 @@ for (cv in covars) {
   pheno[[cv]] <- as.numeric(pheno[[cv]])
 }
 
+# A covariate can lose all variation on this phenotype's complete cases even
+# though it varies cohort-wide: a sex-specific phecode restricted to one sex
+# makes `sex` constant, and a rare genome-center dummy can go all-zero. The
+# covariate list is shared by every phenotype in a run, so the per-phenotype
+# fix has to happen here. SAIGE would otherwise be handed an aliased column.
+covar_sd <- vapply(covars, function(cv) stats::sd(pheno[[cv]]), numeric(1))
+constant_cov <- covars[!is.finite(covar_sd) | covar_sd == 0]
+if (length(constant_cov) > 0) {
+  message(sprintf(
+    "Dropping %d covariate(s) with no variation on this phenotype's samples: %s",
+    length(constant_cov), paste(constant_cov, collapse = ",")
+  ))
+  covars <- setdiff(covars, constant_cov)
+  if (length(covars) < 1) {
+    stop("Every covariate is constant on this phenotype's samples")
+  }
+  keep_cols <- c("ID", opt$phenotype, covars)
+}
+
 if (opt$trait_type == "binary") {
   vals <- sort(unique(pheno[[opt$phenotype]]))
   if (!all(vals %in% c(0, 1))) {
@@ -115,6 +134,7 @@ fwrite(
     n_cases = n_cases,
     n_controls = n_controls,
     covariates = covar_list,
+    covariates_dropped_constant = paste(constant_cov, collapse = ","),
     stringsAsFactors = FALSE
   ),
   meta_path,
