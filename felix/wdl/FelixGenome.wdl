@@ -138,6 +138,52 @@ task BuildSaigePlinkAndSparseGRM {
   }
 }
 
+# Guard for precomputed_null_*: the arrays are indexed against
+# read_lines(selected_phenotypes), so a length mismatch would silently pair a
+# phenotype with another phenotype's null model. Counts only — passing the
+# arrays themselves would localize every null file just to count them.
+task CheckNullArrays {
+  input {
+    Int n_phenotypes
+    Int n_null_rdas
+    Int n_variance_ratios
+    Int n_samples_used
+    Boolean precomputed
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+  }
+
+  command <<<
+    set -euo pipefail
+    N=~{n_phenotypes}
+    for pair in "null_rdas:~{n_null_rdas}" "variance_ratios:~{n_variance_ratios}" \
+                "samples_used:~{n_samples_used}"; do
+      name="${pair%%:*}"; count="${pair##*:}"
+      if [[ "${count}" -ne "${N}" ]]; then
+        echo "precomputed ${name}: ${count} entries for ${N} phenotypes" >&2
+        exit 1
+      fi
+    done
+    if [[ "~{precomputed}" == "true" ]]; then
+      echo "Using ${N} precomputed null fits; FitFelixNull skipped."
+    else
+      echo "Fitting ${N} null models in this run."
+    fi
+    printf '%s\n' "${N}" > n_phenotypes.txt
+  >>>
+
+  output {
+    Int n_phenotypes_out = read_int("n_phenotypes.txt")
+  }
+
+  runtime {
+    docker: docker
+    cpu: 1
+    memory: "2 GB"
+    disks: "local-disk 10 HDD"
+    preemptible: 1
+  }
+}
+
 task FitFelixNull {
   input {
     File pheno_cov
@@ -458,6 +504,9 @@ task SummarizeFelixResults {
     Array[String] phenotypes
     File pheno_cov
     File summarize_script
+    # Names this arm's outputs so the main and repeat summaries can sit side by
+    # side in one bundle: "main", "ru", "ru_biallelic".
+    String arm = "main"
     Float p_threshold = 0.00000005
     Int top_n = 50
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
@@ -497,6 +546,18 @@ EOF
 
     ls -lh summary/results_by_phenotype/ || true
     wc -l summary/results_manifest.tsv summary/calibration_summary.tsv
+
+    # Small review bundle: manifests, calibration table, QQ/Manhattan and top
+    # hits, but NOT results_by_phenotype/ (full per-phenotype scans, ~400 MB
+    # each). Those stay in the bucket for the notebook to read.
+    ARM_DIR="~{arm}"
+    mkdir -p "bundle/${ARM_DIR}"
+    cp summary/results_manifest.tsv summary/calibration_summary.tsv "bundle/${ARM_DIR}/"
+    if [[ -d summary/qc ]]; then
+      cp -r summary/qc "bundle/${ARM_DIR}/qc"
+    fi
+    tar czf "~{arm}.summary.tar.gz" -C bundle "${ARM_DIR}"
+    du -sh "~{arm}.summary.tar.gz"
   >>>
 
   output {
@@ -506,6 +567,7 @@ EOF
     Array[File] qq_plots = glob("summary/qc/*/qq_cct.png")
     Array[File] manhattan_plots = glob("summary/qc/*/manhattan_cct.png")
     Array[File] top_hits_tables = glob("summary/qc/*/top_hits.tsv")
+    File summary_tar = "~{arm}.summary.tar.gz"
   }
 
   runtime {
@@ -994,6 +1056,87 @@ task CompareRuArms {
   }
 }
 
+# One small tar.gz per run: every table, JSON and plot needed to decide whether
+# the run worked, with the per-phenotype scan TSVs left in the bucket. Arrays
+# are renamed by chromosome on the way in, so the 22 loci.summary.json files do
+# not collide.
+task BundleRunSummary {
+  input {
+    Array[File] arm_tars
+    Array[String] chroms
+    Array[File] locus_summaries = []
+    Array[File] admixed_stats = []
+    Array[File] biallelic_stats = []
+    Array[File] arm_tables = []
+    Array[File] arm_summaries = []
+    Array[File] arm_markdown = []
+    String prefix = "felix_run"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+    Int cpu = 1
+    Int memory_gb = 4
+    Int disk_gb = 50
+    Int preemptible = 1
+  }
+
+  command <<<
+    set -euo pipefail
+    mkdir -p bundle/repeat_qc bundle/arm_compare
+
+    # each arm tar already carries its own top-level directory (main/, ru/, ...)
+    ARM_TARS=(~{sep=" " arm_tars})
+    for t in ${ARM_TARS[@]+"${ARM_TARS[@]}"}; do
+      tar xzf "${t}" -C bundle
+    done
+
+    cat > chroms.txt <<'CHROM_EOF'
+~{sep="\n" chroms}
+CHROM_EOF
+    mapfile -t CHROM_ARR < chroms.txt
+
+    # rename per-chromosome QC files so 22 identically named files can coexist
+    copy_by_chrom() {
+      local dest="$1"; local tag="$2"; shift 2
+      local i=0
+      for f in ${@+"$@"}; do
+        [[ -n "${f}" ]] || continue
+        local c="${CHROM_ARR[$i]:-shard${i}}"
+        cp "${f}" "${dest}/${c}.${tag}"
+        i=$((i + 1))
+      done
+    }
+    LOCUS_SUMMARIES=(~{sep=" " locus_summaries})
+    ADMIXED_STATS=(~{sep=" " admixed_stats})
+    BIALLELIC_STATS=(~{sep=" " biallelic_stats})
+    copy_by_chrom bundle/repeat_qc loci.summary.json ${LOCUS_SUMMARIES[@]+"${LOCUS_SUMMARIES[@]}"}
+    copy_by_chrom bundle/repeat_qc ru.admixed.stats.json ${ADMIXED_STATS[@]+"${ADMIXED_STATS[@]}"}
+    copy_by_chrom bundle/repeat_qc ru_biallelic.admixed.stats.json ${BIALLELIC_STATS[@]+"${BIALLELIC_STATS[@]}"}
+
+    # arm-comparison outputs are per phenotype; keep their own basenames
+    ARM_FILES=(~{sep=" " arm_tables} ~{sep=" " arm_summaries} ~{sep=" " arm_markdown})
+    for f in ${ARM_FILES[@]+"${ARM_FILES[@]}"}; do
+      cp "${f}" bundle/arm_compare/
+    done
+
+    rmdir bundle/repeat_qc bundle/arm_compare 2>/dev/null || true
+    find bundle -type f | sort > bundle/MANIFEST.txt
+    wc -l < bundle/MANIFEST.txt
+    tar czf "~{prefix}.summary.tar.gz" -C bundle .
+    du -sh "~{prefix}.summary.tar.gz"
+  >>>
+
+  output {
+    File summary_tar = "~{prefix}.summary.tar.gz"
+  }
+
+  runtime {
+    docker: docker
+    cpu: cpu
+    memory: memory_gb + " GB"
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: preemptible
+  }
+}
+
 workflow FelixGenome {
   input {
     Array[String] chroms
@@ -1023,6 +1166,17 @@ workflow FelixGenome {
     File? export_null_script
     File run_felix_step2_script
     File summarize_script
+
+  # Step-1 nulls from felix/wdl/FitFelixNulls.wdl, in the order of
+  # selected_phenotypes (that workflow's null_manifest records the order it
+  # used; feed both workflows the same phenotype file). Supplying
+  # precomputed_null_rdas skips FitFelixNull entirely — the GRM is still built,
+  # because Pack and Step 2 need the PLINK set. The other three arrays must be
+  # supplied with it; CheckNullArrays fails the run if the lengths disagree.
+    Array[File]? precomputed_null_rdas
+    Array[File]? precomputed_variance_ratios
+    Array[File]? precomputed_samples_used
+    Array[File]? precomputed_null_export_tars
 
   # Optional repeat-dosage branch. Both engines read GT:AN1:AN2, so pass
   # joint_vcfs (PropagateFlareAncestry output), not phase_vcfs alone.
@@ -1105,23 +1259,50 @@ workflow FelixGenome {
       docker = docker
   }
 
-  scatter (pheno in phenotypes) {
-    call FitFelixNull as Null {
-      input:
-        pheno_cov = pheno_cov,
-        phenotype = pheno,
-        covariate_columns = covariate_columns,
-        analysis_samples = analysis_samples,
-        plink_bed = MakeGRM.plink_bed,
-        plink_bim = MakeGRM.plink_bim,
-        plink_fam = MakeGRM.plink_fam,
-        sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
-        sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
-        fit_null_script = fit_felix_null_script,
-        export_null_script = export_null_script,
-        trait_type = trait_type,
-        docker = docker
+  # Step-1 nulls: fit here, or take them from a FitFelixNulls run. They depend
+  # only on the GRM, the covariates and the phenotype column, so a long
+  # phenotype list is worth fitting once in that workflow and reusing.
+  if (!defined(precomputed_null_rdas)) {
+    scatter (pheno in phenotypes) {
+      call FitFelixNull as Null {
+        input:
+          pheno_cov = pheno_cov,
+          phenotype = pheno,
+          covariate_columns = covariate_columns,
+          analysis_samples = analysis_samples,
+          plink_bed = MakeGRM.plink_bed,
+          plink_bim = MakeGRM.plink_bim,
+          plink_fam = MakeGRM.plink_fam,
+          sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
+          sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
+          fit_null_script = fit_felix_null_script,
+          export_null_script = export_null_script,
+          trait_type = trait_type,
+          docker = docker
+      }
     }
+  }
+
+  # Index these, not Null.*, everywhere below. Order is the contract: the
+  # arrays must be in the order of read_lines(selected_phenotypes), which is
+  # what FitFelixNulls writes and records in its null_manifest.
+  Array[File] null_rda_by_pheno =
+    select_first([precomputed_null_rdas, Null.null_rda])
+  Array[File] variance_ratio_by_pheno =
+    select_first([precomputed_variance_ratios, Null.variance_ratio])
+  Array[File] samples_used_by_pheno =
+    select_first([precomputed_samples_used, Null.samples_used])
+  Array[File] null_export_tar_by_pheno =
+    select_first([precomputed_null_export_tars, Null.null_export_tar])
+
+  call CheckNullArrays as CheckNulls {
+    input:
+      n_phenotypes = length(phenotypes),
+      n_null_rdas = length(null_rda_by_pheno),
+      n_variance_ratios = length(variance_ratio_by_pheno),
+      n_samples_used = length(samples_used_by_pheno),
+      precomputed = defined(precomputed_null_rdas),
+      docker = docker
   }
 
   scatter (i in range(length(chroms))) {
@@ -1180,16 +1361,16 @@ workflow FelixGenome {
           docker = docker
       }
 
-      scatter (j in range(length(phenotypes))) {
+      scatter (j in range(CheckNulls.n_phenotypes_out)) {
         call RunFelixStep2RuVcf as RuStep2 {
           input:
             admixed_vcf = RuVcf.admixed_vcf,
             admixed_vcf_index = RuVcf.admixed_vcf_index,
             chrom = chrom,
             phenotype = phenotypes[j],
-            null_rda = Null.null_rda[j],
-            variance_ratio = Null.variance_ratio[j],
-            samples_used = Null.samples_used[j],
+            null_rda = null_rda_by_pheno[j],
+            variance_ratio = variance_ratio_by_pheno[j],
+            samples_used = samples_used_by_pheno[j],
             sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
             sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
             run_step2_script = run_felix_step2_script,
@@ -1215,16 +1396,16 @@ workflow FelixGenome {
             docker = docker
         }
 
-        scatter (j in range(length(phenotypes))) {
+        scatter (j in range(CheckNulls.n_phenotypes_out)) {
           call RunFelixStep2RuVcf as BaStep2 {
             input:
               admixed_vcf = BaVcf.admixed_vcf,
               admixed_vcf_index = BaVcf.admixed_vcf_index,
               chrom = chrom,
               phenotype = phenotypes[j],
-              null_rda = Null.null_rda[j],
-              variance_ratio = Null.variance_ratio[j],
-              samples_used = Null.samples_used[j],
+              null_rda = null_rda_by_pheno[j],
+              variance_ratio = variance_ratio_by_pheno[j],
+              samples_used = samples_used_by_pheno[j],
               sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
               sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
               run_step2_script = run_felix_step2_script,
@@ -1260,14 +1441,14 @@ workflow FelixGenome {
           disk_gb_multiplier = ru_disk_gb_multiplier
       }
 
-      scatter (j in range(length(phenotypes))) {
+      scatter (j in range(CheckNulls.n_phenotypes_out)) {
         scatter (enc in ru_encodings) {
           call ScoreRuDosage as RuScore {
             input:
               phenotype = phenotypes[j],
               chrom = chrom,
               encoding = enc,
-              null_export_tar = Null.null_export_tar[j],
+              null_export_tar = null_export_tar_by_pheno[j],
               dosage_files = RuExtract.dosage_files,
               collapse_files = RuExtract.collapse_files,
               split_files = RuExtract.split_files,
@@ -1280,15 +1461,15 @@ workflow FelixGenome {
       }
     }
 
-    scatter (j in range(length(phenotypes))) {
+    scatter (j in range(CheckNulls.n_phenotypes_out)) {
       call RunFelixStep2 as Step2 {
         input:
           packed_tar = Pack.packed_tar,
           chrom = chrom,
           phenotype = phenotypes[j],
-          null_rda = Null.null_rda[j],
-          variance_ratio = Null.variance_ratio[j],
-          samples_used = Null.samples_used[j],
+          null_rda = null_rda_by_pheno[j],
+          variance_ratio = variance_ratio_by_pheno[j],
+          samples_used = samples_used_by_pheno[j],
           sparse_grm_mtx = MakeGRM.sparse_grm_mtx,
           sparse_grm_sample_ids = MakeGRM.sparse_grm_sample_ids,
           run_step2_script = run_felix_step2_script,
@@ -1309,7 +1490,7 @@ workflow FelixGenome {
 
   if (has_ru) {
     Array[Array[File]] ru_by_pheno = transpose(ru_by_chrom)
-    scatter (i in range(length(phenotypes))) {
+    scatter (i in range(CheckNulls.n_phenotypes_out)) {
       call ConcatPhenotypeScores as RuConcat {
         input:
           phenotype = phenotypes[i] + ".ru",
@@ -1325,7 +1506,7 @@ workflow FelixGenome {
 
   if (has_ba) {
     Array[Array[File]] ba_by_pheno = transpose(ba_by_chrom)
-    scatter (i in range(length(phenotypes))) {
+    scatter (i in range(CheckNulls.n_phenotypes_out)) {
       call ConcatPhenotypeScores as BaConcat {
         input:
           phenotype = phenotypes[i] + ".ru_biallelic",
@@ -1335,7 +1516,7 @@ workflow FelixGenome {
     }
 
     if (defined(compare_ru_arms_script)) {
-      scatter (i in range(length(phenotypes))) {
+      scatter (i in range(CheckNulls.n_phenotypes_out)) {
         call CompareRuArms as ArmCompare {
           input:
             phenotype = phenotypes[i],
@@ -1350,7 +1531,7 @@ workflow FelixGenome {
     }
   }
 
-  scatter (i in range(length(phenotypes))) {
+  scatter (i in range(CheckNulls.n_phenotypes_out)) {
     call ConcatPhenotypeScores as Concat {
       input:
         phenotype = phenotypes[i],
@@ -1365,17 +1546,66 @@ workflow FelixGenome {
       phenotypes = phenotypes,
       pheno_cov = pheno_cov,
       summarize_script = summarize_script,
+      arm = "main",
       p_threshold = summarize_p_threshold,
       top_n = summarize_top_n,
       docker = docker
   }
 
+  # Same summariser on the repeat-dosage results: identical joint P columns, one
+  # row per catalog locus instead of per variant, so lambdaGC here is directly
+  # comparable with the main arm's from the same null.
+  if (has_ru) {
+    call SummarizeFelixResults as SummarizeRu {
+      input:
+        result_tsvs = select_first([RuConcat.merged_tsv]),
+        phenotypes = phenotypes,
+        pheno_cov = pheno_cov,
+        summarize_script = summarize_script,
+        arm = "ru",
+        p_threshold = summarize_p_threshold,
+        top_n = summarize_top_n,
+        docker = docker
+    }
+  }
+
+  if (has_ba) {
+    call SummarizeFelixResults as SummarizeBa {
+      input:
+        result_tsvs = select_first([BaConcat.merged_tsv]),
+        phenotypes = phenotypes,
+        pheno_cov = pheno_cov,
+        summarize_script = summarize_script,
+        arm = "ru_biallelic",
+        p_threshold = summarize_p_threshold,
+        top_n = summarize_top_n,
+        docker = docker
+    }
+  }
+
+  call BundleRunSummary as Bundle {
+    input:
+      arm_tars = select_all([Summarize.summary_tar, SummarizeRu.summary_tar, SummarizeBa.summary_tar]),
+      chroms = chroms,
+      locus_summaries = select_all(RuLoci.summary_json),
+      admixed_stats = select_all(RuVcf.stats_json),
+      biallelic_stats = select_all(BaVcf.stats_json),
+      arm_tables = select_first([ArmCompare.arm_table, []]),
+      arm_summaries = select_first([ArmCompare.arm_summary, []]),
+      arm_markdown = select_first([ArmCompare.arm_markdown, []]),
+      docker = docker
+  }
+
   output {
     Int n_chroms = Check.n_chroms_out
+    Int n_phenotypes_used = CheckNulls.n_phenotypes_out
     File plink_bed = MakeGRM.plink_bed
     File sparse_grm_mtx = MakeGRM.sparse_grm_mtx
-    Array[File] null_rdas = Null.null_rda
-    Array[File] null_export_tars = Null.null_export_tar
+    Array[File] null_rdas = null_rda_by_pheno
+    Array[File] null_export_tars = null_export_tar_by_pheno
+    File run_summary_tar = Bundle.summary_tar
+    File? ru_calibration_summary = SummarizeRu.calibration_summary
+    File? ru_results_manifest = SummarizeRu.results_manifest
     Array[File] results_tsvs = Concat.merged_tsv
     Array[File] results_names = Concat.merged_name
     Array[File] results_tsvs_named = Summarize.results_tsvs_named
