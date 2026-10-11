@@ -23,6 +23,27 @@ ALTs fall back to ``SVTYPE`` (DEL = -1).
 a shift adds ``c * ANC{k}`` and turns the per-ancestry tests into local-ancestry
 tests (felix/SV_SCORER_DESIGN.md).
 
+Coding (``--coding``)
+---------------------
+``ru`` (default) is the repeat-unit dosage above. ``carrier`` replaces every
+non-reference repeat allele with ``x = 1`` (``RU_SCALE`` is then 1, so
+``DS{k}`` is the ancestry-k count of non-reference haplotypes, 0-2) and is the
+biallelic comparator arm: same loci, same carrier haplotypes, same ancestry
+assignment, same missingness handling — only the weighting by repeat count
+differs. An allele whose repeat dosage is exactly 0 (a sequence change of the
+same length) is a carrier under neither coding, so both codings write the same
+locus set and mark the same haplotypes.
+
+The two codings do **not** give identical per-sample carrier counts, and the
+difference is cancellation, not a bug: a sample carrying a gain and a loss of
+equal size on the same ancestry has ``DS{k} = 0`` under ``ru`` (it contributes
+nothing to that score test) and ``DS{k} = 2`` under ``carrier``. FELIX's
+carrier QC counts samples with a non-zero ``DS{k}``, so the QC denominator can
+differ slightly between arms and a locus near ``--min-mac`` can pass in one arm
+only. ``felix/scripts/compare_ru_arms.py`` reports that as
+``n_loci_biallelic_only`` / ``n_loci_dosage_only`` and compares on the
+intersection. INFO ``RU_CODING`` records which coding a file carries.
+
 Matches ``extract-tracts-flare --ru-baseline ref`` on ``annotate_repeat_units.py``
 output, which writes ``SVTYPE`` for every ``RU_TEST`` record (``CN_REF`` cancels). Run FELIX step 2 on the output with ``--vcfField=DS`` and
 ``FELIX_DOSAGE_QC=carrier`` (felix/patches/0001-dosage-carrier-qc.patch).
@@ -124,6 +145,20 @@ def allele_units(info: dict[str, Optional[str]], ref: str, alt: str) -> list[flo
     return [0.0] + [allele_sign(info, ref, a) * v for a, v in zip(alts, ru)]
 
 
+def apply_coding(units: Sequence[float], coding: str) -> list[float]:
+    """Per-allele x under ``coding``. REF stays 0 in both.
+
+    ``carrier`` maps every allele with a non-zero repeat dosage to 1, so the
+    carrier set is identical to the ``ru`` coding's and only the weighting by
+    repeat count differs.
+    """
+    if coding == "ru":
+        return list(units)
+    if coding == "carrier":
+        return [1.0 if u != 0 else 0.0 for u in units]
+    raise ValueError(f"coding must be 'ru' or 'carrier', got {coding!r}")
+
+
 def fmt_num(v: float) -> str:
     if v == int(v):
         return str(int(v))
@@ -196,7 +231,9 @@ def site_dosages(
     return ds_rows, anc_rows, max_abs, n_missing, n_hap
 
 
-def header_lines(contigs: Sequence[str], num_ancs: int, samples: Sequence[str]) -> list[str]:
+def header_lines(
+    contigs: Sequence[str], num_ancs: int, samples: Sequence[str], coding: str = "ru"
+) -> list[str]:
     out = ["##fileformat=VCFv4.2"]
     out.extend(contigs)
     out.append(
@@ -204,13 +241,21 @@ def header_lines(contigs: Sequence[str], num_ancs: int, samples: Sequence[str]) 
         'relative to REF over ancestry-k haplotypes / RU_SCALE">'
     )
     out.append(
+        '##INFO=<ID=RU_CODING,Number=1,Type=String,Description="Haplotype coding: ru = repeat '
+        'units relative to REF; carrier = 1 per non-reference repeat allele">'
+    )
+    out.append(
         '##INFO=<ID=RU_HAP_MISS,Number=1,Type=Float,Description="Fraction of haplotypes with a '
         'missing allele or ancestry, or an unphased genotype; they contribute 0 to DS{k} and are '
         'excluded from ANC{k}">'
     )
+    ds_desc = (
+        "Scaled repeat-unit dosage, ancestry {k}" if coding == "ru"
+        else "Non-reference repeat-allele haplotype count, ancestry {k}"
+    )
     for k in range(1, num_ancs + 1):
         out.append(
-            f'##FORMAT=<ID=DS{k},Number=1,Type=Float,Description="Scaled repeat-unit dosage, ancestry {k}">'
+            f'##FORMAT=<ID=DS{k},Number=1,Type=Float,Description="{ds_desc.format(k=k)}">'
         )
     for k in range(1, num_ancs + 1):
         out.append(
@@ -228,10 +273,12 @@ def write_admixed_vcf(
     keep: Optional[list[str]] = None,
     missing: str = "ref",
     max_hap_missing: float = 0.1,
+    coding: str = "ru",
 ) -> dict[str, int]:
-    stats = {
+    apply_coding([], coding)  # validate before reading the input
+    stats: dict[str, object] = {
         "records_in": 0, "ru_records": 0, "written": 0, "monomorphic_skipped": 0,
-        "missingness_skipped": 0, "hap_missing": 0, "hap_total": 0,
+        "missingness_skipped": 0, "hap_missing": 0, "hap_total": 0, "coding": coding,
     }
     contigs: list[str] = []
     order: Optional[list[int]] = None
@@ -255,7 +302,7 @@ def write_admixed_vcf(
                         raise SystemExit(f"{len(absent)} keep-list samples not in VCF, e.g. {absent[:3]}")
                     order = [idx[s] for s in keep]
                     names = keep
-                out.write("\n".join(header_lines(contigs, num_ancs, names)) + "\n")
+                out.write("\n".join(header_lines(contigs, num_ancs, names, coding)) + "\n")
                 continue
             if order is None:
                 raise SystemExit("data before #CHROM header")
@@ -266,7 +313,7 @@ def write_admixed_vcf(
                 continue
             stats["ru_records"] += 1
             where = f"{f[0]}:{f[1]}"
-            units = allele_units(info, f[3], f[4])
+            units = apply_coding(allele_units(info, f[3], f[4]), coding)
             fields = [f[9 + i] for i in order]
             ds_rows, anc_rows, max_abs, n_miss, n_hap = site_dosages(
                 fields, f[8].split(":"), units, num_ancs, where, missing=missing
@@ -283,7 +330,10 @@ def write_admixed_vcf(
             cells = []
             for ds, cnt in zip(ds_rows, anc_rows):
                 cells.append(":".join([fmt_num(v / max_abs) for v in ds] + [str(c) for c in cnt]))
-            info_out = f"RU_SCALE={fmt_num(max_abs)};RU_HAP_MISS={fmt_num(round(miss_frac, 6))}"
+            info_out = (
+                f"RU_SCALE={fmt_num(max_abs)};RU_CODING={coding};"
+                f"RU_HAP_MISS={fmt_num(round(miss_frac, 6))}"
+            )
             out.write("\t".join([f[0], f[1], f[2], f[3], f[4], ".", f[6], info_out, fmt_out, *cells]) + "\n")
             stats["written"] += 1
     return stats
@@ -305,6 +355,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--max-hap-missing", type=float, default=0.1,
         help="Skip a locus whose missing-haplotype fraction exceeds this (default 0.1)",
     )
+    p.add_argument(
+        "--coding", choices=("ru", "carrier"), default="ru",
+        help="ru: DS{k} = repeat units relative to REF (default); carrier: DS{k} = count of "
+             "non-reference repeat haplotypes (biallelic comparator arm, same loci and carriers)",
+    )
     args = p.parse_args(argv)
     if not 0.0 <= args.max_hap_missing <= 1.0:
         raise SystemExit("--max-hap-missing must be between 0 and 1")
@@ -317,6 +372,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         stats = write_admixed_vcf(
             args.vcf, out, num_ancs=args.num_ancs, keep=keep,
             missing=args.missing, max_hap_missing=args.max_hap_missing,
+            coding=args.coding,
         )
     finally:
         if out is not sys.stdout:

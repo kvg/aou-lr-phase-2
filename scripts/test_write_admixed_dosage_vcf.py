@@ -53,7 +53,7 @@ def test_matches_extract_ref_baseline():
     assert "snv1" not in rows, "non-RU_TEST records are skipped"
     assert stats == {
         "records_in": 5, "ru_records": 4, "written": 4, "monomorphic_skipped": 0,
-        "missingness_skipped": 0, "hap_missing": 0, "hap_total": 24,
+        "missingness_skipped": 0, "hap_missing": 0, "hap_total": 24, "coding": "ru",
     }
     assert rows["vntr_ins"][1] == ["DS1", "DS2", "DS3", "ANC1", "ANC2", "ANC3"]
     # Same numbers as tests/ru_dosage.rs ru_dosage_ref_baseline_is_default.
@@ -189,6 +189,108 @@ def test_sign_per_alt_and_signed_locus_dosage():
     assert rows["locus1"][0] == 2
 
 
+def test_carrier_coding_counts_non_reference_haplotypes():
+    buf = io.StringIO()
+    stats = write_admixed_vcf(str(FIXTURE), buf, num_ancs=3, coding="carrier")
+    assert stats["coding"] == "carrier"
+    _, rows = _parse(buf.getvalue())
+    # RU_SCALE is 1, so DS{k} is the raw non-reference haplotype count.
+    for scale, _, per_sample in rows.values():
+        assert scale == 1.0
+        for s in per_sample:
+            for k in (1, 2, 3):
+                ds, anc = float(s[f"DS{k}"]), float(s[f"ANC{k}"])
+                assert ds == int(ds) and 0 <= ds <= anc <= 2
+    # vntr_ins under ru coding: S2 carries 6 units on anc1, S1 3 units on anc2.
+    assert _unscaled(rows["vntr_ins"], 1) == [0, 2, 0]
+    assert _unscaled(rows["vntr_ins"], 2) == [1, 0, 0]
+    # Deletions are carriers too: the sign is dropped, not the haplotype.
+    assert _unscaled(rows["vntr_del"], 1) == [0, 0, 1]
+    assert _unscaled(rows["vntr_del"], 2) == [1, 0, 1]
+    # This is the information the dosage arm adds: on ancestry 2, S1 carries a
+    # 3-unit allele and S2 a 1-unit allele (ru: 1 vs 1/3), but both are one
+    # carrier haplotype, so the biallelic arm cannot tell them apart.
+    assert _unscaled(rows["vntr_multi"], 2) == [1, 1, 0]
+    info = [ln for ln in buf.getvalue().splitlines() if not ln.startswith("#")][0].split("\t")[7]
+    assert "RU_CODING=carrier" in info, info
+
+
+def test_codings_share_loci_and_haplotypes():
+    """The 2x2 needs the arms matched: same loci, same ANC{k}, same carriers.
+
+    One-directional on DS: a non-zero repeat dosage implies a carrier, but not
+    the reverse — see test_carrier_coding_differs_only_by_cancellation.
+    """
+    out = {}
+    for coding in ("ru", "carrier"):
+        buf = io.StringIO()
+        write_admixed_vcf(str(FIXTURE), buf, num_ancs=3, coding=coding)
+        out[coding] = _parse(buf.getvalue())[1]
+    assert list(out["ru"]) == list(out["carrier"])
+    for locus in out["ru"]:
+        ru_rows = out["ru"][locus][2]
+        ca_rows = out["carrier"][locus][2]
+        for ru_cell, ca_cell in zip(ru_rows, ca_rows):
+            for k in (1, 2, 3):
+                assert ru_cell[f"ANC{k}"] == ca_cell[f"ANC{k}"]
+                if float(ru_cell[f"DS{k}"]) != 0:
+                    assert float(ca_cell[f"DS{k}"]) != 0
+
+
+def test_carrier_coding_differs_only_by_cancellation():
+    """A gain and a loss of equal size on one ancestry cancel under ru coding.
+
+    FELIX's carrier QC counts samples with a non-zero DS{k}, so this sample
+    enters the biallelic arm's QC denominator and not the dosage arm's. It is
+    the one way the two arms' carrier counts can disagree, and the reason
+    compare_ru_arms.py reports n_loci_*_only instead of assuming a match.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        vcf = Path(td) / "cancel.vcf"
+        vcf.write_text(
+            "##fileformat=VCFv4.2\n"
+            "##contig=<ID=chr22,length=100000>\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n"
+            "chr22\t900\tlocus1\tN\t<TR:+2>,<TR:-2>\t.\tPASS\tRU_TEST;RU_DOSAGE=2,-2\t"
+            "GT:AN1:AN2\t1|2:0:0\t1|0:0:0\n"
+        )
+        got = {}
+        for coding in ("ru", "carrier"):
+            buf = io.StringIO()
+            write_admixed_vcf(str(vcf), buf, num_ancs=2, coding=coding)
+            got[coding] = _parse(buf.getvalue())[1]["locus1"][2]
+    (ru_s1, ru_s2), (ca_s1, ca_s2) = got["ru"], got["carrier"]
+    # S1 carries both alleles on ancestry 1: net zero units, two carrier haplotypes.
+    assert ru_s1["DS1"] == "0" and ca_s1["DS1"] == "2"
+    assert ru_s1["ANC1"] == ca_s1["ANC1"] == "2"
+    # S2 is unambiguous in both arms.
+    assert float(ru_s2["DS1"]) != 0 and float(ca_s2["DS1"]) != 0
+
+
+def test_carrier_coding_keeps_missingness_policy():
+    with tempfile.TemporaryDirectory() as td:
+        vcf = _missing_fixture(Path(td))
+        buf = io.StringIO()
+        stats = write_admixed_vcf(str(vcf), buf, num_ancs=2, max_hap_missing=0.5, coding="carrier")
+    _, rows = _parse(buf.getvalue())
+    s1, s2, s3, s4 = rows["locus1"][2]
+    assert (s1["DS1"], s1["ANC1"], s1["ANC2"]) == ("1", "1", "0")
+    assert (s2["DS1"], s2["DS2"], s2["ANC1"], s2["ANC2"]) == ("0", "0", "0", "0")
+    # S3 carries +2 and -1 units on ancestry 2: one signed unit, but two carriers.
+    assert (s3["DS2"], s3["ANC2"]) == ("2", "2")
+    assert (s4["DS1"], s4["ANC1"]) == ("0", "2")
+    assert stats["hap_missing"] == 3 and stats["written"] == 1
+
+
+def test_rejects_unknown_coding():
+    try:
+        write_admixed_vcf(str(FIXTURE), io.StringIO(), num_ancs=3, coding="biallelic")
+    except ValueError as exc:
+        assert "coding must be" in str(exc)
+    else:
+        raise AssertionError("expected coding validation error")
+
+
 if __name__ == "__main__":
     test_matches_extract_ref_baseline()
     test_keep_list_reorders_and_errors()
@@ -196,4 +298,9 @@ if __name__ == "__main__":
     test_missing_ref_zeroes_dosage_and_shrinks_anc()
     test_missingness_cap_skips_locus_and_is_recorded()
     test_sign_per_alt_and_signed_locus_dosage()
+    test_carrier_coding_counts_non_reference_haplotypes()
+    test_codings_share_loci_and_haplotypes()
+    test_carrier_coding_differs_only_by_cancellation()
+    test_carrier_coding_keeps_missingness_policy()
+    test_rejects_unknown_coding()
     print("ok")
