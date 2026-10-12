@@ -944,7 +944,18 @@ def _panel_center(
     ont_only: Counter,
     phase1_n: int | None = None,
     phase1_center: str = "HA",
+    normalize: bool = True,
+    show_totals: bool = True,
 ) -> None:
+    """Sequencing centre by data type.
+
+    ``normalize`` scales every centre to 100% of its own output, so the panel
+    reads as which kind of data a centre generated rather than how much, and
+    no centre's bar is 25 times another's. ``show_totals`` then carries the
+    group size in the tick label ("Broad (9,910)"), since centre is a
+    null-model covariate and its group sizes should stay legible; set it
+    False to drop them. ``normalize=False`` restores the count bars.
+    """
     counts = {code: 0 for code, _name in _CENTERS}
     for row in rows:
         code = row.get("GC") or ""
@@ -975,6 +986,17 @@ def _panel_center(
         (phase1_n or 0) if code == phase1_center else 0
         for code, _name in ordered
     ]
+    totals = [p1 + pac + oo for p1, pac, oo in zip(phase1_vals, pacbio_vals, ont_only_vals)]
+    if normalize:
+        def _share(vals):
+            return [100.0 * v / t if t else 0.0 for v, t in zip(vals, totals)]
+
+        mid_vals = _share(mid_vals)
+        high_only_vals = _share(high_only_vals)
+        ont_vals = _share(ont_vals)
+        ont_only_vals = _share(ont_only_vals)
+        phase1_vals = _share(phase1_vals)
+        pacbio_vals = [m + h + o for m, h, o in zip(mid_vals, high_only_vals, ont_vals)]
     left_high = [p1 + mid for p1, mid in zip(phase1_vals, mid_vals)]
     left_ont = [p1 + mid + high_only for p1, mid, high_only in zip(phase1_vals, mid_vals, high_only_vals)]
     left_ont_only = [p1 + pacbio for p1, pacbio in zip(phase1_vals, pacbio_vals)]
@@ -997,12 +1019,23 @@ def _panel_center(
         height=0.72, linewidth=0, label="ONT only",
     )
     ax.set_yticks(y)
-    ax.set_yticklabels([name for _code, name in ordered])
+    tick_labels = [name for _code, name in ordered]
+    if normalize and show_totals:
+        tick_labels = [f"{name} ({t:,})" for name, t in zip(tick_labels, totals)]
+    ax.set_yticklabels(tick_labels)
     ax.invert_yaxis()
-    ax.set_xlabel("Participants")
-    ax.set_xlim(0, max(p1 + v + o for p1, v, o in zip(phase1_vals, pacbio_vals, ont_only_vals)) * 1.18)
-    ax.xaxis.set_major_formatter(_THOUSANDS)
-    for yi, val, extra, p1 in zip(y, pacbio_vals, ont_only_vals, phase1_vals):
+    if normalize:
+        ax.set_xlabel("Share of participants (%)")
+        ax.set_xlim(0, 103)
+        ax.set_xticks([0, 50, 100])
+    else:
+        ax.set_xlabel("Participants")
+        ax.set_xlim(0, max(p1 + v + o for p1, v, o in zip(phase1_vals, pacbio_vals, ont_only_vals)) * 1.18)
+        ax.xaxis.set_major_formatter(_THOUSANDS)
+    # End-of-bar counts only make sense on the count scale; every normalized
+    # bar ends at 100 and the group sizes ride in the tick labels instead.
+    label_rows = [] if normalize else list(zip(y, pacbio_vals, ont_only_vals, phase1_vals))
+    for yi, val, extra, p1 in label_rows:
         end = val + extra + p1
         if p1:
             # Phase 1 count in the Phase 1 color, then the Phase 2 count in black,
