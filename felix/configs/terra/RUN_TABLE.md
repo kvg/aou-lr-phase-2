@@ -62,18 +62,21 @@ no longer exists.
 `simple_repeat_bed` / `annotate_repeat_units_script` (the legacy record-level
 lane, inactive while `ru_engine = "felix"`).
 
-## Rows
+## The row
 
-| Row | Use |
-| --- | --- |
-| `felix.wgs.full.v1` | **Production.** Clone this one. |
-| `felix.wgs.limited.v1` | Superseded. Reproduces the configuration submitted 2026-10-12; kept as the record of what produced that run. |
+One row ships: **`felix.wgs.full.v1`**, the full covariate set, matching the
+genome-wide run submitted 2026-10-12. Clone it for a new configuration.
 
-The limited covariate set was the pilot's comparator and is not run going
-forward. The two rows differ only in `covariate_columns`, so switching arms
-reuses the GRM, all 22 chromosome packs and the repeat aggregation — none of
-those tasks sees a covariate file. Only the null fits, which are keyed on it,
-and the step-2 shards rerun.
+The limited covariate set was the pilot's comparator. It is not run going
+forward and has no row here. Should an arm comparison ever be wanted again, the
+two differ only in `covariate_columns`, and `MakeGRM`, the 22 packs and the
+repeat aggregation never see a covariate file — so they call-cache, and only the
+null fits, which are keyed on it, and the step-2 shards rerun.
+
+Note that `FelixGenomeLimited.inputs.json`, one directory up in this folder, is
+the pre-table config and is named for the limited arm. It is superseded by
+`FelixGenomeTable.inputs.json`; do not take its name as a description of what
+ran.
 
 ## Writing cells
 
