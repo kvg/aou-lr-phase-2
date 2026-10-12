@@ -16,9 +16,17 @@
 #   coverage.tsv                   phenotype  index  chromosomes_present  complete
 #   <phenotype>.merged.felix.tsv   one per complete phenotype
 #
+# --run is repeatable (and accepts a comma-separated list), because the shards
+# of one logical run can be spread across several submissions. A resubmission
+# that call-cached a task does not necessarily re-create that task's directory,
+# so the outputs stay under whichever run actually executed them. Give the
+# original run and the rescue; shards are unioned on their path below
+# call-<Name>/, and where both hold the same shard the LAST --run wins.
+#
 # Usage:
 #   ./scripts/felix_interim_scan.sh --run gs://.../FelixGenome/<wid> \
 #       --phenotypes gs://BUCKET/.../selected_phenotypes.txt --arm main --out interim_main
+#   ... --run gs://.../<original-wid> --run gs://.../<rescue-wid>   # union both
 #   ... --arm ru          # repeat-dosage arm (RuStep2)
 #   ... --arm ru_biallelic # carrier-coded comparator (BaStep2)
 #   ... --min-chroms 22   # merge only phenotypes with this many chromosomes (default 22)
@@ -30,7 +38,7 @@
 
 set -euo pipefail
 
-RUN_ROOT=""
+ROOTS=()
 PHENOTYPES=""
 ARM="main"
 OUT=""
@@ -41,7 +49,14 @@ usage() { sed -n '2,31p' "$0" | sed 's/^# \?//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -r|--run) RUN_ROOT="$2"; shift ;;
+    -r|--run)
+      # Repeatable, and accepts a comma-separated list. Results are spread
+      # across runs: a resubmission that call-cached a task does not
+      # necessarily re-create that task's directory, so the shards stay under
+      # whichever run actually executed them.
+      _old_ifs="${IFS}"; IFS=','
+      for _r in $2; do [[ -n "${_r}" ]] && ROOTS+=("${_r%/}"); done
+      IFS="${_old_ifs}"; shift ;;
     -p|--phenotypes) PHENOTYPES="$2"; shift ;;
     -a|--arm) ARM="$2"; shift ;;
     -o|--out) OUT="$2"; shift ;;
@@ -53,9 +68,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-[[ -n "${RUN_ROOT}" ]]   || { echo "--run is required" >&2; exit 1; }
+[[ ${#ROOTS[@]} -gt 0 ]] || { echo "--run is required" >&2; exit 1; }
 [[ -n "${PHENOTYPES}" ]] || { echo "--phenotypes is required" >&2; exit 1; }
-RUN_ROOT="${RUN_ROOT%/}"
 
 case "${ARM}" in
   main)          CALL="Step2";   FNAME="results.felix.tsv" ;;
@@ -81,7 +95,7 @@ fi
 NPHENO="$(awk 'NF' "${PHENO_FILE}" | wc -l | tr -d ' ')"
 echo "${NPHENO} phenotypes; arm ${ARM} (call-${CALL}/${FNAME})" >&2
 
-echo "Listing ${FNAME} under call-${CALL} ..." >&2
+echo "Listing ${FNAME} under call-${CALL} in ${#ROOTS[@]} run root(s) ..." >&2
 # A recursive listing rather than a `**/${FNAME}` glob: cache-hit calls and
 # retries put the file at depths the glob has to guess at, and gsutil's `**`
 # semantics differ between versions. `ls -r` emits directory headers and blank
@@ -90,31 +104,46 @@ echo "Listing ${FNAME} under call-${CALL} ..." >&2
 # Filter on the call segment as well as the filename: RuStep2 and BaStep2 write
 # the same results.ru.felix.tsv, so a listing that came back wider than asked
 # for would silently merge both arms together.
-gs ls -r "${RUN_ROOT}/call-${CALL}/" 2>"${OUT}/ls.err" \
-  | awk -v fn="${FNAME}" -v call="/call-${CALL}/" '$0 ~ fn "$" && index($0, call)' \
-  | sort > "${OUT}/shards.txt" || true
+#
+# Each line is tagged `rank<TAB>relpath<TAB>uri`. The relpath is what makes a
+# shard comparable across roots; the rank breaks ties in favour of the root
+# given last.
+: > "${OUT}/shards.txt"
+RANK=0
+for ROOT in "${ROOTS[@]}"; do
+  RANK=$((RANK + 1))
+  : > "${OUT}/ls.err"
+  gs ls -r "${ROOT}/call-${CALL}/" 2>"${OUT}/ls.err" \
+    | awk -F'\n' -v fn="${FNAME}" -v call="/call-${CALL}/" -v r="${RANK}" -v root="${ROOT}/" \
+        '$0 ~ fn "$" && index($0, call) { rel = $0; sub("^" root, "", rel); print r "\t" rel "\t" $0 }' \
+    >> "${OUT}/shards.txt" || true
+  N_THIS="$(awk -F'\t' -v r="${RANK}" '$1 == r' "${OUT}/shards.txt" | wc -l | tr -d ' ')"
+  echo "  ${ROOT}" >&2
+  echo "    ${N_THIS} ${FNAME} objects under call-${CALL}/" >&2
+  if [[ "${N_THIS}" -eq 0 && -s "${OUT}/ls.err" ]]; then
+    sed 's/^/      /' "${OUT}/ls.err" >&2
+  fi
+done
+sort -o "${OUT}/shards.txt" "${OUT}/shards.txt"
 
 if [[ ! -s "${OUT}/shards.txt" ]]; then
-  echo "No ${FNAME} objects under ${RUN_ROOT}/call-${CALL}/" >&2
+  echo "No ${FNAME} objects under call-${CALL}/ in any run root given." >&2
   # Say WHY. An empty match, a permissions failure and a wrong path all look
   # identical once stderr is discarded, which is what the first version did.
-  if [[ -s "${OUT}/ls.err" ]]; then
-    echo "  gsutil stderr:" >&2
-    sed 's/^/    /' "${OUT}/ls.err" >&2
-  fi
-  echo "  first objects that DO exist under call-${CALL}/ :" >&2
-  gs ls -r "${RUN_ROOT}/call-${CALL}/" 2>&1 | grep -v '^$' | head -8 \
-    | sed 's/^/    /' >&2
-  echo "  (if those paths hold ${FNAME} under a name or depth not matched" >&2
-  echo "   above, report them; if they are only rc/stdout/stderr then the" >&2
-  echo "   task has started but written no results yet)" >&2
+  for ROOT in "${ROOTS[@]}"; do
+    echo "  first objects that DO exist under ${ROOT}/call-${CALL}/ :" >&2
+    gs ls -r "${ROOT}/call-${CALL}/" 2>&1 | grep -v '^$' | head -5 | sed 's/^/    /' >&2
+  done
+  echo "  A resubmission that call-cached a task may not re-create that task's" >&2
+  echo "  directory at all. Pass the run that EXECUTED the shards as well:" >&2
+  echo "    --run <original-run-root> --run <rescue-run-root>" >&2
   exit 1
 fi
 
 # relpath -> inner shard index (the LAST shard-N before the filename) and a
 # per-attempt dedupe: a retried shard has attempt-K, keep the highest.
-awk -v root="${RUN_ROOT}/" '
-  { uri = $0; rel = uri; sub("^" root, "", rel)
+awk -F'\t' '
+  { rank = $1; rel = $2; uri = $3
     n = split(rel, p, "/")
     inner = -1; attempt = 1
     for (i = 1; i <= n; i++) {
@@ -122,7 +151,9 @@ awk -v root="${RUN_ROOT}/" '
       else if (p[i] ~ /^attempt-/) attempt = substr(p[i], 9)
     }
     key = rel; sub("/attempt-[0-9]+/", "/", key)
-    if (attempt + 0 >= best[key] + 0) { best[key] = attempt; uriof[key] = uri; idxof[key] = inner }
+    # Later root wins over an earlier one; within a root, the highest attempt.
+    score = rank * 1000 + attempt
+    if (score + 0 >= best[key] + 0) { best[key] = score; uriof[key] = uri; idxof[key] = inner }
   }
   END { for (k in uriof) print idxof[k] "\t" uriof[k] }' "${OUT}/shards.txt" \
   | sort -k1,1n -k2,2 > "${OUT}/by_pheno.tsv"
