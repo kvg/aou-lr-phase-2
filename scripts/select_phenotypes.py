@@ -145,8 +145,28 @@ def one_hot_categorical(
 
 
 def phecode_of(column: str) -> str:
-    """Phecode from a phenotype column name: CM_761_13 / CM_761.13 -> 761.13."""
-    body = re.sub(r"^(CM|PH|PHECODE)[_.]", "", column.strip(), flags=re.IGNORECASE)
+    """Phecode from a phenotype column name, in the definitions table's dialect.
+
+    PhecodeX keeps its chapter and uses a dot before the sub-code:
+    ``CV_401_1`` and ``CV_401.1`` both give ``CV_401.1``. The chapter is part of
+    the identifier, not a prefix to strip -- ``CM`` is one of the 18 PhecodeX
+    chapters, so ``CM_761`` is a code in its own right.
+
+    Classic phecodes are bare numbers, optionally behind ``PH_``/``PHECODE_``:
+    ``PH_761_13`` and ``761.13`` both give ``761.13``.
+
+    Returns "" for anything else, e.g. a covariate column.
+    """
+    s = column.strip()
+    # PH_ / PHECODE_ first: neither is a PhecodeX chapter, so an explicit
+    # classic prefix is unambiguous and wins over the chapter reading.
+    body = re.sub(r"^(PH|PHECODE)[_.]", "", s, flags=re.IGNORECASE)
+    if body == s:
+        m = re.match(r"^([A-Za-z]{2})[_.](\d+)(?:[._](\d+))?$", s)
+        if m:
+            chapter, num, dec = m.groups()
+            base = f"{chapter.upper()}_{num}"
+            return base if dec is None else f"{base}.{dec}"
     m = re.match(r"^(\d+)(?:[._](\d+))?$", body)
     if not m:
         return ""
@@ -162,8 +182,21 @@ def phecode_parent(code: str) -> str:
 
 
 def read_phecode_sex(path: Path) -> dict[str, str]:
-    """phecode -> Male|Female|Both from a phecode definitions table."""
-    df = pd.read_csv(path, sep=None, engine="python", dtype=str)
+    """phecode -> Male|Female|Both from a phecode definitions table.
+
+    The published PhecodeX table is Latin-1, not UTF-8 (it carries names such
+    as Meniere's with an accented e), so decoding is attempted both ways before
+    giving up.
+    """
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            df = pd.read_csv(path, sep=None, engine="python", dtype=str,
+                             encoding=encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise SystemExit(f"{path}: could not decode as UTF-8 or Latin-1")
     cols = {c.lower().strip(): c for c in df.columns}
     code_col = next((cols[c] for c in ("phecode", "phenotype", "code") if c in cols), None)
     sex_col = next((cols[c] for c in ("sex", "sex_specific") if c in cols), None)
@@ -490,6 +523,26 @@ def main() -> None:
         f"{n_sex_specific:,} of {len(audit):,} candidate phenotypes called sex-specific "
         f"({args.sex_specific})"
     )
+    if phecode_sex:
+        # A definitions table in a different dialect from the phenotype columns
+        # joins on nothing, every call silently falls back to the observed case
+        # sex ratio, and the output looks exactly like a successful run.
+        n_matched = sum(1 for r in audit.values() if r["sex_specific_basis"] == "definitions")
+        n_by_ratio = sum(
+            1 for r in audit.values() if r["sex_specific"] and r["sex_specific_basis"] == "observed"
+        )
+        print(
+            f"  {n_matched:,} of {len(audit):,} matched the definitions table "
+            f"({len(phecode_sex):,} codes); {n_by_ratio:,} called from the case sex ratio"
+        )
+        if n_matched == 0:
+            raise SystemExit(
+                f"--phecode-sex-tsv matched none of the {len(audit):,} phenotype columns. "
+                f"Example column {candidate_cols[0]!r} parses to "
+                f"{phecode_of(candidate_cols[0])!r}; the table holds codes like "
+                f"{sorted(phecode_sex)[:3]}. The two are in different dialects, so no "
+                "phenotype would be restricted and the run would look fine."
+            )
 
     passing = [c for c in candidate_cols if audit[c]["n_cases"] >= args.min_cases]
     for col in candidate_cols:

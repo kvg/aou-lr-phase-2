@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -25,6 +26,7 @@ from select_phenotypes import (  # noqa: E402
     phecode_of,
     phecode_parent,
     prune_correlated,
+    read_phecode_sex,
 )
 
 SCRIPT = ROOT / "scripts" / "select_phenotypes.py"
@@ -32,13 +34,27 @@ N = 400
 
 
 def test_phecode_parsing_and_hierarchy():
-    assert phecode_of("CM_761_13") == "761.13"
-    assert phecode_of("CM_761.1") == "761.1"
-    assert phecode_of("CM_761") == "761"
-    assert phecode_of("coverage") == ""
+    # PhecodeX: the two-letter chapter is part of the code, and the sub-code is
+    # written with a dot in the definitions table but an underscore in a column
+    # name. CM is a chapter, not a prefix to strip.
+    assert phecode_of("CM_761_13") == "CM_761.13"
+    assert phecode_of("CM_761.13") == "CM_761.13"
+    assert phecode_of("CM_761") == "CM_761"
+    assert phecode_of("CV_401_1") == "CV_401.1"
+    assert phecode_parent("CM_761.13") == "CM_761.1"
+    assert phecode_parent("CM_761.1") == "CM_761"
+    assert phecode_parent("CM_761") == ""
+
+    # Classic phecodes are bare numbers, optionally behind PH_ / PHECODE_.
+    assert phecode_of("PH_761_13") == "761.13"
+    assert phecode_of("PHECODE_761") == "761"
+    assert phecode_of("761.13") == "761.13"
     assert phecode_parent("761.13") == "761.1"
-    assert phecode_parent("761.1") == "761"
     assert phecode_parent("761") == ""
+
+    # Covariate columns are not phecodes.
+    for col in ("coverage", "sex", "age", "PC1", "GC_BCM"):
+        assert phecode_of(col) == "", col
 
 
 def test_observed_case_sex_calls_the_majority_sex():
@@ -154,12 +170,36 @@ def test_definitions_table_overrides_the_observed_call():
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         defs = tmp / "phecode_defs.csv"
-        defs.write_text("phecode,sex\n185,Both\n761,Both\n")
+        defs.write_text("phecode,sex\nCM_185,Both\nCM_761,Both\nCM_761.1,Both\nCM_250,Both\n")
         stats, _audit, _chosen = _run(tmp, "--phecode-sex-tsv", str(defs),
                                       "--sex-specific", "restrict")
     row = stats.set_index("phenotype").loc["CM_185"]
     assert not bool(row["sex_specific"]) and row["sex_specific_basis"] == "definitions"
     assert row["n_missing"] == 0, "the table says Both, so nothing is restricted"
+
+
+def test_definitions_table_in_the_wrong_dialect_is_refused(tmp_path):
+    """A classic-phecode table against PhecodeX columns joins on nothing.
+
+    Left to itself every call falls back to the observed case sex ratio and the
+    run looks successful, so this has to fail loudly instead.
+    """
+    defs = tmp_path / "phecode_defs.csv"
+    defs.write_text("phecode,sex\n185,Male\n761,Both\n")
+    # _run asserts a zero exit, so the refusal surfaces as the captured output.
+    with pytest.raises(AssertionError, match="matched none"):
+        _run(tmp_path, "--phecode-sex-tsv", str(defs), "--sex-specific", "restrict")
+
+
+def test_definitions_table_reads_latin1(tmp_path):
+    """The published PhecodeX table is Latin-1, not UTF-8."""
+    defs = tmp_path / "phecode_defs.csv"
+    defs.write_bytes(
+        "phecode,phecode_string,sex\nCM_185,M\u00e9ni\u00e8re,Both\nCM_761,x,Both\n"
+        .encode("latin-1")
+    )
+    mapping = read_phecode_sex(defs)
+    assert mapping["CM_185"] == "Both"
 
 
 def test_nesting_leaves_drops_parents_and_audit_records_why():
