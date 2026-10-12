@@ -1,0 +1,7 @@
+{
+  "FelixGenome.run_summary_tar": "this.run_summary_tar",
+  "FelixGenome.results_tsvs": "this.results_tsvs",
+  "FelixGenome.ru_results_tsvs": "this.ru_results_tsvs",
+  "FelixGenome.ru_locus_summaries": "this.ru_locus_summaries",
+  "FelixGenome.ru_admixed_stats": "this.ru_admixed_stats"
+}
