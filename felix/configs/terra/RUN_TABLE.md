@@ -64,13 +64,16 @@ lane, inactive while `ru_engine = "felix"`).
 
 ## Rows
 
-| Row | Differs from baseline in |
+| Row | Use |
 | --- | --- |
-| `felix.wgs.limited.v1` | — baseline; reproduces the configuration submitted 2026-10-12 exactly |
-| `felix.wgs.full.v1` | `covariate_columns` only |
+| `felix.wgs.full.v1` | **Production.** Clone this one. |
+| `felix.wgs.limited.v1` | Superseded. Reproduces the configuration submitted 2026-10-12; kept as the record of what produced that run. |
 
-`felix.wgs.full.v1` reuses the GRM and every chromosome pack by call caching;
-only the 10 null fits and the step-2 shards rerun.
+The limited covariate set was the pilot's comparator and is not run going
+forward. The two rows differ only in `covariate_columns`, so switching arms
+reuses the GRM, all 22 chromosome packs and the repeat aggregation — none of
+those tasks sees a covariate file. Only the null fits, which are keyed on it,
+and the step-2 shards rerun.
 
 ## Writing cells
 
