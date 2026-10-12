@@ -136,6 +136,68 @@ python3 scripts/resolve_flare_uris.py --from-firecloud --scan-chrom chr22 --grm-
 python3 scripts/resolve_flare_uris.py --from-firecloud --autosomes --grm-chroms chr1 chr22
 ```
 
+## Task reference (FelixGenome.wdl)
+
+Sixteen tasks. Five run once per run, one runs once per chromosome, the rest
+scatter. With C chromosomes and P phenotypes the genome-wide run is P null fits,
+C packs, C repeat aggregations, and 3 x C x P step-2 shards — 22 x 10 here, so
+220 shards in each of the three arms.
+
+### Guards (fail the run before anything expensive starts)
+
+| Task | What it does |
+| --- | --- |
+| `CheckChromVcfPairs` | Takes only the array *lengths* and accepts one of three input shapes: `joint_vcfs` alone, `phase_vcfs` + `flare_vcfs`, or all three. Anything else — a length mismatch, a half-supplied pair — fails here rather than at the first `Pack`. |
+| `CheckNullArrays` | Checks that the null arrays agree in length with the phenotype list, whether they were fitted here or passed in as `precomputed_null_*`. Emits `n_phenotypes_out`, which is the width every downstream scatter is indexed against. Order is the contract: arrays are positional against `read_lines(selected_phenotypes)`. |
+
+### Shared setup (once per run)
+
+| Task | What it does |
+| --- | --- |
+| `BuildSaigePlinkAndSparseGRM` (`MakeGRM`) | Runs `build_saige_plink_and_grm.sh` and `make_plink_keep.py` over `grm_vcfs` to produce the PLINK trio and the sparse GRM (`.mtx` + sample ids) at `relatedness_cutoff`. `grm_vcfs` is deliberately pinned to chr1 + chr22, not the whole genome, so the GRM and every null built on it stay cache-valid across resubmissions. |
+| `FitFelixNull` (`Null`, scatter over phenotypes) | `fit_felix_null.R` runs FELIX step 1 (`fitNULLGLMM`, `--useSparseGRMtoFitNULL=TRUE`), then `export_felix_null.R` packages the fit. Outputs the null `.rda`, the variance ratio, the sample list actually used, and an export tar. A null depends only on the GRM, the covariates and the phenotype column, so it is shared across all chromosomes and all three arms. Skipped entirely when `precomputed_null_rdas` is supplied. |
+
+### Per chromosome, shared by both lanes
+
+| Task | What it does |
+| --- | --- |
+| `PackFelixla` (`Pack`) | Normalises the VCF header (`bcftools view -h` / `reheader`), indexes it, then runs `felixla --phase-vcf --flare-vcf --n-ancestries --keep --make-felixla`. **This is where local ancestry meets the phased genotypes:** felixla assigns each phase record to its covering FLARE marker itself, which is why the ordinary scan never needs a pre-propagated VCF. Output is one tarball of the packed binary format. |
+
+### Ordinary scan (SNVs, indels and SVs — one test per variant record)
+
+| Task | What it does |
+| --- | --- |
+| `RunFelixStep2` (`Step2`, scatter chrom x phenotype) | `run_felix_step2.R --felixla-prefix` against the packed tar and that phenotype's null, with `--min-mac`, `--n-ancestries` and `--pvalcutoff-of-haplotype`. Writes the per-shard results TSV. |
+| `ConcatPhenotypeScores` (`Concat`) | Merges the C per-chromosome shards for one phenotype into a single TSV. |
+| `SummarizeFelixResults` (`Summarize`, `arm = "main"`) | `summarize_felix_results.py` over the merged TSVs: calibration (lambdaGC on `P_cct_admixed_c`), hit table at `summarize_p_threshold`, `qq_cct.png` and `manhattan_cct.png`, bundled as `main.summary.tar.gz` — manifests and plots only, not the per-phenotype TSVs. |
+
+### Repeat-dosage lane (`ru_engine = "felix"` — one test per catalog locus)
+
+| Task | What it does |
+| --- | --- |
+| `AggregateRepeatLoci` (`RuLoci`) | The heart of the method. Indexes the source VCF, then `aggregate_repeat_loci.py --catalog-bed --flank --max-bp --with-ancestry` walks the TRExplorer catalog and, for each locus, sums the signed REF-relative length change of every overlapping record on each haplotype. `--with-ancestry` is why this lane — and only this lane — needs the ancestry-propagated VCF: it reads per-record `AN1`/`AN2` to attribute each haplotype's length to an ancestry. Writes `loci.vcf`, a per-allele table, and `loci.summary.json` (the QC numbers the review notebook thresholds). |
+| `WriteRuAdmixedVcf` (`RuVcf`, `coding = "ru"`) | `write_admixed_dosage_vcf.py` turns the locus VCF into the per-ancestry dosage VCF FELIX step 2 consumes, applying the missing-haplotype policy (`--missing`, `--max-hap-missing`). `ru.admixed.stats.json` records records in/written and why any were dropped. |
+| `WriteRuAdmixedVcf` (`BaVcf`, `coding = "carrier"`) | The comparator arm. Same loci, same null, same carriers — only the coding differs: 0/1 carrier instead of repeat dosage. This is what makes the dosage-vs-biallelic claim a controlled comparison rather than two separate analyses. |
+| `RunFelixStep2RuVcf` (`RuStep2` / `BaStep2`) | `run_felix_step2.R --vcf-file` instead of `--felixla-prefix`, plus `--dosage-qc`. Thresholds on `ru_min_carriers` rather than `min_mac`, since a locus's signal is carriers of a length change, not minor-allele count. |
+| `ConcatPhenotypeScores` (`RuConcat`, `BaConcat`) | As above, with `.ru` / `.ru_biallelic` suffixes on the phenotype name. |
+| `CompareRuArms` (`ArmCompare`) | `compare_ru_arms.py` joins the two arms per phenotype at `ru_arm_p_threshold` and writes the 2x2 table, a summary and a markdown block — the direct input to Figure 3's dosage-vs-biallelic panel. |
+| `SummarizeFelixResults` (`SummarizeRu`, `SummarizeBa`) | The same summariser on each repeat arm. Identical joint-P columns, one row per locus instead of per variant, so repeat lambdaGC is directly comparable with the main arm's **from the same null** — which is what makes the calibration gate meaningful. |
+
+### Legacy record-level lane (`ru_engine = "rust"` — not used in this run)
+
+`AnnotateRuTest` → `ExtractRuDosage` → `ScoreRuDosage` test each VCF record
+separately against a simple-repeat BED, in three encodings (dosage, collapse,
+split). Retained only for the encoding comparison. It drops records whose
+alleles are not a whole number of repeat units, which is why the locus-level
+path above is the default (`felix/REPEAT_DOSAGE.md` section 6.2).
+
+### Collection
+
+| Task | What it does |
+| --- | --- |
+| `BundleRunSummary` (`Bundle`) | Merges the per-arm summary tars, the per-chromosome `loci.summary.json` and `ru.admixed.stats.json` (renamed by chromosome), and the ArmCompare outputs into one `felix_run.summary.tar.gz`. This is the single small file to download for `notebooks/terra/felix_02_genome_review.ipynb`; the per-phenotype TSVs stay in the bucket. |
+
+
 ## Notes
 
 - Joint p-value for calibration: `P_cct_admixed_c` (FELIX) vs `P` (Tractor-Mix).
