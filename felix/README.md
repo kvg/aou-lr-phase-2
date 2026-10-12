@@ -129,6 +129,45 @@ WORKSPACE_BUCKET=gs://fc-secure-... ./scripts/stage_tractor_scripts.sh   # GRM, 
    traits; `phenotype_selection_audit.tsv` records why each candidate is in or
    out, and `--tier-sizes` writes smaller prefixes for a shakedown run.
 
+### Scaling to the full phecode list
+
+`pheno_cov.tsv` does not change shape: `ID`, the covariate columns, then one
+column per phecode. Three things about it are already handled and do not need
+manual work.
+
+- **Sex-specific phecodes.** `select_phenotypes.py --sex-specific restrict`
+  (with `--phecode-sex-tsv`) sets the other sex to `NA` so they are not counted
+  as controls.
+- **The covariate that goes constant.** On a female-only phecode, `sex` has no
+  variance among the complete cases and would make the design singular.
+  `fit_felix_null.R` computes each covariate's SD on that phenotype's complete
+  cases, drops the zero-variance ones, records them in
+  `covariates_dropped_constant`, and fails only if every covariate is constant.
+  So one covariate file serves all phenotypes.
+- **Missing phenotypes.** `complete.cases` over the phenotype plus covariates
+  drops those samples for that phenotype alone.
+
+What does need attention is scale. At 22 chromosomes the call count is
+`943 + 44 + 3 x 22 x P`, which is 802 calls at P = 10 and **67,045 at P = 943** —
+84x, in a single Cromwell workflow.
+
+- **Batch the phenotypes across submissions** rather than submitting one
+  943-phenotype run. A batch is a `felix_runs.entity.tsv` row differing only in
+  `selected_phenotypes`; the GRM and all 22 packs call-cache across batches, so
+  batching costs nothing but gains a workflow that can be watched, diagnosed and
+  restarted. Ten batches of ~95 phenotypes is ~7,000 calls each.
+- **`SummarizeFelixResults` is the task to size.** It localizes every
+  per-phenotype merged TSV *and* copies each into `results_by_phenotype/`, so
+  its disk is twice the whole scan — which is why `disk_gb_multiplier` is 2.0.
+  Memory is fine (one phenotype is read at a time and the frame is reassigned),
+  but set `FelixGenome.Summarize.preemptible = 0` at scale: a preemption
+  restarts a localization measured in hundreds of gigabytes. Measure one
+  phenotype's genome-wide TSV from the first run before choosing a batch size.
+- **The significance threshold is per test.** `summarize_p_threshold` is 5e-8
+  with no correction for the number of phenotypes; at 943 phecodes decide
+  whether the headline threshold should be 5e-8/943 and set the column
+  accordingly.
+
 Resolve FLARE URIs:
 
 ```bash
