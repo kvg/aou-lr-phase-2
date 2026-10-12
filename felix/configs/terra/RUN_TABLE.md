@@ -8,7 +8,7 @@ produced the old results.
 
 | File | Upload as | What it is |
 | --- | --- | --- |
-| `felix_runs.entity.tsv` | Data table | One row per run configuration, 33 analysis columns + `run_description`. Entity type `flare_lai_prod_set`. |
+| `felix_runs.entity.tsv` | Data table | One row per run configuration, 24 analysis columns + `run_description`. Entity type `flare_lai_prod_set`. |
 | `felix_runs.membership.tsv` | Data table | The 22 autosome members of each row, in chromosome order. |
 | `FelixGenomeTable.inputs.json` | Method config inputs | Reads `${this.<column>}` for analysis parameters and `${this.flare_lai_prods.<column>}` for the per-chromosome arrays. |
 
@@ -42,16 +42,21 @@ chromosomes.
 
 ## What lives where
 
-**In the table (33 columns).** Everything that defines the analysis: cohort and
+**In the table (24 columns).** Everything that defines the analysis: cohort and
 phenotype files, covariate set, GRM inputs and relatedness cutoff, `num_ancs`,
-`min_mac`, the whole `ru_*` group, the summariser thresholds, the docker image,
-and every staged script path. Column names are the WDL input names verbatim, so
-the mapping is mechanical and a new input is a new column plus one JSON line.
+`min_mac`, the whole `ru_*` group, the summariser thresholds and the docker
+image. Column names are the WDL input names verbatim, so the mapping is
+mechanical and a new input is a new column plus one JSON line.
 
-**In the JSON (8 keys).** Resource sizing only — `pack_*`, `step2_*`,
-`ru_disk_*`. These change cost and runtime, not results, and putting them in the
-table would widen it by a quarter for no scientific benefit. Move one into the
-table if you ever want a row to be a complete cost record too.
+**In the JSON (17 keys).** Two groups that are not analysis parameters. The nine
+staged script paths belong to the workflow definition, not to a run — they
+change on a restage, and when they do every row should pick the change up at
+once rather than needing 24 cells edited. And eight resource-sizing keys
+(`pack_*`, `step2_*`, `ru_disk_*`), which change cost and runtime, not results.
+
+The two files have to move together: deleting a column while the config still
+reads `${this.<column>}` leaves the method config referencing an attribute that
+no longer exists.
 
 **Not set at all.** `precomputed_null_*` (fit nulls in-workflow),
 `simple_repeat_bed` / `annotate_repeat_units_script` (the legacy record-level
