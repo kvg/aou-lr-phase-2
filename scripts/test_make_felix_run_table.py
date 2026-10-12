@@ -164,3 +164,22 @@ def test_set_overrides_any_column(tmp_path):
 def test_bad_set_is_refused(tmp_path, bad, msg):
     cp, _ = run(tmp_path, ["A", "B"], "--batch-size", "1", "--set", bad)
     assert cp.returncode != 0 and msg in cp.stderr
+
+
+def test_files_from_an_earlier_run_are_flagged_not_mixed_in(tmp_path):
+    """A second run with a different --row-prefix leaves the first run's files."""
+    names = [f"PH_{i}" for i in range(6)]
+    cp1, out = run(tmp_path, names, "--batch-size", "3", "--row-prefix", "run.a")
+    assert cp1.returncode == 0, cp1.stderr
+    ph = tmp_path / "phenos.txt"
+    cp2, _ = run(tmp_path, names, "--batch-size", "2", "--row-prefix", "run.b",
+                 phenotypes=ph)
+    assert cp2.returncode == 0, cp2.stderr
+    assert "from an earlier run" in cp2.stdout
+
+    # the second table names only its own files, and they cover the list once
+    rows = read(out / "felix_runs.entity.tsv")
+    assert len(rows) == 3 and all(r[ID_COL].startswith("run.b") for r in rows)
+    own = [out / "phenotypes" / f"{r[ID_COL]}.txt" for r in rows]
+    assert [p for f in own for p in f.read_text().split()] == names
+    assert len(list((out / "phenotypes").glob("*.txt"))) == 5   # 2 stale + 3 new

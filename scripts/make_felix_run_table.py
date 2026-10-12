@@ -153,6 +153,13 @@ def main(argv=None) -> int:
             for c in CHROMS:
                 w.writerow([row[ID_COL], f"aou_lr_phase2_v1.{c}"])
 
+    written = {out / "phenotypes" / f"{r[ID_COL]}.txt" for r in new_rows}
+    stale = sorted(p for p in (out / "phenotypes").glob("*.txt") if p not in written)
+    if stale:
+        print(f"note: {len(stale)} file(s) in {out / 'phenotypes'} are from an earlier "
+              f"run and are not part of this table: "
+              + ", ".join(p.name for p in stale[:3]) + (" ..." if len(stale) > 3 else ""))
+
     total = sum(71 * len(g) + 92 for g in groups)
     print(f"{len(names)} phenotypes -> {len(groups)} batches of up to {args.batch_size}")
     print(f"  {ent}")
