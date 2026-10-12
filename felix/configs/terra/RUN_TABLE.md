@@ -12,8 +12,33 @@ produced the old results.
 | `felix_runs.membership.tsv` | Data table | The 22 autosome members of each row, in chromosome order. |
 | `FelixGenomeTable.inputs.json` | Method config inputs | Reads `${this.<column>}` for analysis parameters and `${this.flare_lai_prods.<column>}` for the per-chromosome arrays. |
 
-Upload the entity TSV first, then the membership TSV. Both are needed: the first
-sets the attributes, the second sets the members.
+## Uploading
+
+Set tables take **two files in two different formats**, and they are not
+interchangeable:
+
+- The membership file's header is `membership:flare_lai_prod_set_id` and its
+  second column must be the **member entity type name**, `flare_lai_prod`. It
+  takes exactly two columns — it cannot carry attributes.
+- The attribute file's header is `entity:flare_lai_prod_set_id` followed by the
+  attribute columns. It cannot carry members.
+
+**Upload membership first, then attributes.** Either order creates the rows, but
+this one only relies on behaviour already verified in this workspace: an
+attribute TSV carrying the id column plus some columns upserts onto existing
+rows without touching the columns it omits (the same pattern as
+`flare/configs/lai_prod.ligated_cols.tsv`). The reverse order would depend on a
+membership upload preserving attributes, which has not been checked here.
+
+`flare_lai_prod` must already exist, which it does — Terra refuses a set table
+whose members it does not yet know.
+
+Re-uploading an id overwrites that row and leaves other rows alone, so adding a
+configuration never disturbs the existing ones. **To change which chromosomes a
+row covers, use a new id** rather than re-uploading the same one: whether a
+second membership upload replaces the member list or unions with it is not
+established, and a silently unioned set would scatter over duplicated
+chromosomes.
 
 ## What lives where
 
