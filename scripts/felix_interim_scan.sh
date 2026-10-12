@@ -82,8 +82,12 @@ NPHENO="$(awk 'NF' "${PHENO_FILE}" | wc -l | tr -d ' ')"
 echo "${NPHENO} phenotypes; arm ${ARM} (call-${CALL}/${FNAME})" >&2
 
 echo "Listing ${FNAME} under call-${CALL} ..." >&2
+# Filter on the call segment as well as the filename: RuStep2 and BaStep2 write
+# the same results.ru.felix.tsv, so a listing that came back wider than asked
+# for would silently merge both arms together.
 gs ls "${RUN_ROOT}/call-${CALL}/**/${FNAME}" 2>/dev/null \
-  | awk -v fn="${FNAME}" '$0 ~ fn "$"' | sort > "${OUT}/shards.txt" || true
+  | awk -v fn="${FNAME}" -v call="/call-${CALL}/" '$0 ~ fn "$" && index($0, call)' \
+  | sort > "${OUT}/shards.txt" || true
 
 if [[ ! -s "${OUT}/shards.txt" ]]; then
   echo "No ${FNAME} objects under ${RUN_ROOT}/call-${CALL}/" >&2
@@ -161,4 +165,5 @@ echo "Merged TSVs in ${OUT}/. Summarise them with the same script the workflow u
 echo "  python3 felix/scripts/summarize_felix_results.py \\" >&2
 echo "    --results ${OUT}/*.merged.felix.tsv \\" >&2
 echo "    --phenotypes \$(awk -F'\\t' 'NR>1 && \$4==\"yes\" {print \$1}' ${OUT}/coverage.tsv) \\" >&2
-echo "    --pheno-cov <pheno_cov.tsv> --out-dir ${OUT}/summary --arm ${ARM}" >&2
+echo "    --pheno-cov <pheno_cov.tsv> --out-dir ${OUT}/summary" >&2
+echo "(summarize_felix_results.py takes no --arm; the WDL uses that only to name its bundle.)" >&2
