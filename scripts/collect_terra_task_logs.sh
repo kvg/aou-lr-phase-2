@@ -100,12 +100,19 @@ awk -F'\t' '{
   call = ""; shard = "NA"; attempt = "1"; sub_wf = "NA"; last_call = 0
   for (i = 1; i <= n; i++) {
     if (p[i] ~ /^call-/) { call = substr(p[i], 6); last_call = i }
-    else if (p[i] ~ /^shard-/ && i > last_call) { shard = substr(p[i], 7) }
     else if (p[i] ~ /^attempt-/) { attempt = substr(p[i], 9) }
   }
+  # A nested scatter gives call-Step2/shard-<chrom>/shard-<pheno>/, so keep every
+  # shard index after the last call- segment joined, not just the innermost.
+  for (i = last_call + 1; i <= n; i++)
+    if (p[i] ~ /^shard-/) shard = (shard == "NA" ? substr(p[i], 7) : shard "." substr(p[i], 7))
   for (i = 1; i < last_call; i++) if (p[i] ~ /^call-/) sub_wf = (sub_wf == "NA" ? substr(p[i], 6) : sub_wf "/" substr(p[i], 6))
   if (call == "") call = "UNKNOWN"
-  print $1 "\t" $2 "\t" call "\t" shard "\t" attempt "\t" sub_wf "\t" $3 "\t" $4
+  # The execution directory identifies one task execution: the relpath without
+  # the trailing filename and without the attempt segment.
+  execdir = ""
+  for (i = 1; i <= n - 1; i++) if (p[i] !~ /^attempt-/) execdir = (execdir == "" ? p[i] : execdir "/" p[i])
+  print $1 "\t" $2 "\t" call "\t" shard "\t" attempt "\t" sub_wf "\t" $3 "\t" $4 "\t" execdir
 }' "${WORKDIR}/all.tsv" > "${WORKDIR}/parsed.tsv"
 
 if [[ -n "${CALLS}" ]]; then
@@ -120,7 +127,7 @@ if [[ -n "${CALLS}" ]]; then
 fi
 
 {
-  printf 'relpath\tkind\tcall\tshard\tattempt\tsubworkflow\tsize_bytes\tgs_uri\n'
+  printf 'relpath\tkind\tcall\tshard\tattempt\tsubworkflow\tsize_bytes\tgs_uri\texec_dir\n'
   cat "${WORKDIR}/parsed.tsv"
 } > "${WORKDIR}/manifest.tsv"
 
@@ -131,8 +138,8 @@ fi
 # per phenotype and PackFelixla once per chromosome, so the step-2 scatters are
 # their product. That is the difference between "87 done" and "87 of 1,914".
 awk -F'\t' '
-  { call = $3; shard = $4; attempt = $5 + 0
-    key = call "\t" shard
+  { call = $3; attempt = $5 + 0
+    key = $9                       # execution directory: unique per task execution
     if (attempt > top[key]) top[key] = attempt
     if ($2 == "rc") rcseen[key "\t" attempt] = 1
     attempts[key "\t" attempt] = 1
@@ -140,7 +147,8 @@ awk -F'\t' '
   END {
     for (k in name) { c = name[k]; shards[c]++
       if ((k "\t" top[k]) in rcseen) fin[c]++; else run[c]++ }
-    for (a in attempts) { split(a, f, "\t"); if (f[3] + 0 > 1) retried[f[1]]++ }
+    # key is now one field, so the attempt is f[2] and the call comes from name[].
+    for (a in attempts) { split(a, f, "\t"); if (f[2] + 0 > 1) retried[name[f[1]]]++ }
 
     P = shards["Null"] + 0; C = shards["Pack"] + 0
     for (c in shards) {
