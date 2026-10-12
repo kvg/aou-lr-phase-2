@@ -99,3 +99,75 @@ the nulls and every pack, and reruns only step 2.
 (`PropagateFlareAncestry_2026-10-10T22-08-23` and similar), auto-created by Terra
 when a workflow is launched over multiple entities. Those rows have the config
 columns empty. Submit FELIX runs only on the `felix.*` rows.
+
+## Scaling to the full phecode list
+
+One `pheno_cov.tsv` carrying **every** phecode column, and one phenotype file
+per batch. `fit_felix_null.R` reads only the phenotype column it is given and
+`summarize_felix_results.py` reads `pheno_cov` with `usecols`, so the extra
+columns cost a batch nothing. Batches differ only in `selected_phenotypes`.
+
+### 1. Regenerate the phenotype table
+
+In `notebooks/terra/tractor_01_prepare_inputs.ipynb`, change the selection cell
+to the full list and the scale flags:
+
+```python
+N_PHENOTYPES = 0        # keep every phenotype that passes, not the top 10
+```
+```
+--sex-specific restrict --phecode-sex-tsv <phecode definitions with a sex column>
+--nesting leaves        # or roots; `keep` leaves parent and child as separate traits
+--max-r2 0.5            # what All by All used; off by default
+```
+
+Without `--phecode-sex-tsv` the sex call falls back to the observed case sex
+ratio at `--sex-case-fraction 0.99`, which is a guess. Source the definitions
+table first.
+
+**Write the outputs to a new prefix.** Do not overwrite
+`tractor_mix_pilot/pheno_cov.tsv` — a running workflow still reads it.
+
+**Then check `analysis_samples.txt` is unchanged.** `select_phenotypes.py`
+derives the analysis cohort from covariate completeness *before* it selects
+phenotypes, so going from 10 phecodes to 943 should leave it byte-identical:
+
+```bash
+gsutil cat gs://BUCKET/tractor_mix_pilot/analysis_samples.txt | md5sum
+md5sum <new out-dir>/analysis_samples.txt
+```
+
+If they match, the GRM and all 22 chromosome packs call-cache and only the
+nulls and step 2 rerun. If they differ, every task in the run is invalidated —
+find out why before submitting.
+
+### 2. Generate the batch rows
+
+```bash
+python3 scripts/make_felix_run_table.py \
+  --phenotypes <new out-dir>/selected_phenotypes.txt \
+  --template felix/configs/terra/felix_runs.entity.tsv \
+  --template-row felix.wgs.limited.v1 \
+  --row-prefix felix.wgs943.limited \
+  --batch-size 95 \
+  --bucket gs://BUCKET \
+  --phenotype-prefix felix/phenotypes/wgs943 \
+  --pheno-cov gs://BUCKET/felix/phenotypes/wgs943/pheno_cov.tsv \
+  --out-dir felix/configs/terra/wgs943
+```
+
+943 phenotypes at `--batch-size 95` gives 10 rows of ~6,800 calls each instead
+of one workflow of 67,045. Rows differ from the template only in the id,
+`selected_phenotypes` and `run_description` — asserted in
+`scripts/test_make_felix_run_table.py`. Run it again with
+`--template-row felix.wgs.full.v1` for the full-covariate arm.
+
+### 3. Upload and submit
+
+Copy the per-batch phenotype files to the bucket (the script prints the
+`gsutil` line), then upload membership and entity TSVs as in **Uploading**
+above, and submit the same method config on each batch row.
+
+Submit one batch first and let it finish. The GRM, the packs and the repeat
+aggregation it builds are then cached for the other nine, so the remaining
+batches are step 2 and summarization only.

@@ -1,0 +1,117 @@
+"""Tests for scripts/make_felix_run_table.py."""
+from __future__ import annotations
+
+import csv
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "make_felix_run_table.py"
+TEMPLATE = ROOT / "felix" / "configs" / "terra" / "felix_runs.entity.tsv"
+ID_COL = "entity:flare_lai_prod_set_id"
+BUCKET = "gs://fc-secure-test"
+
+
+def run(tmp_path, names, *extra, phenotypes=None):
+    ph = phenotypes or tmp_path / "phenos.txt"
+    if phenotypes is None:
+        ph.write_text("\n".join(names) + "\n")
+    out = tmp_path / "out"
+    cp = subprocess.run(
+        [sys.executable, str(SCRIPT), "--phenotypes", str(ph), "--template", str(TEMPLATE),
+         "--template-row", "felix.wgs.limited.v1", "--bucket", BUCKET,
+         "--out-dir", str(out), *extra],
+        capture_output=True, text=True)
+    return cp, out
+
+
+def read(path):
+    with path.open() as fh:
+        return list(csv.DictReader(fh, delimiter="\t"))
+
+
+def test_batches_cover_every_phenotype_exactly_once(tmp_path):
+    names = [f"PH_{i:03d}" for i in range(943)]
+    cp, out = run(tmp_path, names, "--batch-size", "95")
+    assert cp.returncode == 0, cp.stderr
+    files = sorted((out / "phenotypes").glob("*.txt"))
+    assert len(files) == 10
+    seen = [ln for f in files for ln in f.read_text().split()]
+    assert seen == names                      # order preserved, nothing lost or repeated
+
+
+def test_rows_differ_only_in_id_phenotypes_and_description(tmp_path):
+    cp, out = run(tmp_path, [f"PH_{i}" for i in range(20)], "--batch-size", "7")
+    assert cp.returncode == 0, cp.stderr
+    rows = read(out / "felix_runs.entity.tsv")
+    assert len(rows) == 3
+    varying = {c for c in rows[0] if len({r[c] for r in rows}) > 1}
+    assert varying == {ID_COL, "selected_phenotypes", "run_description"}
+    template = {r[ID_COL]: r for r in read(TEMPLATE)}["felix.wgs.limited.v1"]
+    for r in rows:
+        for c in r:
+            if c not in varying:
+                assert r[c] == template[c], c
+
+
+def test_phenotype_cells_point_at_the_written_files(tmp_path):
+    cp, out = run(tmp_path, [f"PH_{i}" for i in range(5)], "--batch-size", "2",
+                  "--phenotype-prefix", "felix/ph")
+    assert cp.returncode == 0, cp.stderr
+    for r in read(out / "felix_runs.entity.tsv"):
+        uri = r["selected_phenotypes"]
+        assert uri.startswith(f"{BUCKET}/felix/ph/")
+        assert (out / "phenotypes" / uri.rsplit("/", 1)[1]).is_file()
+
+
+def test_membership_is_two_columns_and_chromosome_ordered(tmp_path):
+    cp, out = run(tmp_path, [f"PH_{i}" for i in range(5)], "--batch-size", "2")
+    assert cp.returncode == 0, cp.stderr
+    lines = (out / "felix_runs.membership.tsv").read_text().rstrip("\n").split("\n")
+    assert lines[0] == "membership:flare_lai_prod_set_id\tflare_lai_prod"
+    body = [ln.split("\t") for ln in lines[1:]]
+    assert all(len(f) == 2 for f in body)
+    assert len(body) == 3 * 22
+    first = [f[1].split(".")[-1] for f in body[:22]]
+    assert first == [f"chr{i}" for i in range(1, 23)]
+
+
+def test_pheno_cov_override_applies_to_every_row(tmp_path):
+    cp, out = run(tmp_path, [f"PH_{i}" for i in range(5)], "--batch-size", "2",
+                  "--pheno-cov", "gs://b/new_pheno_cov.tsv")
+    assert cp.returncode == 0, cp.stderr
+    assert {r["pheno_cov"] for r in read(out / "felix_runs.entity.tsv")} == {
+        "gs://b/new_pheno_cov.tsv"}
+
+
+def test_ragged_last_batch(tmp_path):
+    cp, out = run(tmp_path, [f"PH_{i}" for i in range(10)], "--batch-size", "4")
+    assert cp.returncode == 0, cp.stderr
+    sizes = [len(f.read_text().split()) for f in sorted((out / "phenotypes").glob("*.txt"))]
+    assert sizes == [4, 4, 2]
+
+
+@pytest.mark.parametrize("names,extra,msg", [
+    ([], [], "empty"),
+    (["A", "B", "A"], [], "duplicate"),
+    (["A"], ["--batch-size", "0"], "batch-size"),
+])
+def test_bad_input_is_refused(tmp_path, names, extra, msg):
+    cp, _ = run(tmp_path, names, *extra)
+    assert cp.returncode != 0
+    assert msg in cp.stderr
+
+
+def test_auto_created_row_is_refused(tmp_path):
+    ph = tmp_path / "p.txt"
+    ph.write_text("A\n")
+    cp = subprocess.run(
+        [sys.executable, str(SCRIPT), "--phenotypes", str(ph), "--template", str(TEMPLATE),
+         "--template-row", "PropagateFlareAncestry_2026-10-10T22-08-23",
+         "--bucket", BUCKET, "--out-dir", str(tmp_path / "o")],
+        capture_output=True, text=True)
+    assert cp.returncode != 0
+    assert "not in" in cp.stderr or "no values" in cp.stderr
