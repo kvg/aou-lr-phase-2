@@ -87,11 +87,35 @@ def test_pheno_cov_override_applies_to_every_row(tmp_path):
         "gs://b/new_pheno_cov.tsv"}
 
 
-def test_ragged_last_batch(tmp_path):
+def test_batches_are_balanced_not_sliced(tmp_path):
+    """--batch-size is a ceiling. Slicing at it would leave a batch of two."""
     cp, out = run(tmp_path, [f"PH_{i}" for i in range(10)], "--batch-size", "4")
     assert cp.returncode == 0, cp.stderr
     sizes = [len(f.read_text().split()) for f in sorted((out / "phenotypes").glob("*.txt"))]
-    assert sizes == [4, 4, 2]
+    assert sizes == [4, 3, 3]
+
+
+def test_no_batch_of_one_at_the_real_scale(tmp_path):
+    """951 phenotypes at 95 slices to a final batch of a single phenotype."""
+    cp, out = run(tmp_path, [f"PH_{i:03d}" for i in range(951)], "--batch-size", "95")
+    assert cp.returncode == 0, cp.stderr
+    sizes = [len(f.read_text().split()) for f in sorted((out / "phenotypes").glob("*.txt"))]
+    assert sum(sizes) == 951
+    assert max(sizes) <= 95 and max(sizes) - min(sizes) <= 1, sizes
+    assert sizes == [87] * 5 + [86] * 6, sizes      # 951 = 5*87 + 6*86
+
+
+@pytest.mark.parametrize("n,size", [(1, 95), (95, 95), (96, 95), (943, 95), (951, 95), (650, 95)])
+def test_batching_is_exhaustive_ordered_and_capped(tmp_path, n, size):
+    names = [f"PH_{i:04d}" for i in range(n)]
+    cp, out = run(tmp_path, names, "--batch-size", str(size))
+    assert cp.returncode == 0, cp.stderr
+    files = sorted((out / "phenotypes").glob("*.txt"))
+    seen = [x for f in files for x in f.read_text().split()]
+    assert seen == names
+    sizes = [len(f.read_text().split()) for f in files]
+    assert max(sizes) <= size and min(sizes) >= 1
+    assert len(files) == -(-n // size)
 
 
 @pytest.mark.parametrize("names,extra,msg", [

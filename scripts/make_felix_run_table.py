@@ -37,7 +37,21 @@ def read_entity_tsv(path: Path) -> tuple[list[str], dict[str, dict]]:
 
 
 def batches(names: list[str], size: int) -> list[list[str]]:
-    return [names[i:i + size] for i in range(0, len(names), size)]
+    """Split into the fewest batches of at most `size`, as evenly as possible.
+
+    `size` is a ceiling, not a quota. Slicing at a fixed width leaves whatever
+    is left over in the last batch, and 951 phenotypes at 95 leaves a batch of
+    one -- a whole submission, with its 92 per-run calls, for a single
+    phenotype. Spreading the remainder costs nothing and cannot produce that.
+    """
+    n_batches = math.ceil(len(names) / size)
+    base, extra = divmod(len(names), n_batches)
+    out, start = [], 0
+    for i in range(n_batches):
+        width = base + (1 if i < extra else 0)
+        out.append(names[start:start + width])
+        start += width
+    return out
 
 
 def main(argv=None) -> int:
