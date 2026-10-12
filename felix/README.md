@@ -148,8 +148,10 @@ manual work.
   drops those samples for that phenotype alone.
 
 What does need attention is scale. At 22 chromosomes the call count is
-`943 + 44 + 3 x 22 x P`, which is 802 calls at P = 10 and **67,045 at P = 943** —
-84x, in a single Cromwell workflow.
+`71P + 92`: `66P` step-2 shards across the three arms, `3P` concats, `P` null
+fits, `P` arm comparisons, 88 per-chromosome tasks and 4 collection tasks. That
+is 802 calls at P = 10 and **67,045 at P = 943** — 84x, in a single Cromwell
+workflow.
 
 - **Batch the phenotypes across submissions** rather than submitting one
   943-phenotype run. A batch is a `felix_runs.entity.tsv` row differing only in
