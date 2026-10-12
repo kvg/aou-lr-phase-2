@@ -124,36 +124,54 @@ fi
   cat "${WORKDIR}/parsed.tsv"
 } > "${WORKDIR}/manifest.tsv"
 
-# Progress. One row per task execution (call/shard/attempt); rc present means it
-# finished, stdout without rc means it is still running.
+# Progress, one row per SHARD (attempts collapsed). A shard counts as finished
+# when its highest attempt has an rc; stdout with no rc on that attempt means it
+# is in flight. `expected` is how many shards the task will have in the end,
+# derived from the scatter widths the run itself reveals: FitFelixNull runs once
+# per phenotype and PackFelixla once per chromosome, so the step-2 scatters are
+# their product. That is the difference between "87 done" and "87 of 1,914".
 awk -F'\t' '
-  { key = $3 "\t" $4 "\t" $5
-    if ($2 == "rc") rc[key] = 1
-    else seen[key] = 1
-    call[key] = $3 }
+  { call = $3; shard = $4; attempt = $5 + 0
+    key = call "\t" shard
+    if (attempt > top[key]) top[key] = attempt
+    if ($2 == "rc") rcseen[key "\t" attempt] = 1
+    attempts[key "\t" attempt] = 1
+    name[key] = call }
   END {
-    for (k in call) {
-      c = call[k]
-      shards[c]++
-      if (k in rc) finished[c]++; else running[c]++
+    for (k in name) { c = name[k]; shards[c]++
+      if ((k "\t" top[k]) in rcseen) fin[c]++; else run[c]++ }
+    for (a in attempts) { split(a, f, "\t"); if (f[3] + 0 > 1) retried[f[1]]++ }
+
+    P = shards["Null"] + 0; C = shards["Pack"] + 0
+    for (c in shards) {
+      want = 0
+      if (c == "Step2" || c == "RuStep2" || c == "BaStep2") want = C * P
+      else if (c == "RuLoci" || c == "RuVcf" || c == "BaVcf" || c == "Pack") want = C
+      else if (c == "Null" || c == "Concat" || c == "RuConcat" || c == "BaConcat" || c == "ArmCompare") want = P
+      if (want < shards[c]) want = shards[c]
+      printf "%s\t%d\t%d\t%d\t%d\t%d\n", c, want, shards[c], fin[c] + 0, run[c] + 0, retried[c] + 0
     }
-    for (c in shards)
-      printf "%s\t%d\t%d\t%d\n", c, shards[c], finished[c] + 0, running[c] + 0
   }' "${WORKDIR}/parsed.tsv" | sort > "${WORKDIR}/progress.body"
 
 {
-  printf 'call\texecutions\tfinished\trunning\n'
+  printf 'call\texpected\tstarted\tfinished\trunning\tretried\n'
   cat "${WORKDIR}/progress.body"
 } > "${WORKDIR}/progress.tsv"
 
 echo "" >&2
-printf '%-28s %10s %10s %10s\n' call executions finished running >&2
-awk -F'\t' '{printf "%-28s %10d %10d %10d\n", $1, $2, $3, $4}' "${WORKDIR}/progress.body" >&2
-awk -F'\t' '{e+=$2; f+=$3; r+=$4} END {printf "%-28s %10d %10d %10d\n", "TOTAL", e, f, r}' \
+printf '%-14s %9s %9s %9s %9s %8s %7s\n' call expected started finished running retried pct >&2
+awk -F'\t' '{printf "%-14s %9d %9d %9d %9d %8d %6.1f%%\n", $1, $2, $3, $4, $5, $6, 100*$4/$2}' \
   "${WORKDIR}/progress.body" >&2
-TOTAL_BYTES="$(awk -F'\t' '{s+=$7} END {print s+0}' "${WORKDIR}/parsed.tsv")"
+awk -F'\t' '{e+=$2; s+=$3; f+=$4; r+=$5; t+=$6}
+  END {printf "%-14s %9d %9d %9d %9d %8d %6.1f%%\n", "TOTAL", e, s, f, r, t, 100*f/e}' \
+  "${WORKDIR}/progress.body" >&2
+
+# printf, not print: awk renders a 28 GB total as 2.8e+10 and bash arithmetic
+# then refuses it.
+TOTAL_BYTES="$(awk -F'\t' '{s+=$7} END {printf "%.0f\n", s+0}' "${WORKDIR}/parsed.tsv")"
+TOTAL_MIB="$(awk -F'\t' '{s+=$7} END {printf "%.0f\n", s/1048576}' "${WORKDIR}/parsed.tsv")"
 echo "" >&2
-echo "$(wc -l < "${WORKDIR}/parsed.tsv" | tr -d ' ') objects, $((TOTAL_BYTES / 1024 / 1024)) MiB of logs." >&2
+echo "$(wc -l < "${WORKDIR}/parsed.tsv" | tr -d ' ') objects, ${TOTAL_MIB} MiB of logs." >&2
 
 if [[ "${PROGRESS_ONLY}" -eq 1 ]]; then
   echo "--progress-only: nothing downloaded." >&2
