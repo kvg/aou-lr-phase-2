@@ -150,14 +150,15 @@ manual work.
 What does need attention is scale. At 22 chromosomes the call count is
 `71P + 92`: `66P` step-2 shards across the three arms, `3P` concats, `P` null
 fits, `P` arm comparisons, 88 per-chromosome tasks and 4 collection tasks. That
-is 802 calls at P = 10 and **67,045 at P = 943** — 84x, in a single Cromwell
-workflow.
+is 802 calls at P = 10 and **46,242 at P = 650**, the list `--min-cases 100`
+actually yields — 58x, in a single Cromwell workflow.
 
 - **Batch the phenotypes across submissions** rather than submitting one
-  943-phenotype run. A batch is a `felix_runs.entity.tsv` row differing only in
+  single run over the whole list. A batch is a `felix_runs.entity.tsv` row
+  differing only in
   `selected_phenotypes`; the GRM and all 22 packs call-cache across batches, so
   batching costs nothing but gains a workflow that can be watched, diagnosed and
-  restarted. Ten batches of ~95 phenotypes is ~7,000 calls each.
+  restarted. Seven batches of ~95 phenotypes is ~6,800 calls each.
 - **`SummarizeFelixResults` is the task to size.** It localizes every
   per-phenotype merged TSV *and* copies each into `results_by_phenotype/`, so
   its disk is twice the whole scan — which is why `disk_gb_multiplier` is 2.0.
@@ -166,8 +167,8 @@ workflow.
   restarts a localization measured in hundreds of gigabytes. Measure one
   phenotype's genome-wide TSV from the first run before choosing a batch size.
 - **The significance threshold is per test.** `summarize_p_threshold` is 5e-8
-  with no correction for the number of phenotypes; at 943 phecodes decide
-  whether the headline threshold should be 5e-8/943 and set the column
+  with no correction for the number of phenotypes; at 650 phecodes decide
+  whether the headline threshold should be 5e-8/650 and set the column
   accordingly.
 
 Resolve FLARE URIs:

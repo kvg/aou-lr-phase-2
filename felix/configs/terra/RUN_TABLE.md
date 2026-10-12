@@ -107,6 +107,10 @@ per batch. `fit_felix_null.R` reads only the phenotype column it is given and
 `summarize_felix_results.py` reads `pheno_cov` with `usecols`, so the extra
 columns cost a batch nothing. Batches differ only in `selected_phenotypes`.
 
+Run on 2026-10-12: 650 phenotypes, 58 of them sex-restricted from the
+definitions table and none from the case sex ratio; `analysis_samples.txt`
+md5 `1f389dd96aa9f709cfe4845f0e5c3eae`, identical to the pilot's.
+
 ### 1. Regenerate the phenotype table
 
 In `notebooks/terra/tractor_01_prepare_inputs.ipynb`, change the selection cell
@@ -130,7 +134,8 @@ table first.
 
 **Then check `analysis_samples.txt` is unchanged.** `select_phenotypes.py`
 derives the analysis cohort from covariate completeness *before* it selects
-phenotypes, so going from 10 phecodes to 943 should leave it byte-identical:
+phenotypes, so going from 10 phecodes to the full list should leave it
+byte-identical:
 
 ```bash
 gsutil cat gs://BUCKET/tractor_mix_pilot/analysis_samples.txt | md5sum
@@ -148,16 +153,17 @@ python3 scripts/make_felix_run_table.py \
   --phenotypes <new out-dir>/selected_phenotypes.txt \
   --template felix/configs/terra/felix_runs.entity.tsv \
   --template-row felix.wgs.limited.v1 \
-  --row-prefix felix.wgs943.limited \
+  --row-prefix felix.wgs650.limited \
   --batch-size 95 \
   --bucket gs://BUCKET \
-  --phenotype-prefix felix/phenotypes/wgs943 \
-  --pheno-cov gs://BUCKET/felix/phenotypes/wgs943/pheno_cov.tsv \
-  --out-dir felix/configs/terra/wgs943
+  --phenotype-prefix felix/phenotypes/wgs650 \
+  --pheno-cov gs://BUCKET/felix/phenotypes/wgs650/pheno_cov.tsv \
+  --out-dir felix/configs/terra/wgs650
 ```
 
-943 phenotypes at `--batch-size 95` gives 10 rows of ~6,800 calls each instead
-of one workflow of 67,045. Rows differ from the template only in the id,
+The realised list is 650 phenotypes (`--min-cases 100` on 9,775 participants),
+which at `--batch-size 95` gives 7 rows of ~6,800 calls each instead of one
+workflow of 46,242. Rows differ from the template only in the id,
 `selected_phenotypes` and `run_description` — asserted in
 `scripts/test_make_felix_run_table.py`. Run it again with
 `--template-row felix.wgs.full.v1` for the full-covariate arm.
