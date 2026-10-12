@@ -13,6 +13,9 @@ SCRIPT = ROOT / "scripts" / "make_felix_run_table.py"
 TEMPLATE = ROOT / "felix" / "configs" / "terra" / "felix_runs.entity.tsv"
 ID_COL = "entity:flare_lai_prod_set_id"
 BUCKET = "gs://fc-secure-test"
+# Read the row to clone from the shipped table rather than naming one, so
+# retiring a configuration does not break every test here.
+TEMPLATE_ROW = TEMPLATE.read_text().splitlines()[1].split("\t")[0]
 
 
 def run(tmp_path, names, *extra, phenotypes=None):
@@ -22,7 +25,7 @@ def run(tmp_path, names, *extra, phenotypes=None):
     out = tmp_path / "out"
     cp = subprocess.run(
         [sys.executable, str(SCRIPT), "--phenotypes", str(ph), "--template", str(TEMPLATE),
-         "--template-row", "felix.wgs.limited.v1", "--bucket", BUCKET,
+         "--template-row", TEMPLATE_ROW, "--bucket", BUCKET,
          "--out-dir", str(out), *extra],
         capture_output=True, text=True)
     return cp, out
@@ -50,7 +53,7 @@ def test_rows_differ_only_in_id_phenotypes_and_description(tmp_path):
     assert len(rows) == 3
     varying = {c for c in rows[0] if len({r[c] for r in rows}) > 1}
     assert varying == {ID_COL, "selected_phenotypes", "run_description"}
-    template = {r[ID_COL]: r for r in read(TEMPLATE)}["felix.wgs.limited.v1"]
+    template = {r[ID_COL]: r for r in read(TEMPLATE)}[TEMPLATE_ROW]
     for r in rows:
         for c in r:
             if c not in varying:
@@ -134,6 +137,8 @@ def test_auto_created_row_is_refused(tmp_path):
     ph.write_text("A\n")
     cp = subprocess.run(
         [sys.executable, str(SCRIPT), "--phenotypes", str(ph), "--template", str(TEMPLATE),
+         # a row Terra auto-creates from a submission: absent from the
+         # shipped table, and valueless even when present
          "--template-row", "PropagateFlareAncestry_2026-10-10T22-08-23",
          "--bucket", BUCKET, "--out-dir", str(tmp_path / "o")],
         capture_output=True, text=True)
