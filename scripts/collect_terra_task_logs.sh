@@ -22,6 +22,7 @@
 #   ./scripts/collect_terra_task_logs.sh --progress-only gs://...   # listing only, no download
 #   ./scripts/collect_terra_task_logs.sh --tail-bytes 20000 gs://.. # last 20 kB of each log
 #   ./scripts/collect_terra_task_logs.sh --calls RuLoci,RuStep2 gs://...
+#   ./scripts/collect_terra_task_logs.sh --kinds rc gs://...  # exit codes only
 #   OUT=felix_logs JOBS=24 ./scripts/collect_terra_task_logs.sh gs://...
 #
 # Set GOOGLE_PROJECT to bill a requester-pays bucket (adds gsutil -u).
@@ -36,6 +37,7 @@ JOBS="${JOBS:-16}"
 WORKFLOW_NAME="${WORKFLOW_NAME:-FelixGenome}"
 TAIL_BYTES=0
 CALLS=""
+KINDS=""
 PROGRESS_ONLY=0
 WARN_BYTES=$((2 * 1024 * 1024 * 1024))   # warn past 2 GiB of logs
 
@@ -46,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     -p|--progress-only) PROGRESS_ONLY=1 ;;
     -t|--tail-bytes) TAIL_BYTES="$2"; shift ;;
     -c|--calls) CALLS="$2"; shift ;;
+    -k|--kinds) KINDS="$2"; shift ;;
     -j|--jobs) JOBS="$2"; shift ;;
     -o|--out) OUT="$2"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -130,6 +133,22 @@ fi
   printf 'relpath\tkind\tcall\tshard\tattempt\tsubworkflow\tsize_bytes\tgs_uri\texec_dir\n'
   cat "${WORKDIR}/parsed.tsv"
 } > "${WORKDIR}/manifest.tsv"
+
+# Progress is computed from every kind, because rc-vs-stdout is what separates
+# finished from running. --kinds only narrows what gets DOWNLOADED: `--kinds rc`
+# fetches two bytes per execution instead of gigabytes of logs, which is all a
+# failure census needs.
+cp "${WORKDIR}/parsed.tsv" "${WORKDIR}/fetch.tsv"
+if [[ -n "${KINDS}" ]]; then
+  awk -F'\t' -v want="${KINDS}" '
+    BEGIN { n = split(want, a, ","); for (i = 1; i <= n; i++) keep[a[i]] = 1 }
+    keep[$2]' "${WORKDIR}/parsed.tsv" > "${WORKDIR}/fetch.filtered.tsv"
+  mv "${WORKDIR}/fetch.filtered.tsv" "${WORKDIR}/fetch.tsv"
+  if [[ ! -s "${WORKDIR}/fetch.tsv" ]]; then
+    echo "No objects of kind: ${KINDS} (expected stdout, stderr or rc)" >&2
+    exit 1
+  fi
+fi
 
 # Progress, one row per SHARD (attempts collapsed). A shard counts as finished
 # when its highest attempt has an rc; stdout with no rc on that attempt means it
@@ -224,11 +243,11 @@ export -f fetch_one
 
 # -n2 (not -I) so relpath and URI arrive as two separate arguments; neither
 # Cromwell paths nor gs:// URIs contain whitespace.
-cut -f1,8 "${WORKDIR}/parsed.tsv" | tr '\t' '\n' \
+cut -f1,8 "${WORKDIR}/fetch.tsv" | tr '\t' '\n' \
   | xargs -P "${JOBS}" -n2 bash -c 'fetch_one "$1" "$2"' _
 
 GOT="$(find "${STAGE}" -type f \( -name stdout -o -name stderr -o -name rc \) | wc -l | tr -d ' ')"
-N="$(wc -l < "${WORKDIR}/parsed.tsv" | tr -d ' ')"
+N="$(wc -l < "${WORKDIR}/fetch.tsv" | tr -d ' ')"
 echo "Downloaded ${GOT}/${N} objects." >&2
 
 # Non-zero exit codes, read from the rc files just fetched.
