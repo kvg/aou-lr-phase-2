@@ -82,15 +82,32 @@ NPHENO="$(awk 'NF' "${PHENO_FILE}" | wc -l | tr -d ' ')"
 echo "${NPHENO} phenotypes; arm ${ARM} (call-${CALL}/${FNAME})" >&2
 
 echo "Listing ${FNAME} under call-${CALL} ..." >&2
+# A recursive listing rather than a `**/${FNAME}` glob: cache-hit calls and
+# retries put the file at depths the glob has to guess at, and gsutil's `**`
+# semantics differ between versions. `ls -r` emits directory headers and blank
+# lines too, which the filename anchor below drops.
+#
 # Filter on the call segment as well as the filename: RuStep2 and BaStep2 write
 # the same results.ru.felix.tsv, so a listing that came back wider than asked
 # for would silently merge both arms together.
-gs ls "${RUN_ROOT}/call-${CALL}/**/${FNAME}" 2>/dev/null \
+gs ls -r "${RUN_ROOT}/call-${CALL}/" 2>"${OUT}/ls.err" \
   | awk -v fn="${FNAME}" -v call="/call-${CALL}/" '$0 ~ fn "$" && index($0, call)' \
   | sort > "${OUT}/shards.txt" || true
 
 if [[ ! -s "${OUT}/shards.txt" ]]; then
   echo "No ${FNAME} objects under ${RUN_ROOT}/call-${CALL}/" >&2
+  # Say WHY. An empty match, a permissions failure and a wrong path all look
+  # identical once stderr is discarded, which is what the first version did.
+  if [[ -s "${OUT}/ls.err" ]]; then
+    echo "  gsutil stderr:" >&2
+    sed 's/^/    /' "${OUT}/ls.err" >&2
+  fi
+  echo "  first objects that DO exist under call-${CALL}/ :" >&2
+  gs ls -r "${RUN_ROOT}/call-${CALL}/" 2>&1 | grep -v '^$' | head -8 \
+    | sed 's/^/    /' >&2
+  echo "  (if those paths hold ${FNAME} under a name or depth not matched" >&2
+  echo "   above, report them; if they are only rc/stdout/stderr then the" >&2
+  echo "   task has started but written no results yet)" >&2
   exit 1
 fi
 
