@@ -44,6 +44,7 @@ ARM="main"
 OUT=""
 MIN_CHROMS=22
 COVERAGE_ONLY=0
+LISTING_DIR=""
 
 usage() { sed -n '2,31p' "$0" | sed 's/^# \?//'; }
 
@@ -62,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     -o|--out) OUT="$2"; shift ;;
     -m|--min-chroms) MIN_CHROMS="$2"; shift ;;
     --coverage-only) COVERAGE_ONLY=1 ;;
+    -l|--listing-dir) LISTING_DIR="${2%/}"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -95,48 +97,62 @@ fi
 NPHENO="$(awk 'NF' "${PHENO_FILE}" | wc -l | tr -d ' ')"
 echo "${NPHENO} phenotypes; arm ${ARM} (call-${CALL}/${FNAME})" >&2
 
-echo "Listing ${FNAME} under call-${CALL} in ${#ROOTS[@]} run root(s) ..." >&2
-# A recursive listing rather than a `**/${FNAME}` glob: cache-hit calls and
-# retries put the file at depths the glob has to guess at, and gsutil's `**`
-# semantics differ between versions. `ls -r` emits directory headers and blank
-# lines too, which the filename anchor below drops.
+echo "Listing ${FNAME} for ${CALL} in ${#ROOTS[@]} run root(s) ..." >&2
+# List from the WORKFLOW ROOT, not from ${ROOT}/call-${CALL}/.
 #
-# Filter on the call segment as well as the filename: RuStep2 and BaStep2 write
-# the same results.ru.felix.tsv, so a listing that came back wider than asked
-# for would silently merge both arms together.
+# Cromwell does not always put a call at the top level. An inner scatter can be
+# compiled to an anonymous node, and then its calls live under
+# call-ScatterAt<line>_<col>/shard-<outer>/call-<Name>/shard-<inner>/. In
+# FelixGenome exactly the three per-phenotype step-2 scatters land that way --
+# Step2, RuStep2 and BaStep2 -- while Pack, RuLoci, RuVcf and BaVcf stay at the
+# top level. Listing ${ROOT}/call-${CALL}/ therefore matched nothing at all for
+# precisely the three tasks this script reads.
 #
-# Each line is tagged `rank<TAB>relpath<TAB>uri`. The relpath is what makes a
-# shard comparable across roots; the rank breaks ties in favour of the root
-# given last.
+# The call segment is matched as (call-)?<Name>/ anchored on a slash, so
+# /RuStep2/ cannot satisfy a request for Step2, and RuStep2 and BaStep2 stay
+# apart even though both write results.ru.felix.tsv.
+#
+# A full recursive listing is reused across arms when --listing-dir is given:
+# one listing per root instead of one per root per arm.
 : > "${OUT}/shards.txt"
 RANK=0
 for ROOT in "${ROOTS[@]}"; do
   RANK=$((RANK + 1))
-  : > "${OUT}/ls.err"
-  gs ls -r "${ROOT}/call-${CALL}/" 2>"${OUT}/ls.err" \
-    | awk -F'\n' -v fn="${FNAME}" -v call="/call-${CALL}/" -v r="${RANK}" -v root="${ROOT}/" \
-        '$0 ~ fn "$" && index($0, call) { rel = $0; sub("^" root, "", rel); print r "\t" rel "\t" $0 }' \
-    >> "${OUT}/shards.txt" || true
-  N_THIS="$(awk -F'\t' -v r="${RANK}" '$1 == r' "${OUT}/shards.txt" | wc -l | tr -d ' ')"
-  echo "  ${ROOT}" >&2
-  echo "    ${N_THIS} ${FNAME} objects under call-${CALL}/" >&2
-  if [[ "${N_THIS}" -eq 0 && -s "${OUT}/ls.err" ]]; then
-    sed 's/^/      /' "${OUT}/ls.err" >&2
+  KEY="$(printf '%s' "${ROOT}" | shasum | cut -c1-12)"
+  CACHE="${LISTING_DIR:-${OUT}}/listing-${KEY}.txt"
+  mkdir -p "$(dirname "${CACHE}")"
+  if [[ -s "${CACHE}" ]]; then
+    echo "  ${ROOT}" >&2
+    echo "    reusing $(wc -l < "${CACHE}" | tr -d ' ') listed objects from ${CACHE}" >&2
+  else
+    : > "${OUT}/ls.err"
+    gs ls -r "${ROOT}/" 2>"${OUT}/ls.err" > "${CACHE}.part" || true
+    mv "${CACHE}.part" "${CACHE}"
+    echo "  ${ROOT}" >&2
+    echo "    listed $(wc -l < "${CACHE}" | tr -d ' ') objects" >&2
+    if [[ ! -s "${CACHE}" && -s "${OUT}/ls.err" ]]; then
+      sed 's/^/      /' "${OUT}/ls.err" >&2
+    fi
   fi
+  awk -v fn="${FNAME}" -v call="${CALL}" -v r="${RANK}" -v root="${ROOT}/" '
+    $0 ~ fn "$" && $0 ~ ("/(call-)?" call "/") {
+      rel = $0; sub("^" root, "", rel); print r "\t" rel "\t" $0 }' "${CACHE}" \
+    >> "${OUT}/shards.txt" || true
+  echo "    $(awk -F'\t' -v r="${RANK}" '$1 == r' "${OUT}/shards.txt" | wc -l | tr -d ' ') ${FNAME} objects for ${CALL}" >&2
 done
 sort -o "${OUT}/shards.txt" "${OUT}/shards.txt"
 
 if [[ ! -s "${OUT}/shards.txt" ]]; then
-  echo "No ${FNAME} objects under call-${CALL}/ in any run root given." >&2
-  # Say WHY. An empty match, a permissions failure and a wrong path all look
-  # identical once stderr is discarded, which is what the first version did.
+  echo "No ${FNAME} objects for ${CALL} in any run root given." >&2
   for ROOT in "${ROOTS[@]}"; do
-    echo "  first objects that DO exist under ${ROOT}/call-${CALL}/ :" >&2
-    gs ls -r "${ROOT}/call-${CALL}/" 2>&1 | grep -v '^$' | head -5 | sed 's/^/    /' >&2
+    KEY="$(printf '%s' "${ROOT}" | shasum | cut -c1-12)"
+    CACHE="${LISTING_DIR:-${OUT}}/listing-${KEY}.txt"
+    echo "  call directories present under ${ROOT}:" >&2
+    sed "s|^${ROOT}/||" "${CACHE}" 2>/dev/null \
+      | grep -o '^call-[^/]*' | sort -u | head -20 | sed 's/^/    /' >&2
   done
-  echo "  A resubmission that call-cached a task may not re-create that task's" >&2
-  echo "  directory at all. Pass the run that EXECUTED the shards as well:" >&2
-  echo "    --run <original-run-root> --run <rescue-run-root>" >&2
+  echo "  (if ${CALL} is not listed, the run has not reached it; the scan looks" >&2
+  echo "   at any depth, so a nested ScatterAt node is already handled)" >&2
   exit 1
 fi
 
