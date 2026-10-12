@@ -115,3 +115,23 @@ def test_auto_created_row_is_refused(tmp_path):
         capture_output=True, text=True)
     assert cp.returncode != 0
     assert "not in" in cp.stderr or "no values" in cp.stderr
+
+
+def test_set_overrides_any_column(tmp_path):
+    cp, out = run(tmp_path, [f"PH_{i}" for i in range(5)], "--batch-size", "2",
+                  "--set", "min_mac=20",
+                  "--set", "covariate_columns=gs://b/covariate_columns_full.txt")
+    assert cp.returncode == 0, cp.stderr
+    rows = read(out / "felix_runs.entity.tsv")
+    assert {r["min_mac"] for r in rows} == {"20"}
+    assert {r["covariate_columns"] for r in rows} == {"gs://b/covariate_columns_full.txt"}
+
+
+@pytest.mark.parametrize("bad,msg", [
+    ("not_a_column=1", "not a column"),
+    ("min_mac", "COLUMN=VALUE"),
+    ("entity:flare_lai_prod_set_id=x", "cannot change"),
+])
+def test_bad_set_is_refused(tmp_path, bad, msg):
+    cp, _ = run(tmp_path, ["A", "B"], "--batch-size", "1", "--set", bad)
+    assert cp.returncode != 0 and msg in cp.stderr

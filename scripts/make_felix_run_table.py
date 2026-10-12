@@ -60,7 +60,11 @@ def main(argv=None) -> int:
                     help="path under the bucket for the phenotype files [default: %(default)s]")
     ap.add_argument("--pheno-cov", default=None,
                     help="override the template's pheno_cov cell (the new table with every "
-                         "phecode column)")
+                         "phecode column); shorthand for --set pheno_cov=...")
+    ap.add_argument("--set", dest="overrides", action="append", default=[],
+                    metavar="COLUMN=VALUE",
+                    help="override any column on every generated row, repeatable. The "
+                         "column must already exist in the template.")
     ap.add_argument("--out-dir", type=Path, required=True)
     args = ap.parse_args(argv)
 
@@ -82,6 +86,20 @@ def main(argv=None) -> int:
         raise SystemExit(f"row {args.template_row!r} has no values — it is probably one of "
                          "the rows Terra auto-creates from a submission")
 
+    overrides: dict[str, str] = {}
+    for item in args.overrides:
+        if "=" not in item:
+            raise SystemExit(f"--set expects COLUMN=VALUE, got {item!r}")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if key not in cols:
+            raise SystemExit(f"--set {key}: not a column in {args.template}; have {cols}")
+        if key == ID_COL:
+            raise SystemExit(f"--set cannot change {ID_COL}; use --row-prefix")
+        overrides[key] = value
+    if args.pheno_cov:
+        overrides.setdefault("pheno_cov", args.pheno_cov)
+
     prefix = args.row_prefix or args.template_row
     bucket = args.bucket.rstrip("/")
     pheno_dir = args.phenotype_prefix.strip("/")
@@ -99,8 +117,7 @@ def main(argv=None) -> int:
         row = dict(template)
         row[ID_COL] = rid
         row["selected_phenotypes"] = f"{bucket}/{pheno_dir}/{fname}"
-        if args.pheno_cov:
-            row["pheno_cov"] = args.pheno_cov
+        row.update(overrides)
         if "run_description" in row:
             row["run_description"] = (
                 f"Batch {i} of {len(groups)} from {args.template_row}: "

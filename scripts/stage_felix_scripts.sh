@@ -42,6 +42,28 @@ for name in "${REQUIRED[@]}"; do
   gsutil cp "${src}" "${DEST}/${name}"
 done
 
+# Run-table configuration. felix_03_run_table.ipynb clones a row from the
+# entity TSV, so the VM needs a copy; the inputs JSON goes up beside it so the
+# method config can be re-uploaded from the bucket after a column change.
+CONFIG_SRC="${REPO_ROOT}/felix/configs/terra"
+CONFIG_DEST="${BUCKET}/felix/configs"
+CONFIGS=(
+  felix_runs.entity.tsv
+  felix_runs.membership.tsv
+  FelixGenomeTable.inputs.json
+)
+
+echo ""
+echo "Uploading run-table configuration to ${CONFIG_DEST}/"
+for name in "${CONFIGS[@]}"; do
+  src="${CONFIG_SRC}/${name}"
+  if [[ ! -f "${src}" ]]; then
+    echo "Missing required config: ${src}" >&2
+    exit 1
+  fi
+  gsutil cp "${src}" "${CONFIG_DEST}/${name}"
+done
+
 echo ""
 echo "Verified objects:"
 gsutil ls -l "${DEST}/fit_felix_null.R" "${DEST}/run_felix_step2.R" "${DEST}/summarize_felix_results.py"
