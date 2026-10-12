@@ -1,5 +1,5 @@
 {
-  "_comment": "FelixGenome genome-wide, LIMITED covariates, rooted on the flare_lai_prod_set entity 'aou_lr_phase2_v1.autosomes' so every per-chromosome array is read from the 22 member rows in membership order (chr1..chr22, set by flare/configs/lai_prod_set.membership.tsv). chroms, phase_vcfs, flare_vcfs and joint_vcfs all come from the same member list, so index i is the same chromosome in each. phase_vcfs/flare_vcfs feed felixla Pack; joint_vcfs (the PropagateFlareAncestry annotated VCFs) is read only by the repeat branch. Same cohort, GRM VCFs, kinship and MAC as the chr22 pilot, so MakeGRM and the null fits call-cache. joint_vcfs reads the flare_lai_prod column annotated_vcf, confirmed present and chromosome-matched on all 22 rows. Outputs are written back onto the set row.",
+  "_comment": "FelixGenome genome-wide, LIMITED covariates, rooted on the flare_lai_prod_set entity 'aou_lr_phase2_v1.autosomes' so every per-chromosome array is read from the 22 member rows in membership order (chr1..chr22, set by flare/configs/lai_prod_set.membership.tsv). chroms, phase_vcfs, flare_vcfs and joint_vcfs all come from the same member list, so index i is the same chromosome in each. phase_vcfs/flare_vcfs feed felixla Pack; joint_vcfs (the PropagateFlareAncestry annotated VCFs) is read only by the repeat branch. Same cohort, GRM VCFs, kinship and MAC as the chr22 pilot, so MakeGRM and the null fits call-cache. joint_vcfs reads the flare_lai_prod column annotated_vcf, confirmed present and chromosome-matched on all 22 rows. Outputs are written back onto the set row. summarize_p_threshold is written as a plain decimal because Terra's input editor rejects scientific notation for a Float; 0.00000005 is 5e-8.",
   "FelixGenome.chroms": "${this.flare_lai_prods.chrom}",
   "FelixGenome.phase_vcfs": "${this.flare_lai_prods.gt_vcf}",
   "FelixGenome.flare_vcfs": "${this.flare_lai_prods.anc_vcf}",
@@ -27,7 +27,7 @@
   "FelixGenome.ru_biallelic_arm": "${true}",
   "FelixGenome.compare_ru_arms_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/compare_ru_arms.py",
   "FelixGenome.num_random_markers": "${2000}",
-  "FelixGenome.summarize_p_threshold": "${5e-08}",
+  "FelixGenome.summarize_p_threshold": "${0.00000005}",
   "FelixGenome.summarize_top_n": "${50}",
   "FelixGenome.pack_memory_gb": "${64}"
 }
