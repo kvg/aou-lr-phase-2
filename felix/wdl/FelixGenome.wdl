@@ -81,6 +81,7 @@ task CheckChromVcfPairs {
     memory: "1 GB"
     disks: "local-disk 10 HDD"
     preemptible: 3
+    maxRetries: 2
   }
 }
 
@@ -135,6 +136,7 @@ task BuildSaigePlinkAndSparseGRM {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -181,6 +183,7 @@ task CheckNullArrays {
     memory: "2 GB"
     disks: "local-disk 10 HDD"
     preemptible: 1
+    maxRetries: 2
   }
 }
 
@@ -260,6 +263,7 @@ task FitFelixNull {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -339,6 +343,7 @@ task PackFelixla {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -406,6 +411,7 @@ task RunFelixStep2 {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -502,6 +508,7 @@ EOF
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -583,6 +590,7 @@ EOF
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -628,6 +636,7 @@ task AnnotateRuTest {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -707,6 +716,7 @@ PY
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -786,6 +796,7 @@ task ScoreRuDosage {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -867,6 +878,7 @@ task AggregateRepeatLoci {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -930,6 +942,7 @@ task WriteRuAdmixedVcf {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -1006,6 +1019,7 @@ task RunFelixStep2RuVcf {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -1060,6 +1074,7 @@ task CompareRuArms {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
@@ -1141,6 +1156,7 @@ CHROM_EOF
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    maxRetries: 2
   }
 }
 
