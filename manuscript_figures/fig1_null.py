@@ -945,16 +945,16 @@ def _panel_center(
     phase1_n: int | None = None,
     phase1_center: str = "HA",
     normalize: bool = True,
-    show_totals: bool = True,
+    show_totals: bool = False,
 ) -> None:
     """Sequencing centre by data type.
 
     ``normalize`` scales every centre to 100% of its own output, so the panel
     reads as which kind of data a centre generated rather than how much, and
-    no centre's bar is 25 times another's. ``show_totals`` then carries the
-    group size in the tick label ("Broad (9,910)"), since centre is a
-    null-model covariate and its group sizes should stay legible; set it
-    False to drop them. ``normalize=False`` restores the count bars.
+    no centre's bar is 25 times another's. ``show_totals=True`` puts the group
+    size back in the tick label ("Broad (9,910)"); it is off by default so the
+    panel carries no per-centre volume at all, and the counts belong in the
+    caption instead. ``normalize=False`` restores the count bars.
     """
     counts = {code: 0 for code, _name in _CENTERS}
     for row in rows:
