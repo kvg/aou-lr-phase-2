@@ -12,6 +12,7 @@ Handles FELIX admixed columns including:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 from pathlib import Path
@@ -58,8 +59,37 @@ except ImportError:
                     hi = mid
             return 0.5 * (lo + hi)
 
-        x = 2.0 * (np.array([erfcinv_one(float(v)) for v in p]) ** 2)
-        return float(np.median(x) / 0.4549364)
+        # chi2_1 = 2 * erfcinv(p)^2 is monotone DECREASING in p, so the median
+        # of the chi-square values is the transform of the median p-value.
+        # Only the one or two middle p-values need the scalar inverse, not all
+        # n of them: the old loop took 49 s on 4M p-values and would have been
+        # minutes per phenotype on the per-record arm, called twice.
+        n = p.size
+        if n == 0:
+            return float("nan")
+        mids = [p[n // 2]] if n % 2 else [p[n // 2 - 1], p[n // 2]]
+        x = [2.0 * (erfcinv_one(float(v)) ** 2) for v in mids]
+        return float(np.mean(x) / 0.4549364)
+
+    # Genome-wide scatters of tens of millions of points are an opaque block
+    # below the interesting range and are what drives this task's resident
+    # memory (matplotlib's own allocation, not the dataframe). Keep every
+    # point that could matter and thin the rest; lambda and the counts are
+    # always computed on the full set, never on the thinned one.
+    PLOT_MAX_POINTS = int(os.environ.get("FELIX_PLOT_MAX_POINTS", "300000"))
+    PLOT_KEEP_BELOW_P = 1e-3
+
+    def thin_for_plot(keep_all: np.ndarray, n: int) -> np.ndarray:
+        """Boolean mask: everything in keep_all, plus a stride sample of the rest."""
+        if n <= PLOT_MAX_POINTS:
+            return np.ones(n, dtype=bool)
+        mask = np.asarray(keep_all, dtype=bool).copy()
+        budget = PLOT_MAX_POINTS - int(mask.sum())
+        rest = np.flatnonzero(~mask)
+        if budget > 0 and rest.size:
+            step = max(1, rest.size // budget)
+            mask[rest[::step][:budget]] = True
+        return mask
 
     def qq_plot(pvals: np.ndarray, title: str, out_png: Path) -> float:
         p = np.sort(pvals[np.isfinite(pvals) & (pvals > 0) & (pvals <= 1)])
@@ -71,7 +101,11 @@ except ImportError:
             n = p.size
             exp = -np.log10(np.arange(1, n + 1) / (n + 1))
             obs = -np.log10(p)
-            ax.scatter(exp, obs, s=4, alpha=0.45, c="#1f4e79", rasterized=True)
+            # exp/obs are computed on the FULL sorted vector so the quantiles
+            # are right; only the plotted pairs are thinned.
+            keep = thin_for_plot(p < PLOT_KEEP_BELOW_P, n)
+            ax.scatter(exp[keep], obs[keep], s=4, alpha=0.45, c="#1f4e79",
+                       rasterized=True)
             m = max(float(np.nanmax(exp)), float(np.nanmax(obs)))
             ax.plot([0, m], [0, m], ls="--", c="gray", lw=1)
             ax.set_title(f"{title}\nλGC≈{lam:.3f}  n={n:,}")
@@ -92,6 +126,10 @@ except ImportError:
             d["POS"] = pd.to_numeric(d["POS"], errors="coerce")
             d["nlp"] = -np.log10(d[pcol].astype(float))
             d = d.dropna(subset=["POS", "nlp"])
+            keep = thin_for_plot(
+                d[pcol].to_numpy(dtype=float) < PLOT_KEEP_BELOW_P, len(d)
+            )
+            d = d.loc[keep]
             chroms = sorted(d[chrom_col].astype(str).unique(), key=chrom_sort_key)
             offset = 0.0
             ticks = []
@@ -170,34 +208,76 @@ def summarize_one(
     ph_dir.mkdir(parents=True, exist_ok=True)
 
     named_path = named_dir / f"{safe}.felix.tsv"
-    shutil.copy2(path, named_path)
+    # Hardlink rather than copy. These are up to ~27 GB each on the per-record
+    # arm and the same bytes are already a workflow output (results_tsvs), so
+    # copying doubled the task's disk for no new content. Falls back to a copy
+    # across filesystems.
+    if named_path.exists() or named_path.is_symlink():
+        named_path.unlink()
+    try:
+        os.link(path, named_path)
+    except OSError:
+        shutil.copy2(path, named_path)
 
-    df = pd.read_csv(path, sep="\t", low_memory=False)
-    pcol = pick_joint_p_column(df)
-    n_var = len(df)
-    n_joint = int(df[pcol].notna().sum()) if pcol else 0
+    # Column names from the header alone, then read only what each step needs.
+    # This used to be a single pd.read_csv of the whole file, which is fine for
+    # the repeat arms (~1 GB per phenotype) and fatal for the per-record arm
+    # (~27 GB per phenotype against memory_gb = 16).
+    head = pd.read_csv(path, sep="\t", nrows=0)
+    pcol = pick_joint_p_column(head)
+    chrom_col = "CHR" if "CHR" in head.columns else "CHROM"
+    beta_cols = [c for c in head.columns if re.match(r"BETA_c_anc\d+$", c)]
 
+    n_var = 0
+    n_joint = 0
     lam_cct = float("nan")
     n_gw_sig = 0
-    if pcol:
-        lam_cct = qq_plot(
-            df[pcol].to_numpy(dtype=float),
-            f"{safe} {pcol}",
-            ph_dir / "qq_cct.png",
-        )
-        manhattan_genome(df, pcol, f"{safe} {pcol}", ph_dir / "manhattan_cct.png")
-        n_gw_sig = int(
-            (
-                df[pcol].notna()
-                & (pd.to_numeric(df[pcol], errors="coerce") < p_threshold)
-            ).sum()
-        )
 
-    beta_cols = [c for c in df.columns if re.match(r"BETA_c_anc\d+$", c)]
-    top = df.copy()
     if pcol:
-        top = top.sort_values(pcol, na_position="last")
-    top_hits = top.head(top_n)
+        # qq_plot needs the p-values; manhattan_genome needs chromosome,
+        # position and the p-value. Nothing else is read over the full file.
+        use = [c for c in (chrom_col, "POS", pcol) if c in head.columns]
+        # No low_memory=False here. With usecols it is actively harmful: it
+        # makes the C parser buffer the WHOLE file before dropping unwanted
+        # columns, which is where this task's memory actually went -- 3.25 GB
+        # to read three columns out of a 1.55 GB file, against 0.26 GB with
+        # per-block parsing and declared dtypes. That is the difference
+        # between surviving the per-record arm and not.
+        dt = {}
+        if chrom_col in use:
+            dt[chrom_col] = "category"
+        dt[pcol] = "float64"
+        light = pd.read_csv(path, sep="\t", usecols=use, dtype=dt)
+        n_var = len(light)
+        pv = pd.to_numeric(light[pcol], errors="coerce")
+        light[pcol] = pv
+        n_joint = int(pv.notna().sum())
+        lam_cct = qq_plot(
+            pv.to_numpy(dtype=float), f"{safe} {pcol}", ph_dir / "qq_cct.png"
+        )
+        manhattan_genome(light, pcol, f"{safe} {pcol}", ph_dir / "manhattan_cct.png")
+        n_gw_sig = int((pv.notna() & (pv < p_threshold)).sum())
+        del light, pv
+    else:
+        with open(path, encoding="utf-8") as fh:
+            n_var = max(sum(1 for _ in fh) - 1, 0)
+
+    # top_hits keeps every column, so stream the file and hold only top_n rows
+    # rather than sorting the whole frame. Rows with a missing p-value are no
+    # longer eligible; the old code could pad the table with them when fewer
+    # than top_n markers were tested.
+    if pcol:
+        best = None
+        for chunk in pd.read_csv(path, sep="\t", low_memory=False, chunksize=100_000):
+            chunk[pcol] = pd.to_numeric(chunk[pcol], errors="coerce")
+            chunk = chunk[chunk[pcol].notna()]
+            if chunk.empty:
+                continue
+            best = chunk if best is None else pd.concat([best, chunk], ignore_index=True)
+            best = best.nsmallest(top_n, pcol, keep="first")
+        top_hits = best if best is not None else head.head(0)
+    else:
+        top_hits = pd.read_csv(path, sep="\t", nrows=top_n, low_memory=False)
     top_hits.to_csv(ph_dir / "top_hits.tsv", sep="\t", index=False)
 
     counts = phenotype_counts(pheno_cov, phenotype)
