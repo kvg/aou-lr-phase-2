@@ -417,7 +417,9 @@ task ConcatPhenotypeScores {
     Int cpu = 1
     Int memory_gb = 4
     Int disk_gb_floor = 20
-    Float disk_gb_multiplier = 2.5
+    # Localized shards + the merged output + sort's spill directory, so three
+    # copies of the data live on disk at once, not two.
+    Float disk_gb_multiplier = 4.0
     Int preemptible = 1
   }
 
@@ -432,54 +434,59 @@ task ConcatPhenotypeScores {
 ~{sep="\n" shard_tsvs}
 EOF
 
-    python3 - <<'PY'
-from pathlib import Path
-import os
+    # Header: take the first shard's and fail if any other differs.
+    HDR=""
+    NSHARD=0
+    while IFS= read -r f; do
+      [[ -n "${f}" ]] || continue
+      NSHARD=$((NSHARD + 1))
+      h=$(head -n 1 "${f}")
+      if [[ -z "${h}" ]]; then
+        echo "empty shard: ${f}" >&2
+        exit 1
+      fi
+      if [[ -z "${HDR}" ]]; then
+        HDR="${h}"
+      elif [[ "${h}" != "${HDR}" ]]; then
+        echo "header mismatch in ${f}" >&2
+        echo "  got: ${h}" >&2
+        echo "  exp: ${HDR}" >&2
+        exit 1
+      fi
+    done < shards.txt
+    if [[ -z "${HDR}" ]]; then
+      echo "no shard TSVs to concatenate" >&2
+      exit 1
+    fi
 
-pheno = os.environ["PHENO"]
-out = Path(os.environ["OUT"])
-shards = [Path(l.strip()) for l in Path("shards.txt").read_text().splitlines() if l.strip()]
-if not shards:
-    raise SystemExit("no shard TSVs to concatenate")
+    # Body: stream every shard through an EXTERNAL sort that spills to disk.
+    #
+    # This used to be a python block that concatenated to a temp file, then did
+    # tmp.read_text().splitlines() and sorted() on the result -- i.e. it held
+    # the whole phenotype's genome-wide results in memory as python strings.
+    # On the per-record arm that is ~27 GB per phenotype against a 4 GB
+    # request, so the OOM killer took it after an hour of useful work ("Killed"
+    # with no traceback, then "Required file output merged.felix.tsv does not
+    # exist"). coreutils sort is bounded by -S and spills to -T instead.
+    #
+    # Key matches the old python one: chromosome lexicographically, position
+    # numerically. LC_ALL=C keeps the chromosome ordering byte-wise, which is
+    # what python's str comparison did.
+    SORT_MEM_MB=$(( ~{memory_gb} * 1024 / 2 ))
+    TAB=$(printf '\t')
+    mkdir -p sorttmp
+    printf '%s\n' "${HDR}" > "${OUT}"
+    while IFS= read -r f; do
+      [[ -n "${f}" ]] || continue
+      tail -n +2 "${f}"
+    done < shards.txt \
+      | awk 'NF' \
+      | LC_ALL=C sort -t "${TAB}" -k1,1 -k2,2n -S "${SORT_MEM_MB}M" -T sorttmp \
+      >> "${OUT}"
+    rm -rf sorttmp
 
-header = None
-nrows = 0
-tmp = Path(str(out) + ".unsorted")
-with tmp.open("w", encoding="utf-8") as fo:
-    for path in shards:
-        with path.open(encoding="utf-8") as fi:
-            h = fi.readline()
-            if not h:
-                raise SystemExit(f"empty shard: {path}")
-            if header is None:
-                header = h
-                fo.write(header)
-            elif h != header:
-                raise SystemExit(
-                    f"header mismatch in {path}:\n  got: {h!r}\n  exp: {header!r}"
-                )
-            for line in fi:
-                if line.strip():
-                    fo.write(line)
-                    nrows += 1
-
-hdr = header.rstrip("\n")
-body = tmp.read_text(encoding="utf-8").splitlines()[1:]
-
-def _sort_key(line: str):
-    parts = line.split("\t", 2)
-    chrom = parts[0] if parts else ""
-    pos = parts[1] if len(parts) > 1 else ""
-    return (chrom, int(pos) if pos.isdigit() else pos)
-
-body_sorted = sorted(body, key=_sort_key)
-with out.open("w", encoding="utf-8") as fo:
-    fo.write(hdr + "\n")
-    for line in body_sorted:
-        fo.write(line + "\n")
-tmp.unlink()
-print(f"Wrote {out} ({nrows} variant rows from {len(shards)} shards for {pheno})")
-PY
+    NROWS=$(( $(wc -l < "${OUT}") - 1 ))
+    echo "Wrote ${OUT} (${NROWS} variant rows from ${NSHARD} shards for ${PHENO})"
     cp "${OUT}" merged.felix.tsv
     printf '%s\n' "${OUT}" > merged.output_name.txt
   >>>
