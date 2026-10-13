@@ -23,6 +23,7 @@ from matplotlib.transforms import Bbox
 
 from .style import (
     ANC_COLORS,
+    ANC_LIKE,
     ANC_ORDER,
     ANC_TEXT,
     MIN_FONT,
@@ -345,6 +346,16 @@ def _anc_handles(markersize=4):
         Line2D([0], [0], marker="o", ls="none", color=ANC_COLORS[a], markersize=markersize, label=a)
         for a in ANC_ORDER
     ]
+
+
+def _anc_like_labels(handles) -> list[str]:
+    """Legend text for ancestry handles, as genetic-similarity descriptors.
+
+    The handles stay keyed on the three-letter codes that ANC_COLORS and the
+    covariate column use; only the printed label becomes 'AFR-like'. Handles
+    that are not ancestry groups (1kGP, Phase 1, spacers) pass through.
+    """
+    return [ANC_LIKE.get(h.get_label(), h.get_label()) for h in handles]
 
 
 def _anc_legend_above(ax) -> None:
@@ -711,7 +722,8 @@ def _panel_pcs_clines2(
             by_label["OTH"], blank, blank,
         ]
         ax.legend(
-            handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=4,
+            handles=handles, labels=_anc_like_labels(handles),
+            loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=4,
             frameon=False, fontsize=MIN_FONT, handlelength=0.8, handletextpad=0.15,
             columnspacing=0.6, borderaxespad=0.0, labelspacing=0.5,
         )
@@ -721,7 +733,8 @@ def _panel_pcs_clines2(
         ]
         handles = [h for c in range(4) for h in handles[c::4]]
         ax.legend(
-            handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=4,
+            handles=handles, labels=_anc_like_labels(handles),
+            loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=4,
             frameon=False, fontsize=MIN_FONT, handlelength=0.8, handletextpad=0.15,
             columnspacing=0.6, borderaxespad=0.0, labelspacing=0.5,
         )

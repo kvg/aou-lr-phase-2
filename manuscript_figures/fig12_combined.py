@@ -54,7 +54,7 @@ from matplotlib.ticker import MultipleLocator
 
 from . import fig1_null as f1
 from . import fig2_options as f2
-from .style import MIN_FONT, despine, new_figure, save
+from .style import ANC_LIKE, MIN_FONT, despine, new_figure, save
 
 _CAT_GAP = 0.50  # default inches above the spectrum axes for its legend and facet titles
 _CAT_FOOT = 0.76  # inches below the catalog axes for x labels
@@ -199,13 +199,8 @@ def _align_letter_to_legend(fig, text, label: str) -> None:
 
 
 LAST_GEOMETRY: dict[str, float] = {}
-# Genetic-similarity descriptors, following the NASEM population-descriptor
-# report: a group is named for the reference panel its members resemble, not
-# as a race or ethnicity. OTH is the residual, so it is named as such.
-ANC_LIKE = {
-    "AFR": "AFR-like", "AMR": "AMR-like", "EAS": "EAS-like", "EUR": "EUR-like",
-    "MID": "MID-like", "SAS": "SAS-like", "OTH": "Unassigned",
-}
+# ANC_LIKE (the NASEM-style genetic-similarity descriptors) now lives in
+# style.py, so Figures 1, 2 and this merged plate share one mapping.
 _MIN_DISCLOSED = 20
 
 

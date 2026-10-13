@@ -100,6 +100,21 @@ ANC_LABELS = {
     "SAS": "South Asian",
     "OTH": "Other / unassigned",
 }
+# Genetic-similarity descriptors, following the NASEM population-descriptor
+# report: a group is named for the reference panel its members resemble, not
+# as a race, an ethnicity or a continent. OTH is the residual -- there is no
+# Other population to resemble -- so it is named for what it is. This is the
+# form figures should use; ANC_LABELS above is the superseded continental
+# naming, kept only for Fig. S16.
+ANC_LIKE = {
+    "AFR": "AFR-like",
+    "AMR": "AMR-like",
+    "EAS": "EAS-like",
+    "EUR": "EUR-like",
+    "MID": "MID-like",
+    "SAS": "SAS-like",
+    "OTH": "Unassigned",
+}
 
 # Observed Phase 2 PacBio discovery counts (covariates.v6, n = 12,261).
 P2_ANC_N = {
