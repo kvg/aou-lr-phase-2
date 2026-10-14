@@ -138,10 +138,21 @@ different in kind: male breast cancer is real, so the `Both` label is correct an
 return wrong p-values with no crash, which is why crash-as-signal is not enough
 to find it.
 
-Generate each restricted file with
-`scripts/make_restricted_pheno_cov.py --phenotype <row> --restrict-to Female`
-and upload to `felix/phenotypes/prod/pheno_cov.<row>.tsv`, which is where those
-four rows already point.
+Generate the four files on the VM, where the real `pheno_cov.tsv` lives. The
+names carry the **bare phenotype**, not the `felix.prod.` row id -- that is what
+the four rows reference:
+
+    for p in CA_142_2 CA_105 GU_614_55 CA_142_21; do
+      python3 scripts/make_restricted_pheno_cov.py \
+        --pheno-cov pheno_cov.tsv --covariates covariates.v8.csv.gz \
+        --phenotype "$p" --restrict-to Female \
+        --out "pheno_cov.$p.tsv"
+    done
+
+Upload them to `${WORKSPACE_BUCKET}/felix/phenotypes/prod/`. `CA_105` warns that
+it is dropping 2 male cases; that is expected. Check the generated names against
+the `pheno_cov` column of the entity TSV before copying -- a mismatch there
+fails at localization inside the workflow, not at upload.
 
 ## Fixing one phenotype
 
