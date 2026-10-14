@@ -183,3 +183,59 @@ def test_files_from_an_earlier_run_are_flagged_not_mixed_in(tmp_path):
     own = [out / "phenotypes" / f"{r[ID_COL]}.txt" for r in rows]
     assert [p for f in own for p in f.read_text().split()] == names
     assert len(list((out / "phenotypes").glob("*.txt"))) == 5   # 2 stale + 3 new
+
+
+def test_set_type_renames_both_headers_and_keeps_the_member_type(tmp_path):
+    """Cloning into a new set type must not disturb the member references.
+
+    The method config resolves ${this.flare_lai_prods.*} against the MEMBER type,
+    not the set type, so renaming the set leaves the inputs JSON byte-identical
+    and only the config's root entity type changes.
+    """
+    cp, out = run(tmp_path, [f"PH_{i:03d}" for i in range(4)],
+                  "--set-type", "felix_prod_set", "--batch-size", "1")
+    assert cp.returncode == 0, cp.stderr
+
+    ent_header = (out / "felix_runs.entity.tsv").read_text().splitlines()[0].split("\t")
+    assert ent_header[0] == "entity:felix_prod_set_id"
+    assert "entity:flare_lai_prod_set_id" not in ent_header
+
+    mem_header = (out / "felix_runs.membership.tsv").read_text().splitlines()[0].split("\t")
+    assert mem_header == ["membership:felix_prod_set_id", "flare_lai_prod"]
+
+    rows = read(out / "felix_runs.entity.tsv")
+    assert len(rows) == 4
+    assert all(r["entity:felix_prod_set_id"].startswith("felix") for r in rows)
+
+
+def test_cache_critical_columns_are_copied_verbatim(tmp_path):
+    """Everything but the id, the phenotype file and the description is inherited.
+
+    analysis_samples feeds PackFelixla and MakeGRM, so a drifted value re-packs
+    every chromosome in every workflow -- the one outcome worse than not
+    reshaping at all.
+    """
+    cp, out = run(tmp_path, ["PH_001", "PH_002"], "--set-type", "felix_prod_set",
+                  "--batch-size", "1")
+    assert cp.returncode == 0, cp.stderr
+    template = {r[k]: r for r in read(TEMPLATE) for k in [list(r)[0]]}[TEMPLATE_ROW]
+    changed = {"run_description", "selected_phenotypes"}
+    for row in read(out / "felix_runs.entity.tsv"):
+        for col, want in template.items():
+            if col.startswith("entity:") or col in changed:
+                continue
+            assert row[col] == want, f"{col} drifted: {row[col]!r} != {want!r}"
+
+
+def test_member_prefix_is_overridable_but_defaults_to_the_live_ids(tmp_path):
+    cp, out = run(tmp_path, ["PH_001"], "--batch-size", "1")
+    assert cp.returncode == 0, cp.stderr
+    members = [r for r in (out / "felix_runs.membership.tsv").read_text().splitlines()[1:]]
+    assert members[0].split("\t")[1] == "aou_lr_phase2_v1.chr1"
+
+    sub = tmp_path / "b"; sub.mkdir()
+    cp2, out2 = run(sub, ["PH_001"], "--batch-size", "1",
+                    "--member-prefix", "other_panel")
+    assert cp2.returncode == 0, cp2.stderr
+    m2 = (out2 / "felix_runs.membership.tsv").read_text().splitlines()[1]
+    assert m2.split("\t")[1] == "other_panel.chr1"

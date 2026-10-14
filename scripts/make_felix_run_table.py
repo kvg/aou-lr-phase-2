@@ -24,16 +24,28 @@ from pathlib import Path
 
 CHROMS = [f"chr{i}" for i in range(1, 23)]
 ID_COL = "entity:flare_lai_prod_set_id"
+DEFAULT_SET_TYPE = "flare_lai_prod_set"
+DEFAULT_MEMBER_TYPE = "flare_lai_prod"
+DEFAULT_MEMBER_PREFIX = "aou_lr_phase2_v1"
 
 
-def read_entity_tsv(path: Path) -> tuple[list[str], dict[str, dict]]:
+def read_entity_tsv(path: Path) -> tuple[list[str], dict[str, dict], str]:
+    """Columns, rows keyed by entity id, and the id column's own name.
+
+    The id column is read from the header rather than assumed, so a table can be
+    cloned into a differently named set type (--set-type) while still being read
+    from whatever Terra exported.
+    """
     with path.open() as fh:
         rdr = csv.DictReader(fh, delimiter="\t")
         cols = list(rdr.fieldnames or [])
-        rows = {r[ID_COL]: r for r in rdr}
-    if ID_COL not in cols:
-        raise SystemExit(f"{path} is not an entity TSV: first column must be {ID_COL}")
-    return cols, rows
+        if not cols or not (cols[0].startswith("entity:") and cols[0].endswith("_id")):
+            raise SystemExit(
+                f"{path} is not an entity TSV: first column must look like "
+                f"entity:<type>_id, got {cols[0] if cols else '(empty)'!r}")
+        id_col = cols[0]
+        rows = {r[id_col]: r for r in rdr}
+    return cols, rows, id_col
 
 
 def batches(names: list[str], size: int) -> list[list[str]]:
@@ -79,6 +91,19 @@ def main(argv=None) -> int:
                     metavar="COLUMN=VALUE",
                     help="override any column on every generated row, repeatable. The "
                          "column must already exist in the template.")
+    ap.add_argument("--set-type", default=DEFAULT_SET_TYPE,
+                    help="Terra entity type to WRITE (default %(default)s). Use a new name "
+                         "to clone an existing table into a separate one; the method config "
+                         "then needs only its root entity type changed, because the column "
+                         "names and the ${this.<member>s.*} references are unchanged.")
+    ap.add_argument("--member-type", default=DEFAULT_MEMBER_TYPE,
+                    help="membership column / member entity type (default %(default)s). "
+                         "This is what ${this.<member>s.*} in the inputs JSON resolves "
+                         "against, so changing it requires editing that JSON too.")
+    ap.add_argument("--member-prefix", default=DEFAULT_MEMBER_PREFIX,
+                    help="member ids are <prefix>.<chrom> (default %(default)s). Must match "
+                         "the ids already in the table or the run gets different VCFs and "
+                         "every cached call is lost.")
     ap.add_argument("--out-dir", type=Path, required=True)
     args = ap.parse_args(argv)
 
@@ -91,12 +116,13 @@ def main(argv=None) -> int:
     if args.batch_size < 1:
         raise SystemExit("--batch-size must be at least 1")
 
-    cols, rows = read_entity_tsv(args.template)
+    cols, rows, src_id_col = read_entity_tsv(args.template)
+    out_id_col = f"entity:{args.set_type}_id"
     if args.template_row not in rows:
         raise SystemExit(f"row {args.template_row!r} not in {args.template}; "
                          f"have {sorted(rows)}")
     template = rows[args.template_row]
-    if not any((template[c] or "").strip() for c in cols if c != ID_COL):
+    if not any((template[c] or "").strip() for c in cols if c != src_id_col):
         raise SystemExit(f"row {args.template_row!r} has no values — it is probably one of "
                          "the rows Terra auto-creates from a submission")
 
@@ -108,8 +134,8 @@ def main(argv=None) -> int:
         key = key.strip()
         if key not in cols:
             raise SystemExit(f"--set {key}: not a column in {args.template}; have {cols}")
-        if key == ID_COL:
-            raise SystemExit(f"--set cannot change {ID_COL}; use --row-prefix")
+        if key == src_id_col:
+            raise SystemExit(f"--set cannot change {src_id_col}; use --row-prefix")
         overrides[key] = value
     if args.pheno_cov:
         overrides.setdefault("pheno_cov", args.pheno_cov)
@@ -129,7 +155,8 @@ def main(argv=None) -> int:
         fname = f"{rid}.txt"
         (out / "phenotypes" / fname).write_text("\n".join(group) + "\n")
         row = dict(template)
-        row[ID_COL] = rid
+        row.pop(src_id_col, None)
+        row[out_id_col] = rid
         row["selected_phenotypes"] = f"{bucket}/{pheno_dir}/{fname}"
         row.update(overrides)
         if "run_description" in row:
@@ -141,19 +168,20 @@ def main(argv=None) -> int:
 
     ent = out / "felix_runs.entity.tsv"
     with ent.open("w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t", lineterminator="\n")
+        out_cols = [out_id_col] + [c for c in cols if c != src_id_col]
+        w = csv.DictWriter(fh, fieldnames=out_cols, delimiter="\t", lineterminator="\n")
         w.writeheader()
         w.writerows(new_rows)
 
     mem = out / "felix_runs.membership.tsv"
     with mem.open("w", newline="") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
-        w.writerow(["membership:flare_lai_prod_set_id", "flare_lai_prod"])
+        w.writerow([f"membership:{args.set_type}_id", args.member_type])
         for row in new_rows:
             for c in CHROMS:
-                w.writerow([row[ID_COL], f"aou_lr_phase2_v1.{c}"])
+                w.writerow([row[out_id_col], f"{args.member_prefix}.{c}"])
 
-    written = {out / "phenotypes" / f"{r[ID_COL]}.txt" for r in new_rows}
+    written = {out / "phenotypes" / f"{r[out_id_col]}.txt" for r in new_rows}
     stale = sorted(p for p in (out / "phenotypes").glob("*.txt") if p not in written)
     if stale:
         print(f"note: {len(stale)} file(s) in {out / 'phenotypes'} are from an earlier "
