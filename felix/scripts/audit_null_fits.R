@@ -25,7 +25,12 @@
 #   min mu*(1-mu) < 1e-8          (score variance collapses)
 #   |coefficients| > 1e6
 #   a low-cardinality covariate has a level with zero cases (separation)
-# Exit status 1 if any phenotype is flagged.
+# Status CHECK (not fatal) when the design is rank deficient but the fit is
+# otherwise healthy: that is the expected shape for a correctly sex-restricted
+# phenotype, whose global covariate list still carries a now-constant sex column.
+# R's glm aliases such a column to NA and returns identical estimates either way,
+# but SAIGE step 1 builds and inverts its own X'X, so it is reported rather than
+# assumed safe. Exit status 1 if any phenotype is FLAGGED.
 #
 # The separation check is the one that names a CAUSE rather than a symptom. For
 # CA_142.2 it reports sex: 4,295 participants of one sex hold 0 of the 360 cases,
@@ -49,7 +54,8 @@ for (f in files) {
   rec <- list(phenotype = pheno, file = f, status = "OK", reasons = "",
               converged = NA, n = NA, n_cases = NA,
               theta_max = NA, mu_min = NA, mu_max = NA, mu_distinct = NA,
-              min_mu1mu = NA, coef_absmax = NA, separating_covariates = "")
+              min_mu1mu = NA, coef_absmax = NA, separating_covariates = "",
+              x_rank = NA, x_ncol = NA, constant_covariates = "")
   env <- new.env()
   loaded <- tryCatch({ load(f, envir = env); TRUE },
                      error = function(e) { rec$status <<- "UNREADABLE"
@@ -79,6 +85,21 @@ for (f in files) {
       if (rec$min_mu1mu < VAR_FLOOR)         why <- c(why, "mu(1-mu) collapsed")
       if (rec$coef_absmax > COEF_HI)         why <- c(why, "coefficients diverged")
 
+      # Design rank and constant columns.
+      if (!is.null(m$X)) {
+        Xm0 <- m$X
+        rec$x_ncol <- ncol(Xm0)
+        rec$x_rank <- tryCatch(qr(Xm0)$rank, error = function(e) NA_integer_)
+        const <- character(0)
+        for (j in seq_len(ncol(Xm0))) {
+          if (length(unique(signif(Xm0[, j], 10))) == 1) {
+            nm <- if (is.null(colnames(Xm0))) paste0("V", j) else colnames(Xm0)[j]
+            if (!identical(nm, "minus1")) const <- c(const, nm)
+          }
+        }
+        rec$constant_covariates <- paste(const, collapse = "; ")
+      }
+
       # Separation: a covariate level holding zero cases. Only meaningful for
       # low-cardinality columns (sex, batch indicators), so continuous
       # covariates and the intercept are skipped.
@@ -105,7 +126,14 @@ for (f in files) {
         why <- c(why, "covariate separates cases")
       }
 
-      if (length(why)) { rec$status <- "FLAGGED"; rec$reasons <- paste(why, collapse = "; ") }
+      if (length(why)) {
+        rec$status <- "FLAGGED"; rec$reasons <- paste(why, collapse = "; ")
+      } else if (!is.na(rec$x_rank) && !is.na(rec$x_ncol) && rec$x_rank < rec$x_ncol) {
+        rec$status <- "CHECK"
+        rec$reasons <- sprintf("design rank %d of %d%s", rec$x_rank, rec$x_ncol,
+                               if (nzchar(rec$constant_covariates))
+                                 paste0(" (constant: ", rec$constant_covariates, ")") else "")
+      }
     }
   }
   rows[[length(rows) + 1]] <- rec
@@ -117,8 +145,15 @@ for (f in files) {
 df <- do.call(rbind, lapply(rows, function(r) as.data.frame(r, stringsAsFactors = FALSE)))
 write.table(df, out_path, sep = "\t", quote = FALSE, row.names = FALSE)
 
-n_bad <- sum(df$status != "OK")
-cat(sprintf("\n%d of %d null fits flagged. Wrote %s\n", n_bad, nrow(df), out_path))
+n_bad <- sum(df$status == "FLAGGED" | df$status == "UNREADABLE")
+n_chk <- sum(df$status == "CHECK")
+cat(sprintf("\n%d of %d null fits flagged, %d to check. Wrote %s\n",
+            n_bad, nrow(df), n_chk, out_path))
+if (n_chk > 0) {
+  cat("CHECK = rank-deficient design, fit otherwise healthy. Expected for a\n")
+  cat("sex-restricted phenotype (constant sex column); confirm SAIGE step 1\n")
+  cat("handled it rather than assuming so.\n")
+}
 if (n_bad > 0) {
   cat("Do NOT use a flagged phenotype's step-2 results: its score variance is wrong.\n")
   cat("Refit step 1 for those phenotypes before rerunning the scan. Where a\n")
