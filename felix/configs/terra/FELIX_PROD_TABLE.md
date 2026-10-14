@@ -41,6 +41,24 @@ Every task *command* is byte-identical between `main` and the working copy --
 the rework changed resource declarations only -- so nothing else in the
 uncommitted diff affects the cache.
 
+### Terra will not accept a separate `felix_prod_set`
+
+The member type is derived from the set name: a `felix_prod_set` must contain
+`felix_prod` entities. Uploading a membership TSV whose second column is
+`flare_lai_prod` fails with
+
+    Invalid membership TSV. Second column header should be felix_prod
+
+A separate table therefore needs a `felix_prod` member table -- 22 rows
+duplicating `flare_lai_prod` -- and every `${this.flare_lai_prods.*}` in the
+inputs JSON rewritten to `${this.felix_prods.*}`. The duplicate member rows
+would have to carry byte-identical paths or every cached call is lost.
+
+So the rows go into the existing `flare_lai_prod_set` table instead. They are
+distinguishable by their `felix.prod.` prefix, the 16 existing rows are
+untouched (no id collisions), and the root entity type does not change, so the
+EXISTING method config runs them with no edit at all. Drop `--set-type`.
+
 ## Generating the table
 
 Clone from `felix.wgs951.full.batch01` -- **not** from `felix.wgs.full.v1`, which
@@ -52,7 +70,6 @@ in every one of the 951 workflows.
       --phenotypes selected_phenotypes.txt \
       --template flare_lai_prod_set_entity.tsv \
       --template-row felix.wgs951.full.batch01 \
-      --set-type felix_prod_set \
       --row-prefix felix.prod \
       --name-rows-by-phenotype \
       --batch-size 1 \
