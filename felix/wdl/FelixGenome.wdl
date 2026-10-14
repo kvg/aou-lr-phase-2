@@ -1245,6 +1245,29 @@ workflow FelixGenome {
     Int score_disk_gb = 200
 
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+
+    # Ordinary-arm step 2 only, pinned to its own image.
+    #
+    # FELIX step 2 aborts on some phenotypes with
+    #   Error in function boost::math::gamma_q_inv<double>(double, double): Overflow Error
+    # one second into the first chunk -- a probability underflowing to 0 and then
+    # being inverted back to a statistic. It is deterministic, so maxRetries does
+    # not help, and the crashing phenotypes are plausibly the ones with the
+    # strongest associations, so dropping them is not safe either.
+    #
+    # Cromwell keys each call on its own command, inputs, runtime and docker, so
+    # pointing ONE task at a rebuilt image leaves every other call's cache intact:
+    # Pack, RuLoci, RuVcf, BaVcf, MakeGRM and the per-phenotype Null fits all
+    # still cache-hit. That is what makes a top-up run over just the failing
+    # phenotypes possible instead of a full batch rerun.
+    #
+    # The repeat arms (RuStep2/BaStep2, task RunFelixStep2RuVcf) deliberately stay
+    # on `docker`: they take the --vcfFile/DS path rather than FELIXla, have not
+    # been shown to hit this crash, and switching them would re-run ~894 VM-h of
+    # already-cached step-2 work. Add a matching `ru_step2_docker` if they do.
+    #
+    # PILOT EXPEDIENT: fold this back into `docker` once the fix is in the base tag.
+    String step2_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.1"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)
@@ -1487,7 +1510,7 @@ workflow FelixGenome {
           num_ancs = num_ancs,
           min_mac = min_mac,
           pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
-          docker = docker,
+          docker = step2_docker,
           disk_gb_floor = step2_disk_gb_floor,
           disk_gb_multiplier = step2_disk_gb_multiplier
       }
