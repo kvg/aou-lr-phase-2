@@ -84,12 +84,15 @@ in every one of the 951 workflows.
 `RuLoci`, `RuVcf`, `BaVcf` and the nulls cache-hitting.
 
 Upload `prod_table/phenotypes/*.txt` to
-`${WORKSPACE_BUCKET}/felix/phenotypes/prod/`, then the entity and membership
-TSVs.
+`${WORKSPACE_BUCKET}/felix/phenotypes/prod/`, then the **membership TSV first**
+and the entity TSV second. That order relies only on upsert behaviour already
+verified in this workspace (an attribute TSV naming a subset of columns leaves
+the others alone); the reverse would depend on a membership upload preserving
+attributes, which has not been checked here.
 
 ## Verify on one row before submitting 951
 
-Submit `felix.prod.batch001` alone and read the **Call Caching Result** column:
+Submit `felix.prod.CV_401` alone and read the **Call Caching Result** column:
 
 | call | expected |
 |---|---|
@@ -101,15 +104,12 @@ A Cache Miss on `Pack` or `MakeGRM` means a column drifted from the template and
 the whole reshape is mispriced -- stop and diff the row against
 `felix.wgs951.full.batch01` before going further.
 
-Two things to confirm on first upload, which cannot be checked from outside Terra:
+One thing left to confirm on first upload, which cannot be checked from outside
+Terra: whether AoU's Terra caps workflows per submission at under 951.
 
-- Terra's convention is that `X_set` contains `X`. This table is a
-  `felix_prod_set` whose members are `flare_lai_prod`, so that
-  `${this.flare_lai_prods.*}` keeps resolving. If Terra rejects it or the config
-  shows red type errors, the fallback is to add the 951 rows to the existing
-  `flare_lai_prod_set` table under the `felix.prod.*` prefix instead -- then not
-  even the root entity type changes.
-- Whether AoU's Terra caps workflows per submission at under 951.
+The set-type question is settled -- see the rejection above. These rows are
+`flare_lai_prod_set` rows, so `${this.flare_lai_prods.*}` resolves exactly as it
+does for `felix.wgs951.full.batch01` and the method config needs no edit.
 
 ## Cost of the reshape
 
