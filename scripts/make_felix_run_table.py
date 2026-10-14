@@ -91,6 +91,11 @@ def main(argv=None) -> int:
                     metavar="COLUMN=VALUE",
                     help="override any column on every generated row, repeatable. The "
                          "column must already exist in the template.")
+    ap.add_argument("--name-rows-by-phenotype", action="store_true",
+                    help="name each row <prefix>.<phenotype> instead of <prefix>.batchNNN. "
+                         "Only valid with --batch-size 1; the point of one row per "
+                         "phenotype is being able to find the row for a failing "
+                         "phenotype, which batch437 does not give you.")
     ap.add_argument("--set-type", default=DEFAULT_SET_TYPE,
                     help="Terra entity type to WRITE (default %(default)s). Use a new name "
                          "to clone an existing table into a separate one; the method config "
@@ -140,6 +145,8 @@ def main(argv=None) -> int:
     if args.pheno_cov:
         overrides.setdefault("pheno_cov", args.pheno_cov)
 
+    if args.name_rows_by_phenotype and args.batch_size != 1:
+        raise SystemExit("--name-rows-by-phenotype requires --batch-size 1")
     prefix = args.row_prefix or args.template_row
     bucket = args.bucket.rstrip("/")
     pheno_dir = args.phenotype_prefix.strip("/")
@@ -151,7 +158,8 @@ def main(argv=None) -> int:
 
     new_rows = []
     for i, group in enumerate(groups, start=1):
-        rid = f"{prefix}.batch{i:0{width}d}"
+        rid = (f"{prefix}.{group[0]}" if args.name_rows_by_phenotype
+               else f"{prefix}.batch{i:0{width}d}")
         fname = f"{rid}.txt"
         (out / "phenotypes" / fname).write_text("\n".join(group) + "\n")
         row = dict(template)
@@ -161,6 +169,9 @@ def main(argv=None) -> int:
         row.update(overrides)
         if "run_description" in row:
             row["run_description"] = (
+                f"Phenotype {group[0]} ({i} of {len(groups)}) from "
+                f"{args.template_row}: {71 * len(group) + 92:,} calls."
+                if args.name_rows_by_phenotype else
                 f"Batch {i} of {len(groups)} from {args.template_row}: "
                 f"{len(group)} phenotypes ({group[0]}..{group[-1]}), "
                 f"{71 * len(group) + 92:,} calls.")

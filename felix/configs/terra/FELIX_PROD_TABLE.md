@@ -51,6 +51,7 @@ in every one of the 951 workflows.
       --template-row felix.wgs951.full.batch01 \
       --set-type felix_prod_set \
       --row-prefix felix.prod \
+      --name-rows-by-phenotype \
       --batch-size 1 \
       --bucket "${WORKSPACE_BUCKET}" \
       --phenotype-prefix felix/phenotypes/prod \
@@ -97,6 +98,29 @@ Every cache hit still *copies* its outputs into the new workflow's directory
 the sparse GRM 0.18 GB, so the upstream copy is ~36 GB per workflow before the
 repeat VCFs -- roughly 76 TB across 951 rows against 0.9 TB across 11. That is
 bucket storage, not compute, and it is reclaimable afterwards.
+
+## The four phenotypes that need a restricted `pheno_cov`
+
+Computed from the local phenotype and covariate tables against the real 951-name
+list; all four are in it, and all four are labelled `Both` by PhecodeX:
+
+| row | cases | female | male | separation |
+|---|---|---|---|---|
+| `felix.prod.CA_142_2` (Abnormal mammogram) | 360 | 360 | 0 | complete |
+| `felix.prod.GU_614_55` (Candidiasis of vulva and vagina) | 154 | 154 | 0 | complete |
+| `felix.prod.CA_142_21` (Mammographic microcalcification) | 79 | 79 | 0 | complete |
+| `felix.prod.CA_105` (Malignant neoplasm of the breast) | 229 | 227 | 2 | quasi |
+
+The three with zero cases in one sex must diverge in step 1. `CA_105` is
+different in kind: male breast cancer is real, so the `Both` label is correct and
+2 cases simply cannot support a sex term -- it may converge to a strained fit and
+return wrong p-values with no crash, which is why crash-as-signal is not enough
+to find it.
+
+Generate each restricted file with
+`scripts/make_restricted_pheno_cov.py --phenotype <row> --restrict-to Female`
+and upload to `felix/phenotypes/prod/pheno_cov.<row>.tsv`, which is where those
+four rows already point.
 
 ## Fixing one phenotype
 
