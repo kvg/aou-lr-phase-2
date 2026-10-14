@@ -1252,8 +1252,15 @@ workflow FelixGenome {
     #   Error in function boost::math::gamma_q_inv<double>(double, double): Overflow Error
     # one second into the first chunk -- a probability underflowing to 0 and then
     # being inverted back to a statistic. It is deterministic, so maxRetries does
-    # not help, and the crashing phenotypes are plausibly the ones with the
-    # strongest associations, so dropping them is not safe either.
+    # not help.
+    #
+    # Underflowing a double takes chi2 ~= 1425 at 1 df, against 29.7 for
+    # genome-wide significance: ~13% of trait variance from one marker in 9,560
+    # samples. That is not an association, it is separation or a degenerate
+    # per-ancestry score variance. So the crash is a SYMPTOM, and clamping the
+    # p-value or relaxing Boost's overflow policy would convert a visible abort
+    # into an invisible p = 0 sitting at the top of the Manhattan plot. Fix the
+    # variance/QC guard, not the quantile.
     #
     # Cromwell keys each call on its own command, inputs, runtime and docker, so
     # pointing ONE task at a rebuilt image leaves every other call's cache intact:
