@@ -19,9 +19,24 @@ it names the set type.** The new table keeps every column name and keeps
 the file is byte-identical to the live one. The only change is the method
 config's **root entity type**: `flare_lai_prod_set` -> `felix_prod_set`.
 
-Keep `pack_cpu = ${1}` and `pack_memory_gb = ${6}`. They are the values the
-current run used; the committed WDL defaults (4 / 64) are not, and changing them
-re-runs all 22 packs per workflow.
+### UNRESOLVED: which `pack_cpu` / `pack_memory_gb` the cached packs used
+
+`PackFelixla`'s sizing is passed from the config, so it is a hashed input: get it
+wrong and all 22 packs re-run in every one of the 951 workflows. Two sources
+disagree and neither has been checked against the run itself.
+
+- The config exported from Terra on 2026-10-14 (reproduced here) carries
+  `pack_cpu = ${1}`, `pack_memory_gb = ${6}`.
+- `felix/configs/terra/FelixGenomeTable.inputs.json` as committed carries
+  `${4}` / `${64}`; the working copy carries `${1}` / `${6}`, part of an
+  uncommitted resource rework. The project's resubmission note records the
+  COMMITTED values as the ones batch01 actually ran, which would mean the live
+  config was edited after that run.
+
+Do not copy either value on faith. Open a succeeded `Pack` shard from the run
+whose cache you are inheriting (submission `f722a12b`, workflow `3d614c58`) in
+the Job Manager and read `cpu` and `memory_gb` off its Inputs pane -- those are
+the resolved values that were hashed. Set the new config to match exactly.
 
 ## Generating the table
 
