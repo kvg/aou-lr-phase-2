@@ -485,14 +485,23 @@ def main() -> None:
         code = phecode_of(col)
         frac, majority = observed_case_sex(enc, sex_by_id)
         from_table = phecode_sex.get(code, "")
+        # A definitions label may only make the restriction STRONGER, never
+        # weaker. "Both" used to short-circuit the observed check entirely, so a
+        # phecode the table calls Both whose cases are in fact one sex kept sex
+        # in the covariate set -- complete separation, and SAIGE step 1 diverges
+        # while still writing a .rda (observed on CA_142.2 "Abnormal mammogram",
+        # labelled Both, 360/360 cases female: theta 2.0e13, intercept -1.7e15,
+        # every fitted value 2.22e-16, and every step-2 shard for it then died
+        # with a gamma_q_inv overflow). Trust the data over the label.
+        observed_specific = bool(majority) and frac >= args.sex_case_fraction
         if from_table in ("Male", "Female"):
             sex_specific, restrict_to, basis = True, from_table, "definitions"
-        elif from_table == "Both":
-            sex_specific, restrict_to, basis = False, "", "definitions"
+        elif observed_specific:
+            sex_specific, restrict_to = True, majority
+            basis = "observed (definitions said Both)" if from_table == "Both" else "observed"
         else:
-            sex_specific = bool(majority) and frac >= args.sex_case_fraction
-            restrict_to = majority if sex_specific else ""
-            basis = "observed" if sex_specific else ""
+            sex_specific, restrict_to = False, ""
+            basis = "definitions" if from_table else ""
         row = {
             "phenotype": col,
             "phecode": code,

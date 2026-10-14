@@ -166,16 +166,38 @@ def test_sex_specific_restrict_drops_the_other_sex_to_missing():
     assert other["n_missing"] == 0, "a non-sex-specific phecode is untouched"
 
 
-def test_definitions_table_overrides_the_observed_call():
+def test_definitions_table_cannot_weaken_an_observed_sex_restriction():
+    """A "Both" label may not override a case set that is entirely one sex.
+
+    This reverses an earlier decision (the table used to win outright). It had to
+    change: PhecodeX labels CA_142.2 "Abnormal mammogram" as Both, yet all 360
+    cases in this cohort are female, so sex stayed in the covariate set, perfectly
+    separated the cases, and SAIGE step 1 diverged while still writing a .rda
+    (theta 2.0e13, intercept -1.7e15, every fitted value 2.22e-16). Every step-2
+    shard for that phenotype then aborted on a gamma_q_inv overflow. A label can
+    still make the restriction stronger, never weaker.
+    """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         defs = tmp / "phecode_defs.csv"
         defs.write_text("phecode,sex\nCM_185,Both\nCM_761,Both\nCM_761.1,Both\nCM_250,Both\n")
         stats, _audit, _chosen = _run(tmp, "--phecode-sex-tsv", str(defs),
                                       "--sex-specific", "restrict")
-    row = stats.set_index("phenotype").loc["CM_185"]
-    assert not bool(row["sex_specific"]) and row["sex_specific_basis"] == "definitions"
-    assert row["n_missing"] == 0, "the table says Both, so nothing is restricted"
+    stats = stats.set_index("phenotype")
+
+    # CM_185's cases are 110/110 male, so the data wins over the Both label.
+    row = stats.loc["CM_185"]
+    assert bool(row["sex_specific"])
+    assert row["sex_specific_basis"] == "observed (definitions said Both)"
+    assert row["sex_restricted_to"] == "Male"
+    assert row["n_missing"] == N / 2
+
+    # A genuinely both-sex phecode is still left alone, which is what the label
+    # is for: it is consulted, and it does not restrict.
+    other = stats.loc["CM_250"]
+    assert not bool(other["sex_specific"])
+    assert other["sex_specific_basis"] == "definitions"
+    assert other["n_missing"] == 0
 
 
 def test_definitions_table_in_the_wrong_dialect_is_refused(tmp_path):
