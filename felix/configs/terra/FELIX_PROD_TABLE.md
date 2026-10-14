@@ -1,4 +1,4 @@
-# `felix_prod_set`: one row per phenotype
+# `felix.prod.*`: one row per phenotype
 
 Reshapes the genome-wide scan from 11 batch rows of ~87 phenotypes into 951 rows
 of one, so a failure is isolated to a single phenotype and Terra's **Relaunch
@@ -14,10 +14,11 @@ row: that is one submission containing 951 workflows.
   (`chrom`, `gt_vcf`, `anc_vcf`, `annotated_vcf`),
 
 plus 9 literal `gs://` script paths and 8 literal numeric constants. **Nothing in
-it names the set type.** The new table keeps every column name and keeps
+it names the set type.** The new rows keep every column name and keep
 `flare_lai_prod` as the member type, so every `${this.*}` resolves unchanged and
-the file is byte-identical to the live one. The only change is the method
-config's **root entity type**: `flare_lai_prod_set` -> `felix_prod_set`.
+the file is byte-identical to the live one. Because the rows land in the
+existing `flare_lai_prod_set` table (see below), the root entity type does not
+change either, and the method config needs no edit at all.
 
 ### RESOLVED: `pack_cpu = 1`, `pack_memory_gb = 6`
 
