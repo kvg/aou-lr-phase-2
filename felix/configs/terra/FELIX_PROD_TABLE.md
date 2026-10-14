@@ -19,24 +19,27 @@ it names the set type.** The new table keeps every column name and keeps
 the file is byte-identical to the live one. The only change is the method
 config's **root entity type**: `flare_lai_prod_set` -> `felix_prod_set`.
 
-### UNRESOLVED: which `pack_cpu` / `pack_memory_gb` the cached packs used
+### RESOLVED: `pack_cpu = 1`, `pack_memory_gb = 6`
 
-`PackFelixla`'s sizing is passed from the config, so it is a hashed input: get it
-wrong and all 22 packs re-run in every one of the 951 workflows. Two sources
-disagree and neither has been checked against the run itself.
+`PackFelixla` declares `cpu` and `memory_gb` as task *inputs*, not merely as
+runtime attributes, so their values are hashed: get them wrong and all 22 packs
+re-run in every one of the 951 workflows.
 
-- The config exported from Terra on 2026-10-14 (reproduced here) carries
-  `pack_cpu = ${1}`, `pack_memory_gb = ${6}`.
-- `felix/configs/terra/FelixGenomeTable.inputs.json` as committed carries
-  `${4}` / `${64}`; the working copy carries `${1}` / `${6}`, part of an
-  uncommitted resource rework. The project's resubmission note records the
-  COMMITTED values as the ones batch01 actually ran, which would mean the live
-  config was edited after that run.
+Read off the Inputs pane of a succeeded `Pack` shard (chr1) from the run whose
+cache is being inherited: `cpu 1`, `memory_gb 6`, `disk_gb_floor 100`,
+`disk_gb_multiplier 3.5`, `preemptible 0`, `num_ancs 5`, `disk_gb 145`.
 
-Do not copy either value on faith. Open a succeeded `Pack` shard from the run
-whose cache you are inheriting (submission `f722a12b`, workflow `3d614c58`) in
-the Job Manager and read `cpu` and `memory_gb` off its Inputs pane -- those are
-the resolved values that were hashed. Set the new config to match exactly.
+That matches the config exported from Terra and the working copy of
+`FelixGenomeTable.inputs.json`, and contradicts the same file as committed on
+`main`, which still carries `pack_cpu = ${4}` / `pack_memory_gb = ${64}` from
+before the resource rework. The project's resubmission note recording the
+committed values as what batch01 ran is wrong for this run. Regenerating the
+config from `main` instead of the working copy would re-pack 20,922 chromosome
+shards.
+
+Every task *command* is byte-identical between `main` and the working copy --
+the rework changed resource declarations only -- so nothing else in the
+uncommitted diff affects the cache.
 
 ## Generating the table
 
