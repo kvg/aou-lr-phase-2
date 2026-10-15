@@ -1,0 +1,24 @@
+{
+  "_comment": "FelixPilot on chr22 with SEPARATE phase and FLARE inputs: phase_vcf = the chr22 SHAPEIT4 ligated BCF (every SNV, indel and SV) and flare_vcf = the chr22 FLARE anc VCF. felixla assigns each phase record to its covering FLARE marker interval itself, so PropagateFlareAncestry is not needed. Everything else equals felix.pilot.inputs.limited.json, so MakeGRM and Null should call-cache and only Pack and Step2 rerun. Check: p-values at the 165k variants of the earlier chr22 pilot must reproduce the limited-arm results (same samples, covariates and null). The separate-file branch of PackFelixla has not run on real data before. Reduce selected_phenotypes to 2-3 for a first pass because this scans many more variants than the 165k-marker pilot.",
+  "FelixPilot.analysis_samples": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/tractor_mix_pilot/analysis_samples.txt",
+  "FelixPilot.build_saige_grm_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/build_saige_plink_and_grm.sh",
+  "FelixPilot.chrom": "chr22",
+  "FelixPilot.covariate_columns": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/tractor_mix_pilot/covariate_columns_limited.txt",
+  "FelixPilot.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0",
+  "FelixPilot.export_null_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/export_felix_null.R",
+  "FelixPilot.fit_felix_null_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/fit_felix_null.R",
+  "FelixPilot.flare_vcf": "REPLACE_WITH_chr22_flare_anc_vcf_gs_uri",
+  "FelixPilot.grm_vcfs": [
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/c70fc078-7d46-4da1-8f59-30a7ebd4b738/flare/81ea1db7-94da-4a6b-b869-35b292d2f9a1/call-flare_task/aou_lr_phase2_v1.chr1.anc.vcf.gz",
+    "gs://fc-secure-1c6b9393-5e5d-4a87-b483-d1f0b019af92/submissions/aac26765-3585-4399-b888-ff8521112d20/flare/b13bb7e0-4684-4b4a-a8b3-a4d94e7f48c4/call-flare_task/aou_lr_phase2_v1.chr22.anc.vcf.gz"
+  ],
+  "FelixPilot.make_plink_keep_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/make_plink_keep.py",
+  "FelixPilot.min_mac": 50,
+  "FelixPilot.num_ancs": 5,
+  "FelixPilot.phase_vcf": "REPLACE_WITH_chr22_ligated_bcf_gs_uri",
+  "FelixPilot.pheno_cov": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/tractor_mix_pilot/pheno_cov.tsv",
+  "FelixPilot.relatedness_cutoff": 0.05,
+  "FelixPilot.run_felix_step2_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/felix/scripts/run_felix_step2.R",
+  "FelixPilot.selected_phenotypes": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/tractor_mix_pilot/selected_phenotypes.txt",
+  "FelixPilot.summarize_script": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/summarize_tractor_genome_results.py"
+}
