@@ -1023,6 +1023,13 @@ task CompareRuArms {
     Float p_threshold = 0.00000005
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 1
+    # 8 GB OOM-kills this genome-wide. compare_ru_arms.py reads both merged
+    # result tables into pandas and inner-joins them, so peak is the two inputs
+    # plus the join result, all live at once. Measured on a 492,000-row fixture
+    # tiled from the chr22 merged table: 0.20 GB of interpreter and pandas plus
+    # 3.31 GB per million shared loci, so 8 GB dies above ~2.35M loci.
+    # memory_gb is a task INPUT here, so this re-runs CompareRuArms and nothing
+    # else; the call site does not bind it, so the default governs.
     Int memory_gb = 32
     Int disk_gb_floor = 20
     Float disk_gb_multiplier = 3.0
@@ -1245,37 +1252,6 @@ workflow FelixGenome {
     Int score_disk_gb = 200
 
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
-
-    # Ordinary-arm step 2 only, so a step-2-specific image can be swapped in
-    # without invalidating any other call's cache. Keep it EQUAL to `docker`
-    # unless such a swap is actually in flight: an unequal value re-runs every
-    # Step2 shard (~2,600 VM-h per batch).
-    #
-    # History, kept because it was nearly mis-fixed here. FELIX step 2 aborted on
-    # some phenotypes with
-    #   Error in function boost::math::gamma_q_inv<double>(double, double): Overflow Error
-    # one second into the first chunk. The root cause is NOT in step 2 and not in
-    # FELIX's C++: the step-1 null for those phenotypes did not converge and was
-    # written out anyway. For CA_142_2, modglmm$converged is FALSE, theta is
-    # (1, 2.0e13), the intercept is -1.7e15 and every fitted value underflows to
-    # 2.22e-16, so mu*(1-mu) ~ 0 for all 9,560 samples. The score variance is then
-    # ~0 for every marker, the statistic diverges, the p-value underflows to 0 and
-    # the quantile overflows. The .varianceRatio.txt looks healthy (0.9929..),
-    # which is why it passed through. Fix belongs in step 1 (check `converged`);
-    # see felix/scripts/audit_null_fits.R.
-    #
-    # Cromwell keys each call on its own command, inputs, runtime and docker, so
-    # pointing ONE task at a rebuilt image leaves every other call's cache intact:
-    # Pack, RuLoci, RuVcf, BaVcf, MakeGRM and the per-phenotype Null fits all
-    # still cache-hit. That is what makes a top-up run over just the failing
-    # phenotypes possible instead of a full batch rerun.
-    #
-    # The repeat arms (RuStep2/BaStep2, task RunFelixStep2RuVcf) deliberately stay
-    # on `docker`: they take the --vcfFile/DS path rather than FELIXla, have not
-    # been shown to hit this crash, and switching them would re-run ~894 VM-h of
-    # already-cached step-2 work. Add a matching `ru_step2_docker` if they do.
-    #
-    String step2_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)
@@ -1518,7 +1494,7 @@ workflow FelixGenome {
           num_ancs = num_ancs,
           min_mac = min_mac,
           pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
-          docker = step2_docker,
+          docker = docker,
           disk_gb_floor = step2_disk_gb_floor,
           disk_gb_multiplier = step2_disk_gb_multiplier
       }
