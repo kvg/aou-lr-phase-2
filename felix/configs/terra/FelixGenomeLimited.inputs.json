@@ -29,5 +29,5 @@
   "FelixGenome.num_random_markers": "${2000}",
   "FelixGenome.summarize_p_threshold": "${0.00000005}",
   "FelixGenome.summarize_top_n": "${50}",
-  "FelixGenome.pack_memory_gb": "${64}"
+  "FelixGenome.pack_memory_gb": "${6}"
 }
