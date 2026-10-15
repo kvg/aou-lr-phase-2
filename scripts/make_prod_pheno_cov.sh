@@ -16,6 +16,8 @@ set -euo pipefail
 SHARED="${WORKSPACE_BUCKET}/felix/phenotypes/wgs/pheno_cov.tsv"
 DEST="${WORKSPACE_BUCKET}/felix/phenotypes/prod"
 COV="${COV:-covariates.v8.csv.gz}"
+# Sex is read from pheno_cov's OWN sex column (the one in the design matrix);
+# the covariate table only labels its levels. See make_restricted_pheno_cov.py.
 PHENOS=(CA_142_2 CA_105 GU_614_55 CA_142_21)
 
 [[ -f scripts/make_restricted_pheno_cov.py ]] || {
