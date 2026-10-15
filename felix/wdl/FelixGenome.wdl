@@ -180,7 +180,7 @@ task CheckNullArrays {
     cpu: 1
     memory: "2 GB"
     disks: "local-disk 10 HDD"
-    preemptible: 1
+    preemptible: 3
   }
 }
 
@@ -271,8 +271,8 @@ task PackFelixla {
     String chrom
     Int num_ancs = 5
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
-    Int cpu = 4
-    Int memory_gb = 16
+    Int cpu = 1
+    Int memory_gb = 6
     Int disk_gb_floor = 100
     Float disk_gb_multiplier = 3.5
     Int preemptible = 0
@@ -357,8 +357,8 @@ task RunFelixStep2 {
     Int min_mac = 50
     Float pvalcutoff_of_haplotype = 0.05
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
-    Int cpu = 8
-    Int memory_gb = 16
+    Int cpu = 1
+    Int memory_gb = 6
     Int disk_gb_floor = 50
     Float disk_gb_multiplier = 4.0
     Int preemptible = 1
@@ -808,11 +808,11 @@ task AggregateRepeatLoci {
     Int max_bp = 100000
     String apply_filters = "PASS,."
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
-    Int cpu = 4
-    Int memory_gb = 16
+    Int cpu = 1
+    Int memory_gb = 6
     Int disk_gb_floor = 100
     Float disk_gb_multiplier = 3.0
-    Int preemptible = 1
+    Int preemptible = 0
   }
 
   Int disk_gb = ceil(size(source_vcf, "GB") * disk_gb_multiplier) + disk_gb_floor
@@ -891,11 +891,11 @@ task WriteRuAdmixedVcf {
     Float max_hap_missing = 0.1
     String coding = "ru"
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
-    Int cpu = 2
-    Int memory_gb = 8
+    Int cpu = 1
+    Int memory_gb = 6
     Int disk_gb_floor = 50
     Float disk_gb_multiplier = 3.0
-    Int preemptible = 1
+    Int preemptible = 0
   }
 
   Int disk_gb = ceil(size(annotated_vcf, "GB") * disk_gb_multiplier) + disk_gb_floor
@@ -962,10 +962,10 @@ task RunFelixStep2RuVcf {
     Int min_carriers = 20
     Float pvalcutoff_of_haplotype = 0.05
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
-    Int cpu = 2
-    Int memory_gb = 16
+    Int cpu = 1
+    Int memory_gb = 6
     Int disk_gb = 50
-    Int preemptible = 1
+    Int preemptible = 3
   }
 
   command <<<
@@ -1023,7 +1023,7 @@ task CompareRuArms {
     Float p_threshold = 0.00000005
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 1
-    Int memory_gb = 8
+    Int memory_gb = 32
     Int disk_gb_floor = 20
     Float disk_gb_multiplier = 3.0
     Int preemptible = 1
@@ -1232,8 +1232,8 @@ workflow FelixGenome {
     Float summarize_p_threshold = 0.00000005
     Int summarize_top_n = 50
 
-    Int pack_cpu = 4
-    Int pack_memory_gb = 16
+    Int pack_cpu = 1
+    Int pack_memory_gb = 6
     Int pack_disk_gb_floor = 100
     Float pack_disk_gb_multiplier = 3.5
     Int step2_disk_gb_floor = 50
