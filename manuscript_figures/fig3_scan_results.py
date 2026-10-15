@@ -174,7 +174,7 @@ def render():
 
     # ---- A: table coloured by significance (as in fig3_scan_merged)
     M._head(fig, "A", "Testable phecodes by ancestry group and PhecodeX chapter*", 0.02, M.A_HEAD_Y)
-    th = panel_matrix_h(fig, cov, left=1.30, top=M.A_TOP, style=M.sig_style(cov, sig), pooled_label="Pooled", cw=0.294,
+    th = panel_matrix_h(fig, cov, left=1.30, top=M.A_TOP, style=M.sig_style(cov, sig), pooled_label="Joint", cw=0.294,
                         x_pop=-1.22, pooled_gap=0.0, count_labels=("Participants with\nPacBio data", "In analysis"))
     assert abs(th - th_expect) < 1e-9, (th, th_expect)
     x_right = fig.axes[0].get_position().x1 * fig.get_size_inches()[0]  # the table's right edge

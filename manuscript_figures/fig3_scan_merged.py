@@ -1,7 +1,7 @@
 """Figure 3 mock-up, layout 3: layout 2's table, coloured by significance, replacing the hit map.
 
 A  Testable phecodes (observed counts) by ancestry group and PhecodeX chapter, as in layout 2. Cell colour = number of
-   genome-wide-significant SV-phecode associations in the chapter (pooled test for the Pooled row, within-group test
+   genome-wide-significant SV-phecode associations in the chapter (joint test for the Joint row, within-group test
    for the groups; simulated); white = nothing testable, light grey = testable without a significant association.
    This folds layout 1's panel B (hit map) into the table.
 B  Calibration of the FELIX headline test on null (GRM-simulated) phenotypes, one QQ curve per case-count stratum.
@@ -271,7 +271,7 @@ def key_card_annotated(fig, left, top):
 
 
 def render():
-    cov = S.build_coverage("testable")  # chapters ordered by the Pooled cell, largest first (ties: alphabetical)
+    cov = S.build_coverage("testable")  # chapters ordered by the Joint cell, largest first (ties: alphabetical)
     pooled = [cov.testable[ch]["ALL"] for ch in cov.chapters]
     assert all(a >= b for a, b in zip(pooled, pooled[1:])), "chapter columns must be sorted by the Pooled cell"
     assert cov.mode == "group", "significance colours are defined for the 7-group view"
@@ -280,13 +280,13 @@ def render():
     rng = np.random.default_rng(S.SEED + 9)
 
     # figure height: matrix rows (+ the two gaps) set where B-D start; everything below follows layout 1
-    th_expect = 0.150 * (len(cov.keys) + 2) + 0.04  # one gap, under the chapter-count row; Pooled is an ordinary row
+    th_expect = 0.150 * (len(cov.keys) + 2) + 0.04  # one gap, under the chapter-count row; Joint is an ordinary row
     r2_top, r2_h = A_TOP + th_expect + 0.62, 1.35
     fig = new_figure(H_REF - (R2_TOP_REF - r2_top) - (CARD_H + 0.10))  # layout 1's bottom margin, one card row instead of two
 
     # ---- A: table coloured by significance
     _head(fig, "A", "Testable phecodes by ancestry group and PhecodeX chapter*", 0.02, A_HEAD_Y)  # * = not real data yet
-    th = panel_matrix_h(fig, cov, left=1.30, top=A_TOP, style=sig_style(cov, sig), pooled_label="Pooled", cw=0.294,
+    th = panel_matrix_h(fig, cov, left=1.30, top=A_TOP, style=sig_style(cov, sig), pooled_label="Joint", cw=0.294,
                        x_pop=-1.22, pooled_gap=0.0,
                        count_labels=("Participants with\nPacBio data", "In analysis"))
     assert abs(th - th_expect) < 1e-9, (th, th_expect)

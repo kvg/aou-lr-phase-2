@@ -40,7 +40,7 @@ STAMP_REAL = {
               "All other panels are simulated."),
 }
 SUBTITLE = {
-    "group": "At least {c} cases in the ancestry group (All: pooled)",
+    "group": "At least {c} cases in the ancestry group (All: joint)",
     "local": "At least {c} cases (All) or {h} case haplotypes of a local ancestry",
 }
 STAMP_SIM = "Case counts, statistics and loci are placeholders; denominators from covariates.v8."

@@ -59,6 +59,12 @@ their outputs already exist under the same `PCA_RUN_LABEL`. Use `PCA_FORCE_REIMP
 `PCA_FORCE_GLOBAL_PCA`, or `PCA_FORCE_WITHIN_POPULATION` to rerun a stage. See each
 notebook’s intro for details.
 
+Phenotype table:
+
+| Notebook | Use |
+|---|---|
+| `pheno_00_table_summary.ipynb` | Summarize one phenotype CSV from several angles — shape and phecode dialect, cohort attrition, code burden, cases by PhecodeX chapter, chapter prevalence per ancestry group, local-ancestry testability in case haplotypes, the sex-specific audit against the PhecodeX `sex` column, and r²/parent-child redundancy among testable phecodes — and render **Figure 3 panels A and B** on the observed counts. Nothing is re-implemented: `scripts/make_fig3_case_counts.py` writes the counts into a staging root (`AOU_LR_MANUSCRIPT_ROOT`), `fig3_sim.build_coverage` reads them, and the panels are drawn by `panel_matrix_h` and `fig3_interim.panel_cutoff` with `assert not cov.simulated`, so the notebook cannot fall back to the package's layout placeholders or disagree with the plate about `fig3_sim.MIN_CASES`. Inputs are discovered from `$WORKSPACE_BUCKET`; `PHENO_PHENOTYPE_GCS`, `PHENO_SELECTION_PREFIX`, `PHENO_GLOBAL_ANC_GCS` (required — the `hap_*` columns), `PHENO_COHORT` and `PHENO_CODE_REPO` override. The output file names follow the cohort (`*_current` for the selector cohort the scan is fitted on), so a legacy run cannot overwrite the current figure's inputs |
+
 SNV / indel callset stats:
 
 | Notebook | Use |

@@ -92,17 +92,21 @@ def load_phecodes() -> list[dict]:
     return rows
 
 
-def load_cohort_summary() -> dict:
-    path = ROOT / "data" / "fig3_cohort_summary.json"
+def load_cohort_summary(path: Path | None = None) -> dict:
+    """Cohort summary JSON; ``path`` overrides the default data/fig3_cohort_summary.json."""
+    path = Path(path) if path else ROOT / "data" / "fig3_cohort_summary.json"
     if path.is_file():
         with open(path) as fh:
             return json.load(fh)
     return dict(_FALLBACK_SUMMARY)
 
 
-def load_case_counts():
-    """phecode -> {n_cases, n_eligible, cases: {group: n}, hap: {local ancestry: expected case haplotypes}}."""
-    path = ROOT / "data" / "fig3_phecode_case_counts.tsv"
+def load_case_counts(path: Path | None = None):
+    """phecode -> {n_cases, n_eligible, cases: {group: n}, hap: {local ancestry: expected case haplotypes}}.
+
+    ``path`` overrides the default data/fig3_phecode_case_counts.tsv; scripts/make_fig3_case_counts.py writes the table.
+    """
+    path = Path(path) if path else ROOT / "data" / "fig3_phecode_case_counts.tsv"
     if not path.is_file():
         return None
     out = {}
@@ -170,16 +174,18 @@ class Coverage:
     simulated: bool = True
 
 
-def build_coverage(order: str = "testable", mode: str | None = None) -> Coverage:
+def build_coverage(order: str = "testable", mode: str | None = None, counts_path: Path | None = None,
+                   summary_path: Path | None = None) -> Coverage:
+    """Testable phecodes per chapter and ancestry; ``counts_path``/``summary_path`` select another cohort's tables."""
     mode = mode or ANC_MODE
     rng = np.random.default_rng(SEED)
     phe = load_phecodes()
-    summ = load_cohort_summary()
+    summ = load_cohort_summary(summary_path)
     keys = ancestry_keys(mode)
     chapters = sorted({r["category"] for r in phe})
     n_in = {c: sum(r["category"] == c for r in phe) for c in chapters}
     testable = {c: {k: 0 for k in keys + ["ALL"]} for c in chapters}
-    real = load_case_counts()
+    real = load_case_counts(counts_path)
     if real is not None:
         for r in phe:
             row = real.get(r["phecode"])

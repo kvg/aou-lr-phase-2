@@ -15,6 +15,7 @@ from . import fig1_null as fig1_cohort
 from . import fig2_associations
 from . import fig2_full_model
 from . import fig3_mhc
+from . import fig3_interim
 from . import fig3_scan
 from . import fig3_scan_chapter_cards
 from . import fig3_scan_merged
@@ -41,6 +42,7 @@ from . import figS15_phewas_heatmap
 from . import figS16_zip_map
 from . import figS17_signed_length
 from . import figS18_p1p2_counts
+from . import figS_phecode_cutoff
 from .style import OUTDIR, apply_style
 
 MAIN_FIGURES = [
@@ -55,6 +57,7 @@ MAIN_FIGURES = [
 # Layout exploration; not part of the six-figure contact sheet.
 EXPLORATION_FIGURES = [
     ("fig2_full_model", fig2_full_model.render),
+    ("fig3_interim", fig3_interim.render),
     ("fig3_scan", fig3_scan.render),
     ("fig3_scan_chapter_cards", fig3_scan_chapter_cards.render),
     ("fig3_scan_merged", fig3_scan_merged.render),
@@ -81,6 +84,7 @@ SUPP_FIGURES = [
     ("figS16_zip_map", figS16_zip_map.render),
     ("figS17_signed_length", figS17_signed_length.render),
     ("figS18_p1p2_counts", figS18_p1p2_counts.render),
+    ("figS_phecode_cutoff", figS_phecode_cutoff.render),
 ]
 
 FIGURES = MAIN_FIGURES + EXPLORATION_FIGURES + SUPP_FIGURES
@@ -175,6 +179,7 @@ def render_all(which: list[str] | None = None) -> list[tuple[str, str, str]]:
             "Fig. S16  ZIP3 map by ancestry",
             "Fig. S17  Signed variant length",
             "Fig. S18  Phase 1 vs Phase 2 counts",
+            "Fig. S19  Testable phecodes vs cutoff",
         ]
         sheet = _contact_sheet(
             supp_pngs,

@@ -29,6 +29,7 @@ from .fig2_full_model import (
 )
 from .style import (
     ANC_COLORS,
+    ANC_LIKE,
     ANC_ORDER,
     ANC_TEXT as ANC_TEXT_COLORS,
     HG38_MB,
@@ -1087,7 +1088,7 @@ def panel_discovery_ebert(ax, rng: np.random.Generator) -> None:
 
 
 def load_discovery_cohort(*, with_ids: bool = False):
-    """Join Fig 1 computed-ancestry labels with FLARE chr1 global proportions.
+    """Join Fig 1 computed-ancestry labels with FLARE global ancestry proportions.
 
     Returns (props n×5 in LAI order, labels in ANC_ORDER codes), plus the
     research ids when ``with_ids``; None if inputs are missing.
@@ -1155,6 +1156,7 @@ def panel_discovery_structure(
     strip_labels: dict[str, str] | None = None,
     strip_label_rotation: float = 0.0,
     strip_label_pad: float = 12,
+    label_room: float = 0.0,
 ) -> plt.Axes:
     """Butterfly of cumulative SVs absent from HPRC/HGSVC3 (INS +y, DEL −y) over the ancestry strip.
 
@@ -1164,7 +1166,9 @@ def panel_discovery_structure(
     ``strip_labels`` renames the blocks under the strip (for the genetic-
     similarity descriptors), ``strip_label_rotation`` turns them so a long
     name fits under a narrow block, and ``strip_label_pad`` moves the axis
-    label clear of them. The defaults leave the Figure 2 plate unchanged.
+    label clear of them. ``label_room`` adds an empty row below the strip so
+    the two subpanels shrink and the turned labels fit inside the same cell.
+    The defaults leave the Figure 2 plate unchanged.
     """
     loaded = load_discovery_cohort()
     if loaded is not None:
@@ -1199,7 +1203,10 @@ def panel_discovery_structure(
             cum = np.cumsum(new * total / new.sum())
             strata[key] = {"singleton": cum * sing_frac, "recurrent": cum * (1.0 - sing_frac), "total": cum}
 
-    sub = cell.subgridspec(2, 1, height_ratios=[1.0, 0.30], hspace=0.06)
+    # A third ratio leaves an empty row under the strip: both subpanels shrink
+    # and the turned block labels get the height, without moving the cell.
+    rows = [1.0, 0.30] if not label_room else [1.0, 0.30, label_room]
+    sub = cell.subgridspec(len(rows), 1, height_ratios=rows, hspace=0.06)
     ax = fig.add_subplot(sub[0, 0])
     ax_q = fig.add_subplot(sub[1, 0], sharex=ax)
     n_gaps = len(np.unique(blocks)) - 1
@@ -1788,12 +1795,17 @@ def _match_xlabel_baseline(fig, source: str, target: str) -> None:
         found[target].xaxis.labelpad += gap_pt
 
 
-def option_b(rng, examples=None, stem: str = "fig2_option_b_length_spine", ratios: tuple[float, float] = (0.55, 1.50), summary: str = "new", row_scales: str = "shared", note: str | None = "(mock-up)") -> tuple[Path, Path]:
+def option_b(rng, examples=None, stem: str = "fig2_option_b_length_spine", ratios: tuple[float, float] = (0.55, 1.50), summary: str = "new", row_scales: str = "shared", note: str | None = "(mock-up)", anc_labels: bool = False, strip_rotation: float = 45.0, strip_pad: float = 30, strip_label_room: float = 0.0) -> tuple[Path, Path]:
     """B · Context-stacked spectrum over discovery and the repeat allelic series.
 
     ``examples`` is the panel C locus list. None keeps two known loci and two
     high-PLVI stand-ins. The summary above them is Phase 2 lengths by carrier
     count, split into lengths Phase 1 already had and lengths it did not.
+
+    ``anc_labels`` puts the genetic-similarity descriptors (AFR-like and the
+    rest) under panel B's ancestry strip, turned by ``strip_rotation`` so a
+    long name fits under a narrow block. ``strip_label_room`` shortens B's two
+    subpanels to free height for them.
     """
     from .fig2_panel_c_options import panel_rarefaction_examples
 
@@ -1806,7 +1818,13 @@ def option_b(rng, examples=None, stem: str = "fig2_option_b_length_spine", ratio
     _spectrum_letter(fig, ax_a)
     # The symlog rows put their haplotype scale and gene names in the gutter, so C starts further left.
     row2 = gs[1].subgridspec(1, 2, wspace=0.30 if row_scales != "symlog" else 0.24, width_ratios=[1.0, 1.05 if row_scales != "symlog" else 1.12])
-    ax = panel_discovery_structure(fig, row2[0, 0], rng)
+    ax = panel_discovery_structure(
+        fig, row2[0, 0], rng,
+        strip_labels=ANC_LIKE if anc_labels else None,
+        strip_label_rotation=strip_rotation if anc_labels else 0.0,
+        strip_label_pad=strip_pad if anc_labels else 12,
+        label_room=strip_label_room if anc_labels else 0.0,
+    )
     letter(fig, ax, "B", dx=0.075, dy=0.02)
     ax, ax_rows = panel_rarefaction_examples(fig, row2[0, 1], rng, examples=examples, ratios=ratios, summary=summary, row_scales=row_scales)
     letter(fig, ax, "C", dx=0.075, dy=0.02, note=note)
@@ -1925,6 +1943,8 @@ def render_main() -> tuple[Path, Path]:
         ratios=(0.48, 1.62),
         summary="carrier_unit",
         row_scales="symlog",
+        anc_labels=True,
+        strip_label_room=0.18,
         note=None,
     ):
         dst = dest / f"fig2_catalog{Path(src).suffix}"
