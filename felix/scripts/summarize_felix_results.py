@@ -12,6 +12,7 @@ Handles FELIX admixed columns including:
 from __future__ import annotations
 
 import argparse
+import gzip
 import os
 import re
 from pathlib import Path
@@ -262,7 +263,10 @@ def summarize_one(
         n_gw_sig = int((pv.notna() & (pv < p_threshold)).sum())
         del light, pv
     else:
-        with open(path, encoding="utf-8") as fh:
+        # Result tables are gzipped by ConcatPhenotypeScores; pandas handles
+        # that by extension but a bare open() would read the deflate stream.
+        opener = gzip.open if str(path).endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8") as fh:
             n_var = max(sum(1 for _ in fh) - 1, 0)
 
     # top_hits keeps every column, so stream the file and hold only top_n rows

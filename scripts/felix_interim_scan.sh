@@ -14,7 +14,7 @@
 #
 # Writes into <OUT>/:
 #   coverage.tsv                   phenotype  index  chromosomes_present  complete
-#   <phenotype>.merged.felix.tsv   one per complete phenotype
+#   <phenotype>.merged.felix.tsv.gz   one per complete phenotype
 #
 # --run is repeatable (and accepts a comma-separated list), because the shards
 # of one logical run can be spread across several submissions. A resubmission
@@ -206,7 +206,7 @@ fi
 # hit table; Manhattan plotting sorts by CHROM/POS anyway.
 awk -F'\t' 'NR>1 && $4=="yes" {print $2 "\t" $1}' "${OUT}/coverage.tsv" \
 | while IFS=$'\t' read -r idx pheno; do
-    dest="${OUT}/${pheno}.merged.felix.tsv"
+    dest="${OUT}/${pheno}.merged.felix.tsv.gz"
     if [[ -s "${dest}" ]]; then echo "  ${pheno}: exists, skipping" >&2; continue; fi
     mapfile -t uris < <(awk -F'\t' -v i="${idx}" '$1 == i {print $2}' "${OUT}/by_pheno.tsv") \
       2>/dev/null || uris=($(awk -F'\t' -v i="${idx}" '$1 == i {print $2}' "${OUT}/by_pheno.tsv"))
@@ -227,7 +227,7 @@ awk -F'\t' 'NR>1 && $4=="yes" {print $2 "\t" $1}' "${OUT}/coverage.tsv" \
 echo "" >&2
 echo "Merged TSVs in ${OUT}/. Summarise them with the same script the workflow uses:" >&2
 echo "  python3 felix/scripts/summarize_felix_results.py \\" >&2
-echo "    --results ${OUT}/*.merged.felix.tsv \\" >&2
+echo "    --results ${OUT}/*.merged.felix.tsv.gz \\" >&2
 echo "    --phenotypes \$(awk -F'\\t' 'NR>1 && \$4==\"yes\" {print \$1}' ${OUT}/coverage.tsv) \\" >&2
 echo "    --pheno-cov <pheno_cov.tsv> --out-dir ${OUT}/summary" >&2
 echo "(summarize_felix_results.py takes no --arm; the WDL uses that only to name its bundle.)" >&2

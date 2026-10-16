@@ -428,7 +428,7 @@ task ConcatPhenotypeScores {
   command <<<
     set -euo pipefail
     PHENO=$(python3 -c 'import sys; print(sys.argv[1].strip().strip(chr(34)).strip(chr(39)))' "~{phenotype}")
-    OUT="${PHENO}.felix.tsv"
+    OUT="${PHENO}.felix.tsv.gz"
     export PHENO OUT
     cat > shards.txt <<'EOF'
 ~{sep="\n" shard_tsvs}
@@ -472,27 +472,41 @@ EOF
     # Key matches the old python one: chromosome lexicographically, position
     # numerically. LC_ALL=C keeps the chromosome ordering byte-wise, which is
     # what python's str comparison did.
+    # Written GZIPPED and written ONCE. Uncompressed, the per-record arm is
+    # ~25.65 GB per phenotype (measured on BI_164) and gzip -6 gives 3.43x on a
+    # real result table, so this is ~24 TB -> ~7 TB across 951 phenotypes. It
+    # also makes the disk-bound Summarize ~3.4x faster, because that task's cost
+    # is bytes moved, not parsing.
+    #
+    # The `cp "${OUT}" merged.felix.tsv` that used to end this task kept a
+    # SECOND full copy in the same call directory -- Cromwell retains the whole
+    # execution directory, so both were billed. The phenotype-named form is
+    # recorded in merged.output_name.txt, which is all any consumer needed it
+    # for; nothing has to carry the bytes twice to preserve the name.
+    #
+    # Body rows are counted by awk inside the pipeline rather than by wc -l on
+    # the result, which would mean decompressing the whole output again.
     SORT_MEM_MB=$(( ~{memory_gb} * 1024 / 2 ))
     TAB=$(printf '\t')
     mkdir -p sorttmp
-    printf '%s\n' "${HDR}" > "${OUT}"
-    while IFS= read -r f; do
-      [[ -n "${f}" ]] || continue
-      tail -n +2 "${f}"
-    done < shards.txt \
-      | awk 'NF' \
-      | LC_ALL=C sort -t "${TAB}" -k1,1 -k2,2n -S "${SORT_MEM_MB}M" -T sorttmp \
-      >> "${OUT}"
+    {
+      printf '%s\n' "${HDR}"
+      while IFS= read -r f; do
+        [[ -n "${f}" ]] || continue
+        tail -n +2 "${f}"
+      done < shards.txt \
+        | awk 'NF{n++; print} END{printf "%d\n", n+0 > "body_rows.txt"}' \
+        | LC_ALL=C sort -t "${TAB}" -k1,1 -k2,2n -S "${SORT_MEM_MB}M" -T sorttmp
+    } | gzip -6 > merged.felix.tsv.gz
     rm -rf sorttmp
 
-    NROWS=$(( $(wc -l < "${OUT}") - 1 ))
-    echo "Wrote ${OUT} (${NROWS} variant rows from ${NSHARD} shards for ${PHENO})"
-    cp "${OUT}" merged.felix.tsv
+    NROWS=$(cat body_rows.txt)
+    echo "Wrote merged.felix.tsv.gz as ${OUT} (${NROWS} variant rows from ${NSHARD} shards for ${PHENO})"
     printf '%s\n' "${OUT}" > merged.output_name.txt
   >>>
 
   output {
-    File merged_tsv = "merged.felix.tsv"
+    File merged_tsv = "merged.felix.tsv.gz"
     File merged_name = "merged.output_name.txt"
   }
 
@@ -1048,17 +1062,17 @@ task CompareRuArms {
       --phenotype "${PHENO}" \
       --num-ancs ~{num_ancs} \
       --p-threshold ~{p_threshold} \
-      --out-tsv "arms/${PHENO}.ru_arms.tsv" \
+      --out-tsv "arms/${PHENO}.ru_arms.tsv.gz" \
       --out-summary-json "arms/${PHENO}.ru_arms.summary.json" \
       --out-md "arms/${PHENO}.ru_arms.md"
 
-    cp "arms/${PHENO}.ru_arms.tsv" arms_table.tsv
+    mv "arms/${PHENO}.ru_arms.tsv.gz" arms_table.tsv.gz
     cp "arms/${PHENO}.ru_arms.summary.json" arms_summary.json
-    cp "arms/${PHENO}.ru_arms.md" arms_table.md
+    mv "arms/${PHENO}.ru_arms.md" arms_table.md
   >>>
 
   output {
-    File arm_table = "arms_table.tsv"
+    File arm_table = "arms_table.tsv.gz"
     File arm_summary = "arms_summary.json"
     File arm_markdown = "arms_table.md"
   }
