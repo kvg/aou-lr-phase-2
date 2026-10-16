@@ -1046,8 +1046,15 @@ task RunFelixStep2RuVcf {
     RC=$?
     set -e
 
+    # Both greps must tolerate "no match": grep exits 1 then, and `set -o
+    # pipefail` is still in force from the top of the block, so an unguarded
+    # `grep -v ... | gzip` kills the task on exactly the HEALTHY case -- a shard
+    # whose stderr is nothing but suppressed warnings. The braces keep the
+    # guard on the grep rather than on the whole pipeline, so a real gzip
+    # failure still surfaces.
     MULTIALLELIC=$(grep -cF 'Warning: skipping multiallelic variant' step2.stderr || true)
-    grep -vF 'Warning: skipping multiallelic variant' step2.stderr | gzip -6 > step2.stderr.gz
+    { grep -vF 'Warning: skipping multiallelic variant' step2.stderr || true; } \
+      | gzip -6 > step2.stderr.gz
     printf '%s\n' "${MULTIALLELIC}" > multiallelic_warnings.txt
     echo "suppressed ${MULTIALLELIC} multiallelic warnings; remaining stderr in step2.stderr.gz"
 
@@ -1057,7 +1064,7 @@ task RunFelixStep2RuVcf {
       exit "${RC}"
     fi
 
-    cp "${PHENO}.ru.felix.tsv" results.ru.felix.tsv
+    mv "${PHENO}.ru.felix.tsv" results.ru.felix.tsv
   >>>
 
   output {
