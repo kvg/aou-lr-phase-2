@@ -1001,7 +1001,32 @@ task RunFelixStep2RuVcf {
     ln -sf "~{admixed_vcf}" ru.admixed.vcf.gz
     ln -sf "~{admixed_vcf_index}" ru.admixed.vcf.gz.csi
 
+    # stderr goes to a FILE, not to the runnable's stderr.
+    #
+    # FELIX's VCF reader prints one line per multiallelic record
+    # (src/VCF.cpp:181, "Warning: skipping multiallelic variant"), and the
+    # repeat-dosage VCF is multiallelic BY CONSTRUCTION -- one ALT per distinct
+    # length change, ~5.8 per locus. That is ~2.4M lines per phenotype per arm,
+    # across two arms and 951 phenotypes. Under the GCP Batch backend the agent
+    # ingests runnable stderr into Cloud Logging as batch_task_logs at
+    # $0.50/GiB, charged once at ingestion and unrecoverable by deleting.
+    #
+    # The message is wrong twice over, so nothing diagnostic is lost by keeping
+    # it out of Cloud Logging: VCF.cpp prints it and then does NOT skip -- there
+    # is no continue and no return, it falls through to t_alt = alts()[0] -- and
+    # the statistic does not come from the ALT at all. m_fmtField is DS here, so
+    # t_altCounts accumulates the DS values (VCF.cpp:223), and
+    # write_admixed_dosage_vcf.py has already summed every ALT's contribution
+    # into one per-haplotype dosage per DS{k}. The multiple ALTs are
+    # informational; only the reported ALT string takes alts()[0].
+    #
+    # So: capture stderr to a file, count the known-benign warning, keep the
+    # rest gzipped as a task output in the bucket at ~$0.02/GB-month where it
+    # can be read and deleted, and re-emit a bounded tail to real stderr ONLY on
+    # failure, so a genuine error is still diagnosable from the Terra UI.
+    #
     # --min-mac is a carrier count here (samples with a non-zero dosage).
+    set +e
     Rscript "~{run_step2_script}" \
       --vcf-file ru.admixed.vcf.gz \
       --vcf-index ru.admixed.vcf.gz.csi \
@@ -1016,13 +1041,29 @@ task RunFelixStep2RuVcf {
       --pvalcutoff-of-haplotype ~{pvalcutoff_of_haplotype} \
       --n-threads 1 \
       --out-tsv "${PHENO}.ru.felix.tsv" \
-      --out-raw "${PHENO}.ru.felix.raw.txt"
+      --out-raw "${PHENO}.ru.felix.raw.txt" \
+      2> step2.stderr
+    RC=$?
+    set -e
+
+    MULTIALLELIC=$(grep -cF 'Warning: skipping multiallelic variant' step2.stderr || true)
+    grep -vF 'Warning: skipping multiallelic variant' step2.stderr | gzip -6 > step2.stderr.gz
+    printf '%s\n' "${MULTIALLELIC}" > multiallelic_warnings.txt
+    echo "suppressed ${MULTIALLELIC} multiallelic warnings; remaining stderr in step2.stderr.gz"
+
+    if [[ "${RC}" -ne 0 ]]; then
+      echo "FELIX step2 (ru) failed with status ${RC}; last 200 non-suppressed stderr lines:" >&2
+      gzip -cd step2.stderr.gz | tail -n 200 >&2
+      exit "${RC}"
+    fi
 
     cp "${PHENO}.ru.felix.tsv" results.ru.felix.tsv
   >>>
 
   output {
     File results_tsv = "results.ru.felix.tsv"
+    File stderr_log = "step2.stderr.gz"
+    Int multiallelic_warnings = read_int("multiallelic_warnings.txt")
   }
 
   runtime {
