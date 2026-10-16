@@ -182,14 +182,35 @@ except ImportError:
         return out
 
 
+# UNCONDITIONAL forms first. The `_c` columns are NOT "conditional on markers
+# the caller named" -- FELIX selects the ancestry haplotypes whose own p-value
+# is <= --pvalcutoff-of-haplotype and conditions the joint test on those same
+# haplotypes, using the same data (src/Main.cpp:6147, reached from
+# mainMarkerAdmixedInCPP). Selecting on the outcome and then conditioning on it
+# drives VarMat_cond = VarMat - VarMatAdjCond toward singular exactly at the
+# markers that look interesting, and get_jointScore_pvalue falls back to a
+# pseudoinverse and returns values no test can produce: on BI_160_2 (54 cases)
+# P_het_admixed_c reached 1.7e-18 where P_het_admixed was 0.223, and the repeat
+# arm reported 4.0e-140. At the default cutoff of 0.05 with 5 ancestries,
+# 1 - 0.95^5 = 23% of markers are affected under the null.
+#
+# P_cct_admixed_c is a Cauchy combination, so one broken component dominates it
+# and the damage lands straight in the headline column. Preferring the
+# unconditional forms cleared 68 of 69 spurious genome-wide hits in the main arm
+# and all 28 in ru_biallelic.
+#
+# The `_c` forms stay as last-resort fallbacks only so older result tables still
+# summarise. That choice is self-documenting rather than silent: whichever
+# column is used is written to calibration_summary.tsv as `joint_p_col`, so
+# check that column before trusting lambda_gc_cct or n_gw_sig.
 FELIX_JOINT_P_COLS = [
-    "P_cct_admixed_c",
     "P_cct_admixed",
-    "P_hom_admixed_c",
     "P_hom_admixed",
-    "P_het_admixed_c",
     "P_het_admixed",
     "p.value_ancALL",
+    "P_cct_admixed_c",
+    "P_hom_admixed_c",
+    "P_het_admixed_c",
 ]
 
 
