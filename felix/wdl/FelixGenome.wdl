@@ -596,7 +596,16 @@ EOF
     docker: docker
     cpu: cpu
     memory: memory_gb + " GB"
-    disks: "local-disk " + disk_gb + " HDD"
+    # SSD, not HDD. This task is bytes-moved, not parsing: it localizes the
+    # merged table once and reads it twice. pd-standard gives 0.12 MiB/s per GiB
+    # and disk_gb = size x 2.0 + 50, so gzipping the input to 7.48 GB also
+    # shrinks the disk to 65 GB and DROPS throughput to 7.8 MB/s -- compression
+    # alone only takes 1.80 h to 0.82 h. pd-ssd is 0.48 MiB/s per GiB, so the
+    # same 65 GB runs at 31.2 MB/s and the task finishes in 0.20 h for the same
+    # ~$0.003. Raising disk_gb_floor to 250 on HDD reaches the same place, but
+    # that is a task input (so it is hashed) and asks for a 265 GB disk against
+    # a shared regional quota, where this asks for 65 GB.
+    disks: "local-disk " + disk_gb + " SSD"
     preemptible: preemptible
     maxRetries: 2
   }
