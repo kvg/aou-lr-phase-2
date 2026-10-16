@@ -377,6 +377,32 @@ task RunFelixStep2 {
     ln -sf "~{null_rda}" "step2/${PHENO}.rda"
     ln -sf "~{variance_ratio}" "step2/${PHENO}.varianceRatio.txt"
 
+    # stderr is DISCARDED, same as the repeat arm (RunFelixStep2RuVcf).
+    #
+    # VCF.cpp:181 genuinely cannot fire here -- this path reads the felixla
+    # packed prefix, not a VCF -- but that was never the whole exposure. The
+    # per-variant print that DOES reach this arm is in get_jointScore_pvalue
+    # (SKAT_funcs.cpp:1597), which falls back to a pseudoinverse when the K x K
+    # ancestry score covariance is numerically singular and logs a multi-line
+    # message each time, including an armadillo print of Phi.diag(). Its own
+    # comment says that happens "when one ancestry has essentially no carriers",
+    # i.e. routinely for rare loci split across 5 ancestries.
+    #
+    # It reaches this arm because run_felix_step2.R is one script: the arms
+    # differ only in --FELIXlaPrefix= vs --vcfFile= (lines 124/130) and both
+    # produce P_het_admixed_c, which is exactly what get_jointScore_pvalue
+    # computes. SKAT_funcs.o is in OBJECTS in src/Makevars, and the call site is
+    # Main.cpp:2521/4647/5435 inside the per-marker loop. This arm scores
+    # 25,041,072 variants per phenotype against the repeat arm's 1,598,658.
+    #
+    # stdout is deliberately NOT redirected: the only high-frequency thing on it
+    # is "Completed i/q markers in the chunk" (Main.cpp:379), gated by
+    # (i+1) % g_marker_chunksize with markers_per_chunk defaulting to 10000
+    # (SAIGE_Test_main.R:90, not overridden here), so ~2,500 lines per
+    # phenotype. That is a few MB across the campaign and is worth keeping.
+    #
+    # Cost: a failing shard leaves no stderr. Diagnose by re-running the single
+    # shard with this redirect removed.
     Rscript "~{run_step2_script}" \
       --felixla-prefix "${PREFIX}" \
       --chrom "${CHROM}" \
@@ -389,7 +415,8 @@ task RunFelixStep2 {
       --pvalcutoff-of-haplotype ~{pvalcutoff_of_haplotype} \
       --n-threads 1 \
       --out-tsv "${PHENO}.felix.tsv" \
-      --out-raw "${PHENO}.felix.raw.txt"
+      --out-raw "${PHENO}.felix.raw.txt" \
+      2> /dev/null
 
     cp "${PHENO}.felix.tsv" results.felix.tsv
     printf '%s\n' "${PHENO}.felix.tsv" > results.output_name.txt
