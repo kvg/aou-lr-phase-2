@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -87,7 +86,16 @@ except ImportError:
         budget = PLOT_MAX_POINTS - int(mask.sum())
         rest = np.flatnonzero(~mask)
         if budget > 0 and rest.size:
-            step = max(1, rest.size // budget)
+            # CEILING division. Floor made rest[::step] LONGER than the budget
+            # (319,401 vs 298,411 on BI_164's repeat arm), and the [:budget]
+            # that followed then dropped ~21,000 points from the END OF FILE
+            # ORDER rather than sampling them away uniformly. ConcatPhenotypeScores
+            # merges with LC_ALL=C sort -k1,1, which is byte-wise, so chr9 sorts
+            # LAST -- the whole of chr9 and the top 46% of chr8 vanished from the
+            # Manhattan dense band while the always-kept p<1e-3 points still drew
+            # across the hole. Plot only: lambda and every count come from the
+            # full vector, but the figure was wrong and looked like missing data.
+            step = max(1, -(-rest.size // budget))
             mask[rest[::step][:budget]] = True
         return mask
 
@@ -198,7 +206,6 @@ def summarize_one(
     path: Path,
     phenotype: str,
     out_dir: Path,
-    named_dir: Path,
     pheno_cov: Path | None,
     top_n: int,
     p_threshold: float,
@@ -207,17 +214,13 @@ def summarize_one(
     ph_dir = out_dir / "qc" / safe
     ph_dir.mkdir(parents=True, exist_ok=True)
 
-    named_path = named_dir / f"{safe}.felix.tsv"
-    # Hardlink rather than copy. These are up to ~27 GB each on the per-record
-    # arm and the same bytes are already a workflow output (results_tsvs), so
-    # copying doubled the task's disk for no new content. Falls back to a copy
-    # across filesystems.
-    if named_path.exists() or named_path.is_symlink():
-        named_path.unlink()
-    try:
-        os.link(path, named_path)
-    except OSError:
-        shutil.copy2(path, named_path)
+    # No phenotype-named duplicate is written. It was a hardlink locally, which
+    # cost nothing in the task, but it was ALSO a workflow output, so Cromwell
+    # delocalized the same bytes a second time under a second name: 25.65 GB of
+    # BI_164.felix.tsv beside an identical merged.felix.tsv, 24 TB of pure
+    # duplication across 951 phenotypes on the per-record arm. Nothing in any
+    # WDL, script or notebook ever consumed results_tsvs_named; the manifest
+    # records the real path instead.
 
     # Column names from the header alone, then read only what each step needs.
     # This used to be a single pd.read_csv of the whole file, which is fine for
@@ -284,7 +287,7 @@ def summarize_one(
     return {
         "phenotype": phenotype,
         "safe_name": safe,
-        "result_path": str(named_path),
+        "result_path": str(path),
         "n_variants": n_var,
         "n_joint_tested": n_joint,
         "joint_p_col": pcol or "",
@@ -303,38 +306,43 @@ def main() -> None:
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--top-n", type=int, default=50)
     ap.add_argument("--p-threshold", type=float, default=5e-8)
+    ap.add_argument("--arm", default=None,
+                    help="arm label to record as the first column (main / ru / ru_biallelic). "
+                         "Without it a calibration_summary.tsv lifted out of its tarball is "
+                         "indistinguishable from the other arms' except by joint_p_col.")
     args = ap.parse_args()
 
     if len(args.results) != len(args.phenotypes):
         raise SystemExit("results and phenotypes length mismatch")
 
     out_dir = args.out_dir
-    named_dir = out_dir / "results_by_phenotype"
-    named_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
     for path, pheno in zip(args.results, args.phenotypes):
         rows.append(
             summarize_one(
-                path, pheno, out_dir, named_dir, args.pheno_cov, args.top_n, args.p_threshold
+                path, pheno, out_dir, args.pheno_cov, args.top_n, args.p_threshold
             )
         )
 
     manifest = pd.DataFrame(rows)
+    if args.arm:
+        manifest.insert(0, "arm", args.arm)
     manifest.to_csv(out_dir / "results_manifest.tsv", sep="\t", index=False)
 
-    cal = manifest[
-        [
-            "phenotype",
-            "joint_p_col",
-            "lambda_gc_cct",
-            "n_variants",
-            "n_joint_tested",
-            "n_gw_sig",
-            "n_samples",
-            "n_cases",
-        ]
+    cal_cols = [
+        "phenotype",
+        "joint_p_col",
+        "lambda_gc_cct",
+        "n_variants",
+        "n_joint_tested",
+        "n_gw_sig",
+        "n_samples",
+        "n_cases",
     ]
+    if args.arm:
+        cal_cols.insert(0, "arm")
+    cal = manifest[cal_cols]
     cal.to_csv(out_dir / "calibration_summary.tsv", sep="\t", index=False)
     print(f"Wrote {out_dir / 'results_manifest.tsv'} ({len(rows)} phenotypes)")
 

@@ -549,6 +549,7 @@ EOF
       --phenotypes "${PHENO_ARR[@]}" \
       --pheno-cov "~{pheno_cov}" \
       --out-dir summary \
+      --arm "~{arm}" \
       --top-n ~{top_n} \
       --p-threshold ~{p_threshold}
 
@@ -571,7 +572,6 @@ EOF
   output {
     File results_manifest = "summary/results_manifest.tsv"
     File calibration_summary = "summary/calibration_summary.tsv"
-    Array[File] results_tsvs_named = glob("summary/results_by_phenotype/*.felix.tsv")
     Array[File] qq_plots = glob("summary/qc/*/qq_cct.png")
     Array[File] manhattan_plots = glob("summary/qc/*/manhattan_cct.png")
     Array[File] top_hits_tables = glob("summary/qc/*/top_hits.tsv")
@@ -1626,7 +1626,6 @@ workflow FelixGenome {
     File? ru_results_manifest = SummarizeRu.results_manifest
     Array[File] results_tsvs = Concat.merged_tsv
     Array[File] results_names = Concat.merged_name
-    Array[File] results_tsvs_named = Summarize.results_tsvs_named
     File results_manifest = Summarize.results_manifest
     File calibration_summary = Summarize.calibration_summary
     Array[File] qq_plots = Summarize.qq_plots
