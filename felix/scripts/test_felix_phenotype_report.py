@@ -89,6 +89,7 @@ def test_case_carriers_sums_het_and_hom():
 
 def _synthetic_bundle(tmp_path):
     """A minimal felix_run.summary.tar.gz with the members the module reads."""
+    tmp_path = Path(tmp_path); tmp_path.mkdir(parents=True, exist_ok=True)
     tar = tmp_path / "felix_run.summary.tar.gz"
     cal = ("arm\tphenotype\tjoint_p_col\tlambda_gc_cct\tn_variants\tn_joint_tested\t"
            "n_gw_sig\tn_samples\tn_cases\n"
@@ -139,3 +140,76 @@ def test_coverage_note_fires_when_hits_exceed_the_file(tmp_path):
 def test_fetch_passes_through_local_paths(tmp_path):
     p = tmp_path / "x.txt"; p.write_text("hi")
     assert fpr.fetch(str(p)) == Path(str(p))
+
+
+# ---------------------------------------------------------------- sweep tests
+
+def test_cluster_positions_matches_arms_with_different_marker_ids():
+    # the SNV arm and the repeat arms name the same site differently
+    h = pd.DataFrame({"CHR": ["chr9", "chr9", "chr9", "chr1"],
+                      "POS": [8991058, 8991058, 8991200, 500],
+                      "MarkerID": ["chr9_8991058_T_TA", "9-8991058-8991069-A",
+                                   "9-8991200-8991210-T", "1-500-510-A"]})
+    lab = fpr.cluster_positions(h, window=1000)
+    assert lab.iloc[0] == lab.iloc[1] == lab.iloc[2]   # within 1 kb -> one locus
+    assert lab.iloc[3] != lab.iloc[0]                  # different chromosome
+
+
+def test_cluster_positions_splits_beyond_the_window():
+    h = pd.DataFrame({"CHR": ["chr1", "chr1"], "POS": [1000, 9000],
+                      "MarkerID": ["a", "b"]})
+    assert fpr.cluster_positions(h, window=1000).nunique() == 2
+
+
+def _hits(rows):
+    return pd.DataFrame(rows, columns=["run", "phenotype", "arm", "MarkerID",
+                                       "CHR", "POS", "p", "case_carriers", "verdict"])
+
+
+def test_corroborated_finds_one_locus_across_three_arms():
+    h = _hits([("r", "PH", "main", "chr9_8991058_T_TA", "chr9", 8991058, 1e-9, 38, "keep"),
+               ("r", "PH", "ru", "9-8991058-8991069-A", "chr9", 8991058, 1.4e-9, 38, "keep"),
+               ("r", "PH", "ru_biallelic", "9-8991058-8991069-A", "chr9", 8991058,
+                1.4e-9, 38, "keep")])
+    c = fpr.corroborated(h)
+    assert len(c) == 1 and int(c.n_arms.iloc[0]) == 3
+
+
+def test_corroborated_ignores_artifacts():
+    h = _hits([("r", "PH", "main", "m1", "chr1", 100, 1e-9, 30, "ARTIFACT"),
+               ("r", "PH", "ru", "m2", "chr1", 100, 1e-9, 0, "ARTIFACT")])
+    assert len(fpr.corroborated(h)) == 0
+
+
+def test_recurrence_counts_distinct_phenotypes_not_rows():
+    # same locus, same phenotype, three arms -> NOT recurrence
+    h = _hits([("r", "A", "main", "m", "chr1", 100, 1e-9, 30, "keep"),
+               ("r", "A", "ru", "m", "chr1", 100, 1e-9, 30, "keep"),
+               ("r", "A", "ru_biallelic", "m", "chr1", 100, 1e-9, 30, "keep")])
+    assert len(fpr.recurrence(h, min_phenotypes=2)) == 0
+    h2 = _hits([("r1", "A", "ru", "m", "chr1", 100, 1e-9, 30, "keep"),
+                ("r2", "B", "ru", "m", "chr1", 100, 1e-9, 30, "keep")])
+    r = fpr.recurrence(h2, min_phenotypes=2)
+    assert len(r) == 1 and int(r.n_phenotypes.iloc[0]) == 2
+
+
+def test_sweep_over_local_bundles(tmp_path):
+    from test_felix_phenotype_report import _synthetic_bundle  # noqa
+    tars = {f"run{i}": str(_synthetic_bundle(tmp_path / f"b{i}")) for i in range(2)}
+    tbl = pd.DataFrame([{"entity:x_id": k, "run_summary_tar": v} for k, v in tars.items()])
+    cal, hits, fails = fpr.sweep(tbl, "entity:x_id", store=str(tmp_path / "store"),
+                                 workers=2, progress=False)
+    assert len(fails) == 0
+    assert set(cal.run) == {"run0", "run1"}
+    assert len(cal) == 6                       # 2 runs x 3 arms
+    assert len(hits) == 6 and (hits.verdict == "ARTIFACT").all()
+
+
+def test_harvest_is_cached(tmp_path):
+    from test_felix_phenotype_report import _synthetic_bundle  # noqa
+    tar = str(_synthetic_bundle(tmp_path))
+    d1 = fpr.harvest(tar, "r", store=str(tmp_path / "s"))
+    marker = d1 / "main" / "calibration_summary.tsv"
+    marker.write_text("sentinel")             # second harvest must not overwrite
+    d2 = fpr.harvest(tar, "r", store=str(tmp_path / "s"))
+    assert d1 == d2 and marker.read_text() == "sentinel"

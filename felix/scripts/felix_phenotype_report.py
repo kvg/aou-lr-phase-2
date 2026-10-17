@@ -323,3 +323,169 @@ def repeat_qc_report(bundle: dict) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["_k"] = df.chrom.str.replace("chr", "", regex=False).astype(int)
     return df.sort_values("_k").drop(columns="_k").reset_index(drop=True)
+
+
+# ---------------------------------------------------------------- sweep
+
+SMALL_MEMBERS = ("./*/calibration_summary.tsv", "./*/qc/*/top_hits.tsv")
+
+
+def harvest(uri: str, run_id: str, store="harvest_cache") -> Path:
+    """Extract only the small members of a run bundle into a compact cache.
+
+    Streams the object through tar so the 125 MB tarball never lands on disk.
+    Returns the per-run cache directory; re-harvesting is a no-op.
+    """
+    out = Path(store) / run_id
+    if (out / ".done").exists():
+        return out
+    out.mkdir(parents=True, exist_ok=True)
+
+    streamed = False
+    if str(uri).startswith("gs://"):
+        # Stream through tar so the 125 MB tarball never lands on disk.
+        try:
+            proj = os.environ.get("GOOGLE_PROJECT")
+            cat = ["gsutil"] + (["-u", proj] if proj else []) + ["cat", uri]
+            tar = ["tar", "xz", "--wildcards", "-C", str(out)] + list(SMALL_MEMBERS)
+            p1 = subprocess.Popen(cat, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            p2 = subprocess.Popen(tar, stdin=p1.stdout, stderr=subprocess.DEVNULL)
+            p1.stdout.close()
+            p2.communicate()
+            p1.wait()
+            streamed = (p2.returncode == 0 and any(out.rglob("calibration_summary.tsv")))
+        except (OSError, subprocess.SubprocessError):
+            streamed = False      # no gsutil, no GNU tar, or a broken pipe
+
+    if not streamed:
+        # Local path, or the stream did not work: extract members directly.
+        local = fetch(uri, cache_dir=str(Path(store) / "_tmp"))
+        with tarfile.open(local) as t:
+            want = [m for m in t.getmembers()
+                    if m.name.endswith(("calibration_summary.tsv", "top_hits.tsv"))]
+            t.extractall(out, members=want, filter="data")
+        if str(uri).startswith("gs://"):
+            local.unlink(missing_ok=True)
+
+    (out / ".done").write_text("ok")
+    return out
+
+
+def read_harvest(run_dir: Path) -> dict:
+    """Rebuild the subset of a bundle dict that the screens need."""
+    b = {"arms": {}, "repeat_qc": {}, "arm_compare": {}, "source": str(run_dir)}
+    for arm in ARMS:
+        a = {}
+        cal = run_dir / arm / "calibration_summary.tsv"
+        if cal.exists():
+            a["calibration"] = pd.read_csv(cal, sep="\t")
+        th = list((run_dir / arm).rglob("top_hits.tsv")) if (run_dir / arm).is_dir() else []
+        if th:
+            a["top_hits"] = pd.read_csv(th[0], sep="\t", low_memory=False)
+            a["phenotype"] = th[0].parent.name
+        b["arms"][arm] = a
+    return b
+
+
+def sweep(table: pd.DataFrame, id_col: str, tar_col="run_summary_tar",
+          store="harvest_cache", num_ancs=5, workers=8, progress=True):
+    """Harvest and screen every run with a bundle.
+
+    Returns (per_run_calibration, all_hits, failures).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    rows = [(r[id_col], r[tar_col]) for _, r in table.iterrows()
+            if isinstance(r.get(tar_col), str) and r[tar_col]]
+    failures, dirs = [], {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(harvest, uri, rid, store): rid for rid, uri in rows}
+        for i, f in enumerate(as_completed(futs), 1):
+            rid = futs[f]
+            try:
+                dirs[rid] = f.result()
+            except Exception as exc:
+                failures.append(dict(run=rid, error=str(exc)[:160]))
+            if progress and i % 10 == 0:
+                print(f"  harvested {i}/{len(rows)}", flush=True)
+
+    cal_rows, hit_rows = [], []
+    for rid, d in sorted(dirs.items()):
+        b = read_harvest(d)
+        c = calibration_report(b)
+        c.insert(0, "run", rid)
+        cal_rows.append(c)
+        h = hit_report(b, num_ancs=num_ancs)
+        if len(h):
+            h.insert(0, "run", rid)
+            pheno = next((b["arms"][a].get("phenotype") for a in ARMS
+                          if b["arms"].get(a, {}).get("phenotype")), rid)
+            h.insert(1, "phenotype", pheno)
+            hit_rows.append(h)
+    cal = pd.concat(cal_rows, ignore_index=True) if cal_rows else pd.DataFrame()
+    hits = pd.concat(hit_rows, ignore_index=True) if hit_rows else pd.DataFrame()
+    return cal, hits, pd.DataFrame(failures)
+
+
+def cluster_positions(hits: pd.DataFrame, window=1000) -> pd.Series:
+    """Label hits that sit within `window` bp of each other on a chromosome.
+
+    Needed because MarkerID is not comparable across arms — the SNV arm writes
+    `chr9_8991058_T_TA;...` where the repeat arms write `9-8991058-8991069-A`
+    for the same site — so cross-arm agreement has to be matched on position.
+    """
+    if not len(hits):
+        return pd.Series(dtype=object)
+    d = hits[["CHR", "POS"]].copy()
+    d["POS"] = pd.to_numeric(d["POS"], errors="coerce")
+    d["_i"] = np.arange(len(d))
+    lab = pd.Series(index=hits.index, dtype=object)
+    for chrom, g in d.groupby("CHR", sort=False):
+        g = g.sort_values("POS")
+        new = (g.POS.diff() > window).fillna(True).cumsum()
+        for idx, c in zip(g.index, new):
+            lab.loc[idx] = f"{chrom}:{int(g.loc[g.index[new.eq(c).values.argmax()], 'POS'])}"
+    return lab
+
+
+def recurrence(hits: pd.DataFrame, min_phenotypes=2, window=1000) -> pd.DataFrame:
+    """Loci that are hits in several phenotypes, matched by position.
+
+    A locus surfacing across unrelated phenotypes is more often a property of
+    the locus (mapping, genotyping, a degenerate dosage) than real pleiotropy,
+    so this is a screen in its own right.
+    """
+    if not len(hits):
+        return pd.DataFrame()
+    h = hits.copy()
+    h["locus"] = cluster_positions(h, window)
+    g = (h.groupby("locus")
+          .agg(n_phenotypes=("phenotype", "nunique"), n_hits=("p", "size"),
+               arms=("arm", lambda s: ",".join(sorted(set(s)))),
+               kept=("verdict", lambda s: int((s == "keep").sum())),
+               artifacts=("verdict", lambda s: int((s == "ARTIFACT").sum())),
+               min_p=("p", "min"),
+               phenotypes=("phenotype", lambda s: ",".join(sorted(set(s)))))
+          .reset_index())
+    return (g[g.n_phenotypes >= min_phenotypes]
+            .sort_values(["n_phenotypes", "n_hits"], ascending=False)
+            .reset_index(drop=True))
+
+
+def corroborated(hits: pd.DataFrame, window=1000) -> pd.DataFrame:
+    """Retained hits seen in more than one arm of the same phenotype.
+
+    Matched by position, so a repeat locus and the SNV/indel records over the
+    same tandem array are recognised as the same finding.
+    """
+    if not len(hits):
+        return pd.DataFrame()
+    k = hits[hits.verdict == "keep"].copy()
+    if not len(k):
+        return pd.DataFrame()
+    k["locus"] = cluster_positions(k, window)
+    g = (k.groupby(["phenotype", "locus"])
+          .agg(n_arms=("arm", "nunique"), arms=("arm", lambda s: ",".join(sorted(set(s)))),
+               n_markers=("MarkerID", "nunique"), min_p=("p", "min"),
+               case_carriers=("case_carriers", "max"))
+          .reset_index())
+    return g[g.n_arms >= 2].sort_values("min_p").reset_index(drop=True)
