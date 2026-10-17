@@ -177,6 +177,23 @@ def calibration_report(bundle: dict) -> pd.DataFrame:
 
 
 def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFrame:
+    """Every genome-wide hit, with the reasons it cannot be believed.
+
+    Three independent exclusions, OR-ed into the verdict:
+
+    spa_fallback      SPA was attempted and bailed, so the reported p is the
+                      uncorrected normal-approximation score p.
+    no_case_carriers  N_case_het + N_case_hom == 0. No case carries the allele,
+                      so there is nothing for the phenotype to associate with,
+                      whatever the p-value says. This needs no statistics.
+    impossible_p      p is exactly 0. Underflowing a double takes chi2 ~ 1425
+                      at 1 df; a scan this size cannot produce that, so it
+                      marks a broken statistic rather than a strong hit.
+
+    Earlier versions reported case_carriers as a column but let only
+    spa_fallback decide. Over 70 phenotypes that left 10 zero-carrier loci and
+    2 exact-zero p-values among 34 "retained" hits, so all three now gate it.
+    """
     rows = []
     for arm in ARMS:
         a = bundle["arms"].get(arm, {})
@@ -187,10 +204,18 @@ def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFram
         mask, which = spa_fallback(th, num_ancs)
         cc = case_carriers(th)
         for i in th.index[p < P_GW]:
+            reasons = []
+            if mask[i]:
+                reasons.append("spa_fallback")
+            if int(cc[i]) == 0:
+                reasons.append("no_case_carriers")
+            if p[i] == 0:
+                reasons.append("impossible_p")
             rows.append(dict(arm=arm, MarkerID=th.at[i, "MarkerID"], CHR=th.at[i, "CHR"],
                              POS=th.at[i, "POS"], p=p[i], case_carriers=int(cc[i]),
                              spa_fallback=bool(mask[i]), detector=which[i],
-                             verdict="ARTIFACT" if mask[i] else "keep"))
+                             reasons=",".join(reasons) or ".",
+                             verdict="EXCLUDE" if reasons else "keep"))
     return pd.DataFrame(rows)
 
 
@@ -462,7 +487,7 @@ def recurrence(hits: pd.DataFrame, min_phenotypes=2, window=1000) -> pd.DataFram
           .agg(n_phenotypes=("phenotype", "nunique"), n_hits=("p", "size"),
                arms=("arm", lambda s: ",".join(sorted(set(s)))),
                kept=("verdict", lambda s: int((s == "keep").sum())),
-               artifacts=("verdict", lambda s: int((s == "ARTIFACT").sum())),
+               excluded=("verdict", lambda s: int((s == "EXCLUDE").sum())),
                min_p=("p", "min"),
                phenotypes=("phenotype", lambda s: ",".join(sorted(set(s)))))
           .reset_index())

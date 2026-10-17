@@ -124,7 +124,8 @@ def test_load_bundle_and_reports(tmp_path):
 
     hits = fpr.hit_report(b)
     assert len(hits) == 3                       # one hit in each arm's top_hits
-    assert (hits.verdict == "ARTIFACT").all()   # all are SPA fallbacks
+    assert (hits.verdict == "EXCLUDE").all()    # all are SPA fallbacks
+    assert hits.reasons.str.contains("spa_fallback").all()
 
     rq = fpr.repeat_qc_report(b)
     assert len(rq) == 1 and int(rq.loci_written.iloc[0]) == 42
@@ -176,8 +177,8 @@ def test_corroborated_finds_one_locus_across_three_arms():
 
 
 def test_corroborated_ignores_artifacts():
-    h = _hits([("r", "PH", "main", "m1", "chr1", 100, 1e-9, 30, "ARTIFACT"),
-               ("r", "PH", "ru", "m2", "chr1", 100, 1e-9, 0, "ARTIFACT")])
+    h = _hits([("r", "PH", "main", "m1", "chr1", 100, 1e-9, 30, "EXCLUDE"),
+               ("r", "PH", "ru", "m2", "chr1", 100, 1e-9, 0, "EXCLUDE")])
     assert len(fpr.corroborated(h)) == 0
 
 
@@ -202,7 +203,7 @@ def test_sweep_over_local_bundles(tmp_path):
     assert len(fails) == 0
     assert set(cal.run) == {"run0", "run1"}
     assert len(cal) == 6                       # 2 runs x 3 arms
-    assert len(hits) == 6 and (hits.verdict == "ARTIFACT").all()
+    assert len(hits) == 6 and (hits.verdict == "EXCLUDE").all()
 
 
 def test_harvest_is_cached(tmp_path):
@@ -237,3 +238,41 @@ def test_sweep_notebook_always_refreshes_the_module():
     # and it must verify what it imported rather than failing later on an attribute
     assert "sweep" in cell and "REQUIRED" in cell, \
         "bootstrap must assert the required functions are present"
+
+
+def _bundle_with_hit(tmp_path, case_het, case_hom, p, spa_ok=True):
+    """One arm, one hit, with the carrier counts and p we want to test."""
+    th = _frame(**{"Is.SPA_ancALL": spa_ok, "Tstat_ancALL": 0.1,
+                   "N_case_het_ancALL": case_het, "N_case_hom_ancALL": case_hom})
+    th["P_cct_admixed_c"] = p
+    th["CHR"], th["POS"] = "chr1", 100
+    b = {"arms": {a: {} for a in fpr.ARMS}}
+    b["arms"]["ru"] = {"top_hits": th, "phenotype": "PH"}
+    return b
+
+
+def test_zero_case_carriers_is_excluded_even_when_spa_converged():
+    # the simplest possible rejection: no case carries the allele
+    h = fpr.hit_report(_bundle_with_hit(None, 0, 0, 1e-30))
+    assert len(h) == 1
+    assert h.verdict.iloc[0] == "EXCLUDE"
+    assert "no_case_carriers" in h.reasons.iloc[0]
+    assert "spa_fallback" not in h.reasons.iloc[0]
+
+
+def test_exact_zero_pvalue_is_excluded():
+    h = fpr.hit_report(_bundle_with_hit(None, 20, 2, 0.0))
+    assert h.verdict.iloc[0] == "EXCLUDE"
+    assert "impossible_p" in h.reasons.iloc[0]
+
+
+def test_hit_with_carriers_and_converged_spa_is_kept():
+    h = fpr.hit_report(_bundle_with_hit(None, 30, 4, 1e-9))
+    assert h.verdict.iloc[0] == "keep" and h.reasons.iloc[0] == "."
+    assert int(h.case_carriers.iloc[0]) == 34
+
+
+def test_reasons_accumulate():
+    h = fpr.hit_report(_bundle_with_hit(None, 0, 0, 0.0, spa_ok=True))
+    r = h.reasons.iloc[0]
+    assert "no_case_carriers" in r and "impossible_p" in r
