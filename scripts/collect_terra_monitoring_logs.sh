@@ -10,6 +10,12 @@
 #
 # Writes <OUT>.tar.gz containing:
 #   <OUT>/manifest.tsv                    relpath  call  shard  attempt  subworkflow  size_bytes  gs_uri
+#   <OUT>/object_index.tsv                relpath  size_bytes  created_utc  -- every object
+#                                         under the run root. monitoring.log covers only the
+#                                         task command, so creation times of gcs_localization.sh
+#                                         (job start), rc (command end) and the delocalized
+#                                         outputs are what recover localization/delocalization
+#                                         time and output sizes. Skip with --no-index.
 #   <OUT>/run_root.txt                    the gs:// root these logs came from
 #   <OUT>/call-<Task>/shard-N/[attempt-K/]monitoring.log
 #
@@ -20,6 +26,7 @@
 #     WORKFLOW_NAME=FelixGenome ./scripts/collect_terra_monitoring_logs.sh
 #   OUT=felix_monitoring JOBS=16 ./scripts/collect_terra_monitoring_logs.sh gs://...
 #   ./scripts/collect_terra_monitoring_logs.sh --dry-run gs://...    # list only, no copy
+#   ./scripts/collect_terra_monitoring_logs.sh --no-index gs://...   # skip the object index
 #
 # Set GOOGLE_PROJECT to bill a requester-pays bucket (adds gsutil -u).
 #
@@ -32,12 +39,14 @@ OUT="${OUT:-terra_monitoring}"
 JOBS="${JOBS:-16}"
 WORKFLOW_NAME="${WORKFLOW_NAME:-FelixGenome}"
 DRY_RUN=0
+INDEX="${INDEX:-1}"
 
-usage() { sed -n '2,27p' "$0" | sed 's/^# \?//'; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \?//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n|--dry-run) DRY_RUN=1 ;;
+    --no-index) INDEX=0 ;;
     -j|--jobs) JOBS="$2"; shift ;;
     -o|--out) OUT="$2"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -116,6 +125,26 @@ STAGE="${WORKDIR}/${OUT}"
 mkdir -p "${STAGE}"
 cp "${WORKDIR}/manifest.tsv" "${STAGE}/manifest.tsv"
 printf '%s\n' "${RUN_ROOT}" > "${STAGE}/run_root.txt"
+
+# One recursive listing of the whole run root. `gsutil ls -l` prints
+# "<size> <ISO-8601 create time> <uri>" per object (and a trailing TOTAL line,
+# which has no gs:// in the last field and is dropped). Objects created by the
+# worker are timestamped at upload, so within a task directory the spread of
+# creation times brackets the command and its delocalization.
+if [[ "${INDEX}" -eq 1 ]]; then
+  echo "Indexing all objects under ${RUN_ROOT} ..." >&2
+  {
+    printf 'relpath\tsize_bytes\tcreated_utc\n'
+    gs ls -l "${RUN_ROOT}/**" 2>/dev/null \
+      | awk -v root="${RUN_ROOT}/" '
+          NF >= 3 && $NF ~ /^gs:\/\// && $1 ~ /^[0-9]+$/ {
+            uri = $NF; rel = uri; sub("^" root, "", rel)
+            print rel "\t" $1 "\t" $2
+          }' \
+      | sort
+  } > "${STAGE}/object_index.tsv"
+  echo "Indexed $(( $(wc -l < "${STAGE}/object_index.tsv") - 1 )) objects." >&2
+fi
 
 # One gsutil per file, JOBS at a time. gsutil -m cp -I would be one process but
 # flattens the names, and the path is the only thing identifying the task.
