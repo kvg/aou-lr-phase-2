@@ -213,3 +213,27 @@ def test_harvest_is_cached(tmp_path):
     marker.write_text("sentinel")             # second harvest must not overwrite
     d2 = fpr.harvest(tar, "r", store=str(tmp_path / "s"))
     assert d1 == d2 and marker.read_text() == "sentinel"
+
+
+def test_sweep_notebook_always_refreshes_the_module():
+    """Regression: felix_08 must not skip the bucket copy when the file exists.
+
+    felix_07 writes felix_phenotype_report.py into the working directory via
+    %%writefile, so a "fetch only if absent" guard silently imports whichever
+    copy happens to be there — which produced
+    `AttributeError: module has no attribute 'sweep'` against a pre-a67ebf5 copy.
+    """
+    nb_path = (Path(__file__).resolve().parents[2]
+               / "notebooks" / "terra" / "felix_08_hit_sweep.ipynb")
+    assert nb_path.exists(), f"notebook not found at {nb_path}"
+    nb = json.loads(nb_path.read_text())
+    setup = [ "".join(c["source"]) for c in nb["cells"]
+              if c["cell_type"] == "code" and "MODULE = Path(" in "".join(c["source"])]
+    assert len(setup) == 1, f"expected one bootstrap cell, found {len(setup)}"
+    cell = setup[0]
+    assert "if not MODULE.exists()" not in cell, \
+        "bootstrap is conditional again — it must always re-copy from the bucket"
+    assert "gsutil" in cell and "cp" in cell, "bootstrap no longer copies the module"
+    # and it must verify what it imported rather than failing later on an attribute
+    assert "sweep" in cell and "REQUIRED" in cell, \
+        "bootstrap must assert the required functions are present"
