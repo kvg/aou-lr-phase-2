@@ -358,10 +358,20 @@ task RunFelixStep2 {
     Float pvalcutoff_of_haplotype = 0.05
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
     Int cpu = 1
-    Int memory_gb = 6
+    # Peak memory across 22 chromosome shards of run 5b59d0a7 is 1.17 GiB, so 6
+    # was carrying 4.8 GiB of nothing. At 1 vCPU, memory is 44% of the machine
+    # rate, which made it the second-largest cost item after preemptibility.
+    Int memory_gb = 3
     Int disk_gb_floor = 50
     Float disk_gb_multiplier = 4.0
-    Int preemptible = 1
+    # NOT preemptible. A shard needs ~110 min and only 5 of 22 survived a spot
+    # attempt in run 5b59d0a7; the other 17 were killed at a median 34 min and
+    # then re-ran the FULL 110 min on demand, which was 84% of this task's cost
+    # and 67% of the whole workflow's. Spot is also false economy against the
+    # binding REGIONAL_INSTANCE_GROUP_MANAGERS quota, because a preempted retry
+    # holds a MIG slot for work that gets thrown away: modelling the observed
+    # 23% survival, preemptible=5 would be 40% cheaper but 32% SLOWER.
+    Int preemptible = 0
   }
 
   Int disk_gb = ceil(size(packed_tar, "GB") * disk_gb_multiplier) + disk_gb_floor
@@ -433,6 +443,19 @@ task RunFelixStep2 {
     memory: memory_gb + " GB"
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: preemptible
+    # Restored, reversing c717307. That commit stripped maxRetries from this
+    # task to protect the step-2 cache, while noting that doing so left Step2
+    # unprotected against the VMRebootedDuringExecution class that killed
+    # batch01, and that putting it back was "the single highest-value change
+    # available" once step 2 could be rebuilt. The stderr-discard snapshot
+    # rebuilds step 2 anyway, so that trade has expired.
+    #
+    # It is now load-bearing rather than belt-and-braces: preemptible = 0 above
+    # leaves no preemption retry, so without maxRetries a single host reboot
+    # fails the shard, its sub-workflow and the entire run. It cannot help the
+    # deterministic gamma_q_inv crashes -- those burn three attempts and fail
+    # anyway.
+    maxRetries: 2
   }
 }
 
