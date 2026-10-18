@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Pull one genomic window out of a FelixGenome run's merged results, for each arm, without downloading the files.
 
-The merged per-phenotype results are 0.5-27 GB, so this streams ``gsutil cat`` and keeps only the rows whose CHR and POS
-fall in the window. Written for the Figure 3 locus card (regional plot, per-ancestry effects), but it takes any window.
+The merged per-phenotype results are 0.5-27 GB (merged.felix.tsv, or merged.felix.tsv.gz for runs since 2026-10-15), so this
+streams ``gsutil cat`` and keeps only the rows whose CHR and POS fall in the window. Written for the Figure 3 locus card (regional plot, per-ancestry effects), but it takes any window.
 
     python3 extract_region.py --root gs://BUCKET/submissions/SUB/FelixGenome/WF \
         --chrom 9 --start 8480000 --end 9480000 --out-prefix fig3_locus_BI_174
@@ -15,6 +15,8 @@ An arm whose merged file is absent is reported and skipped.
 from __future__ import annotations
 
 import argparse
+import gzip
+import io
 import re
 import subprocess
 import sys
@@ -23,6 +25,8 @@ from typing import Iterable, Iterator
 
 ARM_CALL = {"main": "Concat", "ru": "RuConcat", "ru_biallelic": "BaConcat"}
 MERGED = "merged.felix.tsv"
+# Since 712c4a2 (2026-10-15) the concat tasks write merged.felix.tsv.gz; runs before that wrote the plain file. Both are read.
+MERGED_NAMES = (MERGED + ".gz", MERGED)
 
 
 def _chrom_key(v: str) -> str:
@@ -57,23 +61,32 @@ def filter_region(lines: Iterable[str], chrom: str, start: int, end: int, chr_co
             yield line
 
 
-def find_merged(root: str, call: str) -> str | None:
-    """Largest merged.felix.tsv under <root>/call-<call>/ (the real file, not a stub or a smaller attempt)."""
+def list_call(root: str, call: str) -> list[tuple[int, str]]:
+    """(size, uri) of every object under <root>/call-<call>/ (gsutil ls -l -r); empty when nothing is listed."""
     out = subprocess.run(["gsutil", "ls", "-l", "-r", f"{root.rstrip('/')}/call-{call}/"], capture_output=True, text=True)
-    best = None
+    objs = []
     for line in out.stdout.splitlines():
         parts = line.split()
-        if len(parts) >= 3 and parts[-1].endswith("/" + MERGED) and parts[0].isdigit():
-            if best is None or int(parts[0]) > best[0]:
-                best = (int(parts[0]), parts[-1])
+        if len(parts) >= 3 and parts[0].isdigit() and parts[-1].startswith("gs://"):
+            objs.append((int(parts[0]), parts[-1]))
+    return objs
+
+
+def find_merged(objs: list[tuple[int, str]]) -> str | None:
+    """Largest merged table (plain or .gz) among the listed objects: the real file, not a stub or a smaller attempt."""
+    best = None
+    for size, uri in objs:
+        if any(uri.endswith("/" + n) for n in MERGED_NAMES) and (best is None or size > best[0]):
+            best = (size, uri)
     return best[1] if best else None
 
 
 def extract(uri: str, out: Path, chrom: str, start: int, end: int) -> int:
-    cat = subprocess.Popen(["gsutil", "cat", uri], stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
+    cat = subprocess.Popen(["gsutil", "cat", uri], stdout=subprocess.PIPE, bufsize=1 << 20)
+    stream = gzip.GzipFile(fileobj=cat.stdout) if uri.endswith(".gz") else cat.stdout
     n = -1  # the header is not a row
     with open(out, "w") as fh:
-        for line in filter_region(cat.stdout, chrom, start, end):
+        for line in filter_region(io.TextIOWrapper(stream, encoding="utf-8"), chrom, start, end):
             fh.write(line)
             n += 1
     cat.stdout.close()
@@ -93,9 +106,12 @@ def main() -> int:
     a = ap.parse_args()
     bad = 0
     for arm in a.arms.split(","):
-        uri = find_merged(a.root, ARM_CALL[arm])
+        objs = list_call(a.root, ARM_CALL[arm])
+        uri = find_merged(objs)
         if not uri:
-            print(f"{arm}: no {MERGED} under call-{ARM_CALL[arm]}/ in {a.root}", file=sys.stderr)
+            print(f"{arm}: no {' or '.join(MERGED_NAMES)} under call-{ARM_CALL[arm]}/ in {a.root}", file=sys.stderr)
+            print("   gsutil listed " + (f"{len(objs)} objects there, e.g. " + ", ".join(u.rsplit('/', 1)[-1] for _, u in objs[:6])
+                                         if objs else "nothing there: check the root and your access"), file=sys.stderr)
             bad += 1
             continue
         out = Path(f"{a.out_prefix}.{arm}.tsv")

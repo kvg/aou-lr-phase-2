@@ -1,4 +1,7 @@
-"""Tests for the window filter in extract_region.py (the gsutil calls are not exercised here)."""
+"""Tests for extract_region.py: the window filter, the choice of merged file, and streaming plain and gzip tables (gsutil is faked)."""
+
+import gzip
+import io
 
 import pytest
 
@@ -48,3 +51,32 @@ def test_missing_position_column_is_an_error():
 
 def test_unparseable_position_is_skipped_not_fatal():
     assert kept([HEADER, "z\tchr9\tNA\t0.1\n", ROWS[2]]) == ["c"]
+
+
+def test_find_merged_takes_the_largest_plain_or_gzip_table():
+    base = "gs://b/sub/FelixGenome/wf/call-Concat"
+    objs = [(40, f"{base}/shard-0/merged.felix.tsv.gz"), (9000, f"{base}/shard-0/attempt-2/merged.felix.tsv.gz"),
+            (50, f"{base}/shard-0/stdout"), (8000, f"{base}/shard-0/other.tsv.gz")]
+    assert er.find_merged(objs) == f"{base}/shard-0/attempt-2/merged.felix.tsv.gz"  # runs since 712c4a2 write .gz
+    assert er.find_merged([(7, f"{base}/merged.felix.tsv")]) == f"{base}/merged.felix.tsv"  # older runs wrote the plain table
+    assert er.find_merged([(7, f"{base}/stdout"), (8, f"{base}/old_merged.felix.tsv.gz")]) is None
+    assert er.find_merged([]) is None
+
+
+class _FakePopen:
+    def __init__(self, payload: bytes):
+        self.stdout = io.BytesIO(payload)
+
+    def wait(self):
+        return 0
+
+
+@pytest.mark.parametrize("name", ["merged.felix.tsv", "merged.felix.tsv.gz"])
+def test_extract_streams_plain_and_gzip_tables(tmp_path, monkeypatch, name):
+    raw = (HEADER + "".join(ROWS)).encode()
+    payload = gzip.compress(raw) if name.endswith(".gz") else raw
+    monkeypatch.setattr(er.subprocess, "Popen", lambda *a, **k: _FakePopen(payload))
+    out = tmp_path / "x.tsv"
+    n = er.extract(f"gs://b/{name}", out, "9", 8_480_000, 9_480_000)
+    assert n == 3
+    assert [x.split("\t")[0] for x in out.read_text().splitlines()] == ["MarkerID", "b", "c", "d"]
