@@ -225,6 +225,15 @@ def calibration_report(bundle: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def ancestry_p(df: pd.DataFrame, k: int) -> pd.Series:
+    """The ancestry-specific test's p-value for local ancestry k (1-based, FLARE reference-panel order), conditioned on local
+    ancestry like the headline column (``p.value_c_anc{k}``); the unconditioned column when only that exists; NaN when neither does."""
+    for col in (f"p.value_c_anc{k}", f"p.value_anc{k}"):
+        if col in df.columns:
+            return pd.to_numeric(df[col], errors="coerce")
+    return pd.Series(np.nan, index=df.index)
+
+
 def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFrame:
     """Every genome-wide hit, with the reasons it cannot be believed.
 
@@ -257,6 +266,7 @@ def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFram
         mask, which = spa_fallback(th, num_ancs)
         cc = case_carriers(th)
         het_flag, ctrl_f, het_frac = excess_het(th, arm)
+        panc = {k: ancestry_p(th, k) for k in range(1, num_ancs + 1)}
         for i in th.index[p < P_GW]:
             reasons = []
             if mask[i]:
@@ -271,6 +281,7 @@ def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFram
                              POS=th.at[i, "POS"], p=p[i], case_carriers=int(cc[i]),
                              spa_fallback=bool(mask[i]), detector=which[i],
                              ctrl_het_frac=het_frac[i], ctrl_F=ctrl_f[i],
+                             **{f"p_anc{k}": panc[k][i] for k in panc},
                              reasons=",".join(reasons) or ".",
                              verdict="EXCLUDE" if reasons else "keep"))
     return pd.DataFrame(rows)

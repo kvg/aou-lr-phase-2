@@ -376,3 +376,25 @@ def test_sweep_notebook_requires_the_excess_het_screen():
     nb = json.loads((Path(__file__).resolve().parents[2] / "notebooks" / "terra" / "felix_08_hit_sweep.ipynb").read_text())
     setup = next("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code" and "MODULE = Path(" in "".join(c["source"]))
     assert '"excess_het"' in setup.split("REQUIRED", 1)[1].split("]", 1)[0]
+
+
+# ---------------------------------------------------------------- per-ancestry p-values in the hit table
+
+def test_hit_report_carries_each_ancestry_specific_p():
+    b = _bundle_fixed_het("main", n_het=4000, n_hom=800, p=1e-9)
+    th = b["arms"]["main"]["top_hits"]
+    th["p.value_c_anc2"], th["p.value_c_anc4"] = 3e-9, 0.02  # EAS, AMR, EUR, AFR, SAS = anc1..5
+    h = fpr.hit_report(b)
+    assert [h[f"p_anc{k}"].iloc[0] for k in range(1, 6)] == [0.5, 3e-9, 0.5, 0.02, 0.5]
+    assert h.verdict.iloc[0] == "keep"  # exported for the figure, not part of the screen
+
+
+def test_ancestry_p_prefers_the_conditioned_column_and_degrades_to_nan():
+    df = pd.DataFrame({"p.value_c_anc1": [1e-9], "p.value_anc1": [0.5], "p.value_anc2": [0.01]})
+    assert fpr.ancestry_p(df, 1).iloc[0] == 1e-9  # conditioned, as the headline P_cct_admixed_c is
+    assert fpr.ancestry_p(df, 2).iloc[0] == 0.01  # unconditioned when that is all there is
+    assert np.isnan(fpr.ancestry_p(df, 3).iloc[0])
+    b = _bundle_fixed_het("main", n_het=4000, n_hom=800, p=1e-9)
+    th = b["arms"]["main"]["top_hits"].drop(columns=[c for c in b["arms"]["main"]["top_hits"].columns if "p.value" in c and "_anc" in c])
+    b["arms"]["main"]["top_hits"] = th
+    assert fpr.hit_report(b)[[f"p_anc{k}" for k in range(1, 6)]].isna().all().all()  # a table without them still screens
