@@ -7,8 +7,9 @@ new download) and reports, for every run and arm, the strongest test that surviv
     spa_fallback      SPA attempted and failed, so P is the uncorrected normal approximation
     no_case_carriers  no case carries the allele
     impossible_p      P is exactly 0 (or missing)
+    excess_het        controls more heterozygous than Hardy-Weinberg allows (main and ru_biallelic arms)
 
-Same three exclusions as felix_phenotype_report.hit_report, imported rather than re-implemented, so the PheWAS panel and
+Same four exclusions as felix_phenotype_report.hit_report, imported rather than re-implemented, so the PheWAS panel and
 the hit table agree.
 
 Limits, carried into the columns. top_hits.tsv holds only the strongest N loci per arm (N = n_rows), ordered by the arm's own
@@ -44,7 +45,8 @@ def best_p_report(bundle: dict, num_ancs: int = 5, p_col: str = "P_cct_admixed_c
         p = pd.to_numeric(th[p_col], errors="coerce")
         spa, _ = fpr.spa_fallback(th, num_ancs)
         cc = fpr.case_carriers(th)
-        ok = ~(spa | (cc == 0) | (p == 0) | p.isna())
+        het, _, _ = fpr.excess_het(th, arm)
+        ok = ~(spa | (cc == 0) | (p == 0) | p.isna() | het)
         positive = p[p > 0]
         row = dict(arm=arm, phenotype=a.get("phenotype"), n_rows=int(len(th)), n_screened_in=int(ok.sum()),
                    p_bound=float(positive.max()) if len(positive) else np.nan)

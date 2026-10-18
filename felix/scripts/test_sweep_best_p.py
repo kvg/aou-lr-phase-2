@@ -67,3 +67,13 @@ def test_sweep_notebook_carries_the_figure3_cells_after_the_export():
     assert "fig3_locus_*.tsv" in bundle and "felix_sweep_*.tsv" in bundle and "scratch/kvg" in bundle  # best_p matches felix_sweep_*.tsv
     for s in (region, best):  # the shell lines of the last cell are IPython; the other two must be plain Python
         compile(s, "cell", "exec")
+
+
+def test_best_screened_row_skips_a_fixed_heterozygous_record():
+    # the strongest main-arm row is carried by every sample once; the next row follows Hardy-Weinberg
+    top = _top([("fixedhet", 1e-25, 6.0, 1.0, True, 78), ("good", 1e-9, 6.0, 1.0, True, 20)])
+    top["N_ctrl_ancALL"], top["N_ctrl_het_ancALL"], top["N_ctrl_hom_ancALL"] = [19156, 19000], [9573, 4000], [1, 800]
+    b = {"arms": {"main": {"top_hits": top, "phenotype": "CV_446_2"}, "ru": {"top_hits": top, "phenotype": "CV_446_2"}, "ru_biallelic": {}}}
+    r = sbp.best_p_report(b).set_index("arm")
+    assert r.loc["main"].MarkerID == "good" and r.loc["main"].n_screened_in == 1
+    assert r.loc["ru"].MarkerID == "fixedhet"  # the dosage arm has no genotype counts to screen on

@@ -5,6 +5,7 @@ Reads one FelixGenome `run_summary_tar` bundle and produces:
   * lambda recomputed independently from the arm-comparison p-values
   * the SPA-fallback screen applied to every genome-wide hit
   * case-carrier counts at each hit
+  * the excess-heterozygosity screen (controls vs Hardy-Weinberg) at each hit
   * a side-by-side QQ (as reported vs screened) for a chosen arm
   * repeat-genotyping QC rolled up across chromosomes
 
@@ -147,6 +148,54 @@ def case_carriers(df: pd.DataFrame) -> pd.Series:
     return (het + hom).astype(int)
 
 
+# Arms whose N_*_het / N_*_hom are genotype counts. The repeat-dosage arm ("ru") reports dosage sums there (its
+# AF columns are mean signed repeat units, negative for contractions), so Hardy-Weinberg does not apply to it.
+HET_ARMS = ("main", "ru_biallelic")
+# Controls' inbreeding coefficient below which a hit is excluded. F = 1 - (observed heterozygotes) / (2pq), so
+# -0.3 means 30% more heterozygotes than Hardy-Weinberg expects. Chosen from the distribution of F over the
+# 5,430 common (MAF >= 1/3) main-arm markers in five 1-Mb windows around sweep hits: the bulk lies in (0, 0.5], a
+# separate cluster of fixed-heterozygous sites lies in (-1, -0.5], and the valley between them (-0.4 to -0.1)
+# holds 1.3% of the markers. In the two windows with no such cluster the lowest F is -0.20 and -0.06. Real
+# heterozygote excess of this size does not arise from population structure (admixture raises homozygosity,
+# F > 0), so a cut anywhere in the valley gives the same result for the hits seen so far. Revisit it against the
+# ctrl_F column of a full sweep (felix_08, "Genotype check").
+EXCESS_HET_F = -0.3
+
+
+def excess_het(df: pd.DataFrame, arm: str = "main", f_cut: float = EXCESS_HET_F):
+    """Controls with more heterozygotes than Hardy-Weinberg allows: a record every sample carries once.
+
+    Returns (flag, F, het_frac), each aligned to ``df.index``. ``het_frac`` is the share of controls that are
+    heterozygous; ``F = 1 - het_frac / (2pq)`` with p the control allele frequency rebuilt from the same het and hom
+    counts. ``flag`` is ``F < f_cut``.
+
+    Why it is a screen. Under Hardy-Weinberg at most half the controls are heterozygous, whatever the allele
+    frequency. A record in which 98-100% of cases and 99% of controls are heterozygous, allele frequency 0.5 in
+    every ancestry, is a collapsed paralogue or a reference artefact, not a polymorphism. It also breaks the test:
+    every sample then carries exactly one alternate allele, the per-ancestry dosages sum to a constant, and FELIX's
+    K-df joint score (P_het, hence P_cct) is singular. Its p-value can be 1e-75 with per-ancestry statistics that
+    support nothing like it.
+
+    Scope. Only arms in ``HET_ARMS`` (the dosage arm has no genotype counts), and only where the control counts are
+    in the table; otherwise nothing is flagged and F is NaN, so the caller can see the screen did not run. The
+    bound het <= 2p means F < -0.3 needs MAF >= 0.23: a low-frequency record cannot show excess heterozygosity by
+    this measure, and this screen does not claim to catch one.
+    """
+    off = pd.Series(False, index=df.index)
+    nan = pd.Series(np.nan, index=df.index)
+    need = {"N_ctrl_ancALL", "N_ctrl_het_ancALL", "N_ctrl_hom_ancALL"}
+    if arm not in HET_ARMS or not need <= set(df.columns):
+        return off, nan, nan
+    n = (pd.to_numeric(df["N_ctrl_ancALL"], errors="coerce") / 2.0).where(lambda s: s > 0)  # haplotypes -> samples
+    het = pd.to_numeric(df["N_ctrl_het_ancALL"], errors="coerce")
+    hom = pd.to_numeric(df["N_ctrl_hom_ancALL"], errors="coerce")
+    p = (het + 2 * hom) / (2 * n)
+    expected = (2 * p * (1 - p)).where(lambda s: s > 0)
+    het_frac = het / n
+    f = 1 - het_frac / expected
+    return (f < f_cut).fillna(False), f, het_frac
+
+
 def lambda_gc(p) -> float:
     from scipy.stats import chi2
     p = np.asarray(pd.to_numeric(pd.Series(p), errors="coerce"), dtype=float)
@@ -179,7 +228,7 @@ def calibration_report(bundle: dict) -> pd.DataFrame:
 def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFrame:
     """Every genome-wide hit, with the reasons it cannot be believed.
 
-    Three independent exclusions, OR-ed into the verdict:
+    Four independent exclusions, OR-ed into the verdict:
 
     spa_fallback      SPA was attempted and bailed, so the reported p is the
                       uncorrected normal-approximation score p.
@@ -189,6 +238,10 @@ def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFram
     impossible_p      p is exactly 0. Underflowing a double takes chi2 ~ 1425
                       at 1 df; a scan this size cannot produce that, so it
                       marks a broken statistic rather than a strong hit.
+    excess_het        the controls are more heterozygous than Hardy-Weinberg
+                      allows (F < EXCESS_HET_F, see excess_het). A record every
+                      sample carries once is a paralogue or reference artefact and
+                      its joint test is singular. main and ru_biallelic only.
 
     Earlier versions reported case_carriers as a column but let only
     spa_fallback decide. Over 70 phenotypes that left 10 zero-carrier loci and
@@ -203,6 +256,7 @@ def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFram
         p = pd.to_numeric(th[p_col], errors="coerce")
         mask, which = spa_fallback(th, num_ancs)
         cc = case_carriers(th)
+        het_flag, ctrl_f, het_frac = excess_het(th, arm)
         for i in th.index[p < P_GW]:
             reasons = []
             if mask[i]:
@@ -211,9 +265,12 @@ def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFram
                 reasons.append("no_case_carriers")
             if p[i] == 0:
                 reasons.append("impossible_p")
+            if het_flag[i]:
+                reasons.append("excess_het")
             rows.append(dict(arm=arm, MarkerID=th.at[i, "MarkerID"], CHR=th.at[i, "CHR"],
                              POS=th.at[i, "POS"], p=p[i], case_carriers=int(cc[i]),
                              spa_fallback=bool(mask[i]), detector=which[i],
+                             ctrl_het_frac=het_frac[i], ctrl_F=ctrl_f[i],
                              reasons=",".join(reasons) or ".",
                              verdict="EXCLUDE" if reasons else "keep"))
     return pd.DataFrame(rows)

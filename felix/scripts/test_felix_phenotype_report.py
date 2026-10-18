@@ -276,3 +276,103 @@ def test_reasons_accumulate():
     h = fpr.hit_report(_bundle_with_hit(None, 0, 0, 0.0, spa_ok=True))
     r = h.reasons.iloc[0]
     assert "no_case_carriers" in r and "impossible_p" in r
+
+
+# ---------------------------------------------------------------- excess heterozygosity
+
+def _geno(n_ctrl, het, hom, **over):
+    """Control genotype counts for one record. N_ctrl_ancALL counts haplotypes, two per sample."""
+    row = {"N_ctrl_ancALL": 2 * n_ctrl, "N_ctrl_het_ancALL": het, "N_ctrl_hom_ancALL": hom}
+    row.update(over)
+    return pd.DataFrame([row])
+
+
+def test_fixed_heterozygous_record_is_flagged():
+    # the CV_446.2 lead: 9,573 of 9,578 controls heterozygous, allele frequency 0.5
+    flag, f, het_frac = fpr.excess_het(_geno(9578, 9573, 1))
+    assert bool(flag.iloc[0]) and f.iloc[0] < -0.99 and 0.999 < het_frac.iloc[0] <= 1.0
+
+
+def test_hardy_weinberg_record_is_not_flagged():
+    n, p = 9500, 0.3
+    flag, f, _ = fpr.excess_het(_geno(n, round(2 * p * (1 - p) * n), round(p * p * n)))
+    assert not bool(flag.iloc[0]) and abs(f.iloc[0]) < 0.02
+
+
+def test_homozygote_excess_from_structure_is_not_flagged():
+    # population structure raises homozygosity: F > 0, never a reason to exclude
+    flag, f, _ = fpr.excess_het(_geno(9500, 2000, 1800))
+    assert not bool(flag.iloc[0]) and f.iloc[0] > 0.3
+
+
+def test_rare_variant_cannot_trigger_the_screen():
+    # every carrier heterozygous at p ~ 0.005: het <= 2p caps the excess at about 1/(1-p), so F stays near 0
+    flag, f, _ = fpr.excess_het(_geno(9500, 95, 0))
+    assert not bool(flag.iloc[0]) and f.iloc[0] > -0.02
+
+
+def test_cut_is_a_strict_threshold_on_f():
+    # p = 0.5 gives 2pq = 0.5, so F = 1 - het_frac / 0.5: het_frac 0.64 -> -0.28 (kept), 0.66 -> -0.32 (flagged)
+    below = pd.concat([_geno(10000, 6400, 1800), _geno(10000, 6600, 1700)], ignore_index=True)
+    flag, f, _ = fpr.excess_het(below)
+    assert list(flag) == [False, True] and abs(f.iloc[0] + 0.28) < 1e-9 and abs(f.iloc[1] + 0.32) < 1e-9
+    assert fpr.EXCESS_HET_F == -0.3
+
+
+def test_dosage_arm_is_not_screened():
+    # the dosage arm's het/hom columns are not genotype counts
+    flag, f, het_frac = fpr.excess_het(_geno(9578, 9573, 1), arm="ru")
+    assert not bool(flag.iloc[0]) and np.isnan(f.iloc[0]) and np.isnan(het_frac.iloc[0])
+    assert fpr.excess_het(_geno(9578, 9573, 1), arm="ru_biallelic")[0].iloc[0]
+
+
+def test_missing_control_counts_leave_the_screen_off_and_visible():
+    flag, f, het_frac = fpr.excess_het(_frame())  # no N_ctrl_* columns
+    assert not bool(flag.iloc[0]) and np.isnan(f.iloc[0]) and np.isnan(het_frac.iloc[0])
+
+
+def test_degenerate_counts_give_nan_not_an_error():
+    for row in (_geno(0, 0, 0), _geno(9500, 0, 0), _geno(9500, 0, 9500)):  # no controls, monomorphic ref, monomorphic alt
+        flag, f, _ = fpr.excess_het(row)
+        assert not bool(flag.iloc[0]) and np.isnan(f.iloc[0])
+
+
+def _bundle_fixed_het(arm="main", n_het=9573, n_hom=1, p=1.3e-25):
+    th = _frame(**{"Is.SPA_ancALL": True, "Tstat_ancALL": 0.1, "N_case_het_ancALL": 78, "N_case_hom_ancALL": 0})
+    th["P_cct_admixed_c"] = p
+    th["CHR"], th["POS"] = "chr13", 63057660
+    th["N_ctrl_ancALL"], th["N_ctrl_het_ancALL"], th["N_ctrl_hom_ancALL"] = 19156, n_het, n_hom
+    b = {"arms": {a: {} for a in fpr.ARMS}}
+    b["arms"][arm] = {"top_hits": th, "phenotype": "PH"}
+    return b
+
+
+def test_hit_report_excludes_a_fixed_heterozygous_hit_and_says_why():
+    for arm in ("main", "ru_biallelic"):
+        h = fpr.hit_report(_bundle_fixed_het(arm))
+        assert h.verdict.iloc[0] == "EXCLUDE" and h.reasons.iloc[0] == "excess_het", arm
+        assert h.ctrl_F.iloc[0] < -0.99 and h.ctrl_het_frac.iloc[0] > 0.999
+        assert int(h.case_carriers.iloc[0]) == 78 and not bool(h.spa_fallback.iloc[0])  # the other screens do not see it
+
+
+def test_hit_report_keeps_a_hit_whose_controls_follow_hardy_weinberg():
+    h = fpr.hit_report(_bundle_fixed_het("main", n_het=4000, n_hom=800, p=1e-9))
+    assert h.verdict.iloc[0] == "keep" and h.reasons.iloc[0] == "."
+    assert abs(h.ctrl_F.iloc[0]) < 0.05
+
+
+def test_hit_report_leaves_the_dosage_arm_unscreened_but_reports_nan():
+    h = fpr.hit_report(_bundle_fixed_het("ru"))
+    assert h.verdict.iloc[0] == "keep" and np.isnan(h.ctrl_F.iloc[0])
+
+
+def test_excess_het_reason_accumulates_with_the_others():
+    h = fpr.hit_report(_bundle_fixed_het("main", p=0.0))
+    assert set(h.reasons.iloc[0].split(",")) == {"impossible_p", "excess_het"}
+
+
+def test_sweep_notebook_requires_the_excess_het_screen():
+    """A module copy that predates the screen must stop the notebook, not run it without the screen."""
+    nb = json.loads((Path(__file__).resolve().parents[2] / "notebooks" / "terra" / "felix_08_hit_sweep.ipynb").read_text())
+    setup = next("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code" and "MODULE = Path(" in "".join(c["source"]))
+    assert '"excess_het"' in setup.split("REQUIRED", 1)[1].split("]", 1)[0]
