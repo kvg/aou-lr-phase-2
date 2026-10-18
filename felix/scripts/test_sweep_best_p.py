@@ -51,3 +51,19 @@ def test_sweep_reads_the_harvest_cache(tmp_path):
     assert list(df.columns) == sbp.COLUMNS
     assert sorted(df.run.unique()) == ["felix.prod.BI_160", "felix.prod.BI_174"] and set(df.arm) == {"main"}
     assert (df.best_p == 1e-9).all()
+
+
+def test_sweep_notebook_carries_the_figure3_cells_after_the_export():
+    """felix_08 ends with the Figure 3 extras: region extracts, best-P export, and one tarball of everything the figure reads."""
+    import json
+    nb = json.loads((Path(__file__).resolve().parents[2] / "notebooks" / "terra" / "felix_08_hit_sweep.ipynb").read_text())
+    code = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+    export = next(i for i, s in enumerate(code) if 'cal.to_csv("felix_sweep_calibration.tsv"' in s)
+    after = code[export + 1:]
+    assert len(after) == 3, "region extracts, best-P export, tarball"
+    region, best, bundle = after
+    assert "extract_region.py" in region and "done[done[ID_COL] == RUN]" in region and "felix.prod." in region
+    assert "sweep_best_p" in best and "felix_sweep_best_p.tsv" in best
+    assert "fig3_locus_*.tsv" in bundle and "felix_sweep_*.tsv" in bundle and "scratch/kvg" in bundle  # best_p matches felix_sweep_*.tsv
+    for s in (region, best):  # the shell lines of the last cell are IPython; the other two must be plain Python
+        compile(s, "cell", "exec")
