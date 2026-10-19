@@ -340,21 +340,30 @@ if not PRE_PHASING_VCFS:
 
 sites = fhd.lead_sites(loci)
 sites["chrom_name"] = "chr" + sites.chrom.astype(str)
-# pheno_cov is an attribute of the run set itself (the config passes it as ${this.pheno_cov}), so take it from there
-# rather than asking; every run in the table should name the same file.
-uris = sorted({u for u in done.get("pheno_cov", pd.Series(dtype=str)).dropna().unique() if str(u).strip()})
-if len(uris) != 1:
-    raise RuntimeError(f"expected one pheno_cov across the run table, found {len(uris)}: {uris[:3]}. "
-                       f"Set PHENO_COV by hand and re-run this cell.")
-PHENO_COV = uris[0]
-if PHENO_COV.startswith("gs://"):
-    subprocess.run(["gsutil", "cp", PHENO_COV, "pheno_cov.tsv"], check=True)
-    PHENO_COV = "pheno_cov.tsv"
-pheno = pd.read_csv(PHENO_COV, sep="\t", low_memory=False)
-print(f"pheno_cov ({uris[0]}): {len(pheno)} rows, {len(pheno.columns)} columns")
-missing_pheno = sorted(set(sites.phenotype) - set(pheno.columns))
-if missing_pheno:
-    print(f"{len(missing_pheno)} dossier phenotypes have no column in pheno_cov, e.g. {missing_pheno[:5]}")
+# pheno_cov is a PER-RUN input (the config passes ${this.pheno_cov}), not a global one: most runs share
+# felix/phenotypes/wgs/pheno_cov.tsv, while a sex-restricted phenotype has its own file under
+# felix/phenotypes/prod/. Mapping such a locus with the shared file would put the excluded participants back into
+# the control set and quietly inflate its call-rate denominator, so each locus is mapped with its own run's file.
+pheno_cov_by_run = {r[ID_COL]: str(r["pheno_cov"]).strip()
+                    for _, r in done.iterrows() if str(r.get("pheno_cov", "")).strip()}
+all_uris = set(pheno_cov_by_run.values())
+needed = sorted({pheno_cov_by_run.get(r) for r in sites.run} - {None})   # only what the dossier's runs point at
+orphans = sorted({r for r in sites.run if pheno_cov_by_run.get(r) is None})
+print(f"{len(all_uris)} distinct pheno_cov across {len(pheno_cov_by_run)} runs; "
+      f"the dossier's {sites.run.nunique()} runs need {len(needed)} of them"
+      + (f"; {len(orphans)} run(s) have no pheno_cov in the table: {orphans[:3]}" if orphans else ""))
+
+PHENO_DIR = Path("pheno_cov_files")
+PHENO_DIR.mkdir(exist_ok=True)
+pheno_by_uri = {}
+for u in needed:
+    local = PHENO_DIR / Path(u).name if u.startswith("gs://") else Path(u)
+    if u.startswith("gs://") and not local.exists():
+        subprocess.run(["gsutil", "cp", u, str(local)], check=True)
+    pheno_by_uri[u] = pd.read_csv(local, sep="\t", low_memory=False)
+    have = sum(1 for ph in sites.phenotype.unique() if ph in pheno_by_uri[u].columns)
+    print(f"  {Path(u).name}: {len(pheno_by_uri[u])} rows, {len(pheno_by_uri[u].columns)} columns, "
+          f"{have}/{sites.phenotype.nunique()} dossier phenotypes present")
 
 pulled = {}
 for label, mapping in (("pre", PRE_PHASING_VCFS), ("post", PHASED_VCFS)):
@@ -377,10 +386,14 @@ for label, mapping in (("pre", PRE_PHASING_VCFS), ("post", PHASED_VCFS)):
 # Each locus is its own phenotype, so the case/control split is per locus, not global.
 rows = []
 for _, S in sites.iterrows():
+    pheno = pheno_by_uri.get(pheno_cov_by_run.get(S.run))
+    if pheno is None:
+        rows.append(dict(locus_id=S.locus_id, note=f"no pheno_cov for run {S.run}"))
+        continue
     try:
         groups = ps.case_control_map(pheno, S.phenotype)
     except KeyError:
-        rows.append(dict(locus_id=S.locus_id, note=f"no {S.phenotype} column in pheno_cov"))
+        rows.append(dict(locus_id=S.locus_id, note=f"no {S.phenotype} column in {Path(pheno_cov_by_run[S.run]).name}"))
         continue
     rec = dict(locus_id=S.locus_id, phenotype=S.phenotype, note="")
     for label in ("pre", "post"):

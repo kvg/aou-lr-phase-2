@@ -198,7 +198,11 @@ def split_alleles(marker: str | None) -> tuple[str, str] | None:
 
 
 def lead_sites(loci: pd.DataFrame) -> pd.DataFrame:
-    """The site list for pull_site_fields: locus_id, chrom, pos, ref, alt (ref/alt empty where the arm has no alleles).
+    """The site list for pull_site_fields: locus_id, run, chrom, pos, ref, alt (ref/alt empty where the arm has no alleles).
+
+    ``run`` travels with the site because pheno_cov is a per-run input: most runs share one file, but a sex-restricted
+    phenotype has its own, and mapping such a locus with the shared file would put excluded participants back into the
+    control set.
 
     Only the lead position of each locus, because that is all the call-rate question needs -- 90 index seeks rather
     than a window read. A repeat-arm lead carries a TRID rather than alleles, so its ref/alt are left blank and every
@@ -207,7 +211,7 @@ def lead_sites(loci: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, L in loci.iterrows():
         al = split_alleles(L.get("lead_marker")) if L.get("lead_arm") == "main" else None
-        rows.append(dict(locus_id=L["locus_id"], chrom=int(L["chrom"]), pos=int(L["pos"]),
+        rows.append(dict(locus_id=L["locus_id"], run=L["run"], chrom=int(L["chrom"]), pos=int(L["pos"]),
                          phenotype=L["phenotype"], lead_arm=L["lead_arm"],
                          ref=(al[0] if al else ""), alt=(al[1] if al else "")))
     return pd.DataFrame(rows)

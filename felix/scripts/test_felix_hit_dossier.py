@@ -465,6 +465,13 @@ def test_lead_sites_carries_alleles_for_a_main_arm_lead():
     assert (out.chrom, out.pos, out.ref, out.alt) == (9, 8_991_058, "T", "TA")
 
 
+def test_lead_sites_carries_the_run_so_a_per_run_input_can_be_joined():
+    """pheno_cov is a per-run input: a sex-restricted phenotype has its own file, so the run must travel along."""
+    df = pd.DataFrame([hit("felix.prod.CA_142_2", "main", 9, 8_991_058, 1e-9)])
+    out = fhd.lead_sites(fhd.dossier_loci(df)).iloc[0]
+    assert out.run == "felix.prod.CA_142_2" and out.phenotype == "CA_142.2"
+
+
 def test_lead_sites_leaves_alleles_blank_for_a_repeat_arm_lead():
     df = pd.DataFrame([hit("felix.prod.A_1", "ru", 9, 8_991_058, 1e-9, marker="9-8991058-8991069-A")])
     out = fhd.lead_sites(fhd.dossier_loci(df)).iloc[0]
