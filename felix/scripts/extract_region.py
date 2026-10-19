@@ -81,29 +81,103 @@ def find_merged(objs: list[tuple[int, str]]) -> str | None:
     return best[1] if best else None
 
 
-def extract(uri: str, out: Path, chrom: str, start: int, end: int) -> int:
+def split_windows(lines: Iterable[str], windows: list[tuple[str, int, int]], chr_col="CHR", pos_col="POS"):
+    """Yield (window index, line) for every data line falling in a window, header first as index -1.
+
+    One pass over the stream serves every window, which is the point: a run's merged table is 0.5-27 GB, so reading it
+    once for all of that phenotype's loci is the difference between minutes and an hour. A line inside two overlapping
+    windows is yielded once per window.
+    """
+    it = iter(lines)
+    header = next(it, None)
+    if header is None:
+        return
+    cols = header.rstrip("\n").split("\t")
+    for need in (chr_col, pos_col):
+        if need not in cols:
+            raise KeyError(f"no {need} column in the header: {cols[:12]}...")
+    ic, ip = cols.index(chr_col), cols.index(pos_col)
+    upto = max(ic, ip) + 1
+    want = [(_chrom_key(str(c)), s, e) for c, s, e in windows]
+    yield -1, header
+    for line in it:
+        f = line.split("\t", upto)
+        if len(f) <= upto - 1:
+            continue
+        key = _chrom_key(f[ic])
+        if not any(key == c for c, _, _ in want):
+            continue
+        try:
+            pos = int(float(f[ip]))
+        except ValueError:
+            continue
+        for i, (c, s, e) in enumerate(want):
+            if key == c and s <= pos <= e:
+                yield i, line
+
+
+def _open_stream(uri: str):
+    """(process, text stream) for a gs:// object or a local file; the caller closes the process."""
+    if not str(uri).startswith("gs://"):
+        fh = gzip.open(uri, "rt") if str(uri).endswith(".gz") else open(uri)
+        return None, fh
     cat = subprocess.Popen(["gsutil", "cat", uri], stdout=subprocess.PIPE, bufsize=1 << 20)
     stream = gzip.GzipFile(fileobj=cat.stdout) if uri.endswith(".gz") else cat.stdout
-    n = -1  # the header is not a row
-    with open(out, "w") as fh:
-        for line in filter_region(io.TextIOWrapper(stream, encoding="utf-8"), chrom, start, end):
-            fh.write(line)
-            n += 1
-    cat.stdout.close()
-    if cat.wait() != 0:
-        raise RuntimeError(f"gsutil cat failed for {uri}")
-    return max(n, 0)
+    return cat, io.TextIOWrapper(stream, encoding="utf-8")
+
+
+def extract_many(uri: str, targets: list[tuple[str, int, int, Path]]) -> list[int]:
+    """Cut several windows out of one table in a single pass; returns the row count written per window."""
+    windows = [(c, s, e) for c, s, e, _ in targets]
+    cat, stream = _open_stream(uri)
+    handles = [open(p, "w") for *_, p in targets]
+    counts = [0] * len(targets)
+    try:
+        for idx, line in split_windows(stream, windows):
+            if idx < 0:
+                for fh in handles:
+                    fh.write(line)
+            else:
+                handles[idx].write(line)
+                counts[idx] += 1
+    finally:
+        for fh in handles:
+            fh.close()
+        if cat is not None:
+            cat.stdout.close()
+            if cat.wait() != 0:
+                raise RuntimeError(f"gsutil cat failed for {uri}")
+        else:
+            stream.close()
+    return counts
+
+
+def extract(uri: str, out: Path, chrom: str, start: int, end: int) -> int:
+    """One window; kept as the single-window entry point used by the Figure 3 card cell."""
+    return extract_many(uri, [(chrom, start, end, out)])[0]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", required=True, help="gs://.../submissions/<sub>/FelixGenome/<workflow>")
-    ap.add_argument("--chrom", required=True)
-    ap.add_argument("--start", type=int, required=True)
-    ap.add_argument("--end", type=int, required=True)
-    ap.add_argument("--out-prefix", required=True)
+    ap.add_argument("--chrom")
+    ap.add_argument("--start", type=int)
+    ap.add_argument("--end", type=int)
+    ap.add_argument("--out-prefix")
+    ap.add_argument("--windows", help="TSV with chrom, start, end, out_prefix: several windows cut in ONE pass "
+                                      "per arm (use instead of --chrom/--start/--end/--out-prefix)")
     ap.add_argument("--arms", default=",".join(ARM_CALL), help="comma-separated subset of main,ru,ru_biallelic")
     a = ap.parse_args()
+
+    if a.windows:
+        targets = read_windows(Path(a.windows))
+        if not targets:
+            ap.error(f"{a.windows} lists no windows")
+    else:
+        if not all([a.chrom, a.start is not None, a.end is not None, a.out_prefix]):
+            ap.error("give --windows, or all of --chrom --start --end --out-prefix")
+        targets = [(a.chrom, a.start, a.end, a.out_prefix)]
+
     bad = 0
     for arm in a.arms.split(","):
         objs = list_call(a.root, ARM_CALL[arm])
@@ -114,10 +188,26 @@ def main() -> int:
                                          if objs else "nothing there: check the root and your access"), file=sys.stderr)
             bad += 1
             continue
-        out = Path(f"{a.out_prefix}.{arm}.tsv")
-        n = extract(uri, out, a.chrom, a.start, a.end)
-        print(f"{arm}: {n:,} rows in chr{a.chrom}:{a.start:,}-{a.end:,} -> {out}  (from {uri})")
+        outs = [(c, s, e, Path(f"{pre}.{arm}.tsv")) for c, s, e, pre in targets]
+        counts = extract_many(uri, outs)
+        for (c, s, e, out), n in zip(outs, counts):
+            print(f"{arm}: {n:,} rows in chr{c}:{s:,}-{e:,} -> {out}  (from {uri})")
     return 1 if bad else 0
+
+
+def read_windows(path: Path) -> list[tuple[str, int, int, str]]:
+    """(chrom, start, end, out_prefix) per line of a windows TSV; '#' comments and a header row are skipped."""
+    out = []
+    for line in path.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        f = line.split("\t")
+        if len(f) < 4:
+            raise ValueError(f"{path}: need 4 tab-separated fields (chrom, start, end, out_prefix), got {line!r}")
+        if not f[1].strip().isdigit():  # the header
+            continue
+        out.append((f[0].strip(), int(f[1]), int(f[2]), f[3].strip()))
+    return out
 
 
 if __name__ == "__main__":
