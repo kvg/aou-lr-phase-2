@@ -56,7 +56,7 @@ def test_lambda_gc_of_uniform_is_about_one():
 def _frame(**over):
     row = {"MarkerID": "m", "N_case_het_ancALL": 10, "N_case_hom_ancALL": 2}
     for a in [f"anc{k}" for k in range(1, 6)] + ["ancALL"]:
-        row |= {f"Tstat_{a}": 0.1, f"var_{a}": 1.0, f"Is.SPA_{a}": True,
+        row |= {f"Tstat_{a}": 0.1, f"var_{a}": 1.0, f"Is.SPA_{a}": True, f"p.value_{a}": 0.5,
                 f"Tstat_c_{a}": 0.1, f"var_c_{a}": 1.0,
                 f"p.value_c_{a}": 0.5, f"p.value.NA_c_{a}": 0.4}
     row.update(over)
@@ -68,12 +68,39 @@ def test_unconditioned_fallback_detected():
     assert bool(m.iloc[0]) and "uncond" in which.iloc[0]
 
 
-def test_conditioned_fallback_detected_without_an_isspa_c_column():
-    # FELIX emits no Is.SPA_c; equality of p.value_c and p.value.NA_c is the flag
-    m, which = fpr.spa_fallback(_frame(**{"Tstat_c_anc3": 30.0,
-                                          "p.value_c_anc3": 1e-20,
-                                          "p.value.NA_c_anc3": 1e-20}))
-    assert bool(m.iloc[0]) and "cond" in which.iloc[0]
+def test_conditioned_p_far_ahead_of_the_spa_corrected_p_is_a_fallback():
+    # conditioning moved a marginal statistic of 2.2 sd (SPA p 0.03) to 30 sd, and the conditioned p is the normal approximation of that
+    m, which = fpr.spa_fallback(_frame(**{"Tstat_anc3": 2.2, "p.value_anc3": 0.03,
+                                          "Tstat_c_anc3": 30.0, "p.value_c_anc3": 1e-20, "p.value.NA_c_anc3": 1e-20}))
+    assert bool(m.iloc[0]) and "cond" in which.iloc[0] and "uncond" not in which.iloc[0]
+
+
+def test_conditioned_p_that_agrees_with_the_spa_corrected_p_is_kept():
+    # rs334 in the AFR stratum: SPA ran (p 9e-36 against a normal-approximation 2e-93); conditioning on haplotype counts changed the score
+    # (20.5 sd to 12.4 sd) and the conditioned p, 3e-35, is slightly the weaker. FELIX writes p.value.NA_c equal to p.value_c, which the
+    # earlier detector read as 'SPA bailed'.
+    m, _ = fpr.spa_fallback(_frame(**{"Tstat_anc4": 40.79, "var_anc4": 3.96, "p.value_anc4": 9.1e-36,
+                                      "Tstat_c_anc4": 40.43, "var_c_anc4": 10.65, "p.value_c_anc4": 3.5e-35, "p.value.NA_c_anc4": 3.5e-35}))
+    assert not bool(m.iloc[0])
+
+
+def test_conditioning_that_changes_nothing_copies_the_spa_p_and_is_kept():
+    # score unchanged: FELIX copies the unconditioned (SPA-corrected) p into p.value_c and p.value.NA_c, so the two are equal by construction
+    m, _ = fpr.spa_fallback(_frame(**{"Tstat_anc2": 25.0, "var_anc2": 4.0, "p.value_anc2": 1e-30,
+                                      "Tstat_c_anc2": 25.0, "var_c_anc2": 4.0, "p.value_c_anc2": 1e-30, "p.value.NA_c_anc2": 1e-30}))
+    assert not bool(m.iloc[0])
+
+
+def test_unconditioned_spa_bail_is_still_caught_when_conditioning_changes_nothing():
+    m, which = fpr.spa_fallback(_frame(**{"Tstat_anc2": 25.0, "var_anc2": 4.0, "Is.SPA_anc2": False, "p.value_anc2": 1e-30,
+                                          "Tstat_c_anc2": 25.0, "var_c_anc2": 4.0, "p.value_c_anc2": 1e-30, "p.value.NA_c_anc2": 1e-30}))
+    assert bool(m.iloc[0]) and "uncond" in which.iloc[0]
+
+
+def test_conditioned_detector_needs_the_unconditioned_p_column_and_degrades_quietly():
+    row = _frame(**{"Tstat_c_anc3": 30.0, "p.value_c_anc3": 1e-20})
+    m, _ = fpr.spa_fallback(row.drop(columns=["p.value_anc3"]))  # no reference p for this stratum: nothing to compare against
+    assert not bool(m.iloc[0])
 
 
 def test_low_score_is_not_a_fallback():

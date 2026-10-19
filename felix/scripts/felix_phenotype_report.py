@@ -107,15 +107,29 @@ def _strata(num_ancs: int):
     return [f"anc{k}" for k in range(1, num_ancs + 1)] + ["ancALL"]
 
 
-def spa_fallback(df: pd.DataFrame, num_ancs=5, cutoff=SPA_CUTOFF):
-    """Tests where SPA was attempted but the uncorrected p was reported.
+# A conditioned test whose normal-approximation p is this many log10 units more extreme than the unconditioned (SPA-corrected) p of the same
+# stratum is not trusted. Measured on the 11 region extracts of sweep #4 (670k stratum rows, main arm): among the 349 stratum rows of genome-wide-
+# significant markers where conditioning changed the score and |Tstat_c|/sqrt(var_c) exceeded the SPA cutoff, 268 lie between -1.3 and +0.5
+# (conditioning absorbs part of the signal, so the conditioned p is usually the weaker one), none between +0.5 and +5, and 81 between +5 and +25.
+# All 81 are in the HBB window, where conditioning on haplotype counts takes a marginal statistic of about 2 standard deviations to 6-11. Any cut
+# in the empty stretch gives the same verdicts here; 1 (one order of magnitude) is the conservative end.
+COND_DISCORD = 1.0
 
-    Two detectors, OR-ed:
+
+def spa_fallback(df: pd.DataFrame, num_ancs=5, cutoff=SPA_CUTOFF, discord=COND_DISCORD):
+    """Tests where the reported p-value is an uncorrected normal approximation that SPA would have changed.
+
+    Two detectors, OR-ed, per stratum (each ancestry and the pooled test):
       unconditioned  Is.SPA == false      AND |Tstat|/sqrt(var)   > cutoff
-      conditioned    p.value_c == p.value.NA_c AND |Tstat_c|/sqrt(var_c) > cutoff
+      conditioned    |Tstat_c|/sqrt(var_c) > cutoff, conditioning changed the score (Tstat_c, var_c differ from Tstat, var), and
+                     -log10(p.value_c) exceeds -log10(p.value) by more than ``discord``
 
-    The conditioned one matters because the documented headline column is
-    P_cct_admixed_c and FELIX emits no Is.SPA_c flag for it.
+    The conditioned test has no Is.SPA flag, and FELIX writes p.value.NA_c equal to p.value_c, so that equality says nothing about whether SPA
+    ran; an earlier version flagged on it and excluded 46% of main-arm hits, rs334 among them. What FELIX actually does is copy the
+    unconditioned p (SPA-corrected when the unconditioned test used SPA) into p.value_c whenever conditioning leaves the score unchanged, and
+    otherwise report the normal approximation of the conditioned score. The first case is covered by the unconditioned detector. The second is
+    trustworthy when it agrees with the SPA-corrected unconditioned p, which is what the discordance test checks; a conditioned p that is far
+    more extreme than that reference is the normal approximation running ahead of SPA.
     """
     mask = pd.Series(False, index=df.index)
     which = pd.Series("", index=df.index, dtype=object)
@@ -128,15 +142,18 @@ def spa_fallback(df: pd.DataFrame, num_ancs=5, cutoff=SPA_CUTOFF):
             hit = ((as_bool(df[sc]) == False) & (std > cutoff)).fillna(False)  # noqa: E712
             mask |= hit
             which = which.where(~hit | which.str.contains("uncond"), which + "uncond;")
-        tcc, vcc = f"Tstat_c_{a}", f"var_c_{a}"
-        pc, pcn = f"p.value_c_{a}", f"p.value.NA_c_{a}"
-        if {tcc, vcc, pc, pcn} <= set(df.columns):
-            t = pd.to_numeric(df[tcc], errors="coerce")
-            v = pd.to_numeric(df[vcc], errors="coerce")
-            a1 = pd.to_numeric(df[pc], errors="coerce")
-            a2 = pd.to_numeric(df[pcn], errors="coerce")
-            std = t.abs() / np.sqrt(v.where(v > 0))
-            hit = ((a1 == a2) & a1.notna() & (std > cutoff)).fillna(False)
+        tcc, vcc, pc, pu = f"Tstat_c_{a}", f"var_c_{a}", f"p.value_c_{a}", f"p.value_{a}"
+        if {tc, vc, tcc, vcc, pc, pu} <= set(df.columns):
+            t = pd.to_numeric(df[tc], errors="coerce")
+            v = pd.to_numeric(df[vc], errors="coerce")
+            tcn = pd.to_numeric(df[tcc], errors="coerce")
+            vcn = pd.to_numeric(df[vcc], errors="coerce")
+            stdc = tcn.abs() / np.sqrt(vcn.where(vcn > 0))
+            changed = ~(np.isclose(tcn, t, rtol=1e-6) & np.isclose(vcn, v, rtol=1e-6))  # conditioning did something to this score
+            with np.errstate(divide="ignore"):
+                ahead = -np.log10(pd.to_numeric(df[pc], errors="coerce").clip(lower=1e-320)) \
+                    + np.log10(pd.to_numeric(df[pu], errors="coerce").clip(lower=1e-320))
+            hit = ((stdc > cutoff) & changed & (ahead > discord)).fillna(False)
             mask |= hit
             which = which.where(~hit | which.str.contains("cond"), which + "cond;")
     return mask, which.str.rstrip(";").replace("", ".")
@@ -239,8 +256,9 @@ def hit_report(bundle: dict, num_ancs=5, p_col="P_cct_admixed_c") -> pd.DataFram
 
     Four independent exclusions, OR-ed into the verdict:
 
-    spa_fallback      SPA was attempted and bailed, so the reported p is the
-                      uncorrected normal-approximation score p.
+    spa_fallback      SPA was attempted and bailed, or the conditioned test's
+                      normal-approximation p runs far ahead of the SPA-corrected
+                      unconditioned p (see spa_fallback and COND_DISCORD).
     no_case_carriers  N_case_het + N_case_hom == 0. No case carries the allele,
                       so there is nothing for the phenotype to associate with,
                       whatever the p-value says. This needs no statistics.
@@ -332,8 +350,8 @@ def qq_screen_figure(bundle: dict, arm="ru", p_col="P_la_dosage", num_ancs=5, ou
     if at.empty or th is None or p_col not in at.columns:
         raise ValueError(f"cannot build QQ: need {p_col} in arms_table and {arm} top_hits")
     keep = ["MarkerID"] + [f"{s}_{a}" for a in _strata(num_ancs)
-                           for s in ("Tstat", "var", "Is.SPA", "Tstat_c", "var_c",
-                                     "p.value_c", "p.value.NA_c") if f"{s}_{a}" in th.columns]
+                           for s in ("Tstat", "var", "Is.SPA", "p.value", "Tstat_c", "var_c",
+                                     "p.value_c") if f"{s}_{a}" in th.columns]
     merged = at[["MarkerID", p_col]].merge(th[keep], on="MarkerID", how="left")
     mask, _ = spa_fallback(merged, num_ancs)
 
