@@ -542,3 +542,49 @@ def test_call_rate_reports_a_note_when_the_locus_was_not_pulled():
     cr = {"note": "no A_1 column in pheno_cov"}
     chip = next(f for f in fhd.checks(_locus(), None, None, None, cr) if f["check"] == "Call rate")
     assert chip["status"] == "n/a" and "pheno_cov" in chip["detail"]
+
+
+# ------------------------------------------------------------------------------- the Terra notebook itself
+
+NOTEBOOK = REPO_ROOT / "notebooks" / "terra" / "felix_09_hit_dossier.ipynb"
+
+
+@pytest.mark.skipif(not NOTEBOOK.is_file(), reason="the notebook is not in this checkout")
+def test_every_notebook_code_cell_compiles():
+    """A generated cell that does not parse only fails when it is run in Terra, several expensive cells in."""
+    import ast
+    import json
+
+    nb = json.loads(NOTEBOOK.read_text())
+    bad = []
+    for i, cell in enumerate(nb["cells"]):
+        if cell["cell_type"] != "code":
+            continue
+        body = "".join(cell["source"])
+        if body.lstrip().startswith("%%"):
+            body = body.split("\n", 1)[1] if "\n" in body else ""
+        body = "\n".join(l for l in body.split("\n") if not l.lstrip().startswith("!"))
+        if not body.strip():
+            continue
+        try:
+            ast.parse(body)
+        except SyntaxError as exc:
+            bad.append(f"cell {i}: {exc.msg} at line {exc.lineno}")
+    assert not bad, "; ".join(bad)
+
+
+@pytest.mark.skipif(not NOTEBOOK.is_file(), reason="the notebook is not in this checkout")
+def test_the_notebook_bootstraps_every_module_it_imports():
+    """A module imported in a later cell but absent from MODULES fails on Terra with ModuleNotFoundError."""
+    import json
+    import re
+
+    nb = json.loads(NOTEBOOK.read_text())
+    source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+    imported = set(re.findall(r"^\s*import (felix_\w+|extract_region|pull_site_fields)", source, re.M))
+    setup = next("".join(c["source"]) for c in nb["cells"]
+                 if c["cell_type"] == "code" and "MODULES" in "".join(c["source"]))
+    for mod in imported:
+        assert f"{mod}.py" in setup, f"{mod} is imported but not copied by the bootstrap"
+        assert f'"{mod}"' in setup, f"{mod} is imported but not in the REQUIRED check"
+    assert imported, "no local module imports found: the pattern needs updating"

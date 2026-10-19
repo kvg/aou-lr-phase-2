@@ -340,14 +340,21 @@ if not PRE_PHASING_VCFS:
 
 sites = fhd.lead_sites(loci)
 sites["chrom_name"] = "chr" + sites.chrom.astype(str)
-pheno = pd.read_csv(PHENO_COV, sep="\t", low_memory=False) if 'PHENO_COV' in dir() else None
-if pheno is None:
-    PHENO_COV = chrom_rows.attrs.get("pheno_cov") or input("path or gs:// URI of pheno_cov.tsv: ").strip()
-    if PHENO_COV.startswith("gs://"):
-        subprocess.run(["gsutil", "cp", PHENO_COV, "pheno_cov.tsv"], check=True)
-        PHENO_COV = "pheno_cov.tsv"
-    pheno = pd.read_csv(PHENO_COV, sep="\t", low_memory=False)
-print(f"pheno_cov: {len(pheno)} rows, {len(pheno.columns)} columns")
+# pheno_cov is an attribute of the run set itself (the config passes it as ${this.pheno_cov}), so take it from there
+# rather than asking; every run in the table should name the same file.
+uris = sorted({u for u in done.get("pheno_cov", pd.Series(dtype=str)).dropna().unique() if str(u).strip()})
+if len(uris) != 1:
+    raise RuntimeError(f"expected one pheno_cov across the run table, found {len(uris)}: {uris[:3]}. "
+                       f"Set PHENO_COV by hand and re-run this cell.")
+PHENO_COV = uris[0]
+if PHENO_COV.startswith("gs://"):
+    subprocess.run(["gsutil", "cp", PHENO_COV, "pheno_cov.tsv"], check=True)
+    PHENO_COV = "pheno_cov.tsv"
+pheno = pd.read_csv(PHENO_COV, sep="\t", low_memory=False)
+print(f"pheno_cov ({uris[0]}): {len(pheno)} rows, {len(pheno.columns)} columns")
+missing_pheno = sorted(set(sites.phenotype) - set(pheno.columns))
+if missing_pheno:
+    print(f"{len(missing_pheno)} dossier phenotypes have no column in pheno_cov, e.g. {missing_pheno[:5]}")
 
 pulled = {}
 for label, mapping in (("pre", PRE_PHASING_VCFS), ("post", PHASED_VCFS)):
@@ -395,7 +402,7 @@ for _, S in sites.iterrows():
 
 callrate = pd.DataFrame(rows)
 callrate.to_csv(fhd.CALLRATE_FILE, sep="\t", index=False)
-print(f"\nwrote {fhd.CALLRATE_FILE}: {len(callrate)} loci")
+print(f"\\nwrote {fhd.CALLRATE_FILE}: {len(callrate)} loci")
 cols = [c for c in ("locus_id", "pre_call_rate_case", "pre_call_rate_control", "pre_fisher_p",
                     "imputed_frac_case", "imputed_frac_control", "imputed_frac_diff") if c in callrate.columns]
 if len(cols) > 1:
@@ -467,9 +474,36 @@ md("""
 """)
 
 
+def check_parses(src: str, index: int) -> None:
+    """Fail here, not on Terra. Cell magics and ! shell lines are stripped before parsing.
+
+    This exists because the code cells above are ordinary triple-quoted strings, so a backslash escape meant for the
+    notebook is interpreted once by this file first: `print(f"\\n...")` here is what puts `\n` in the notebook, and
+    writing one backslash instead put a real newline inside an f-string, which only showed up as a SyntaxError when the
+    cell was run in Terra.
+    """
+    import ast
+
+    body = src
+    if body.lstrip().startswith("%%"):
+        body = body.split("\n", 1)[1] if "\n" in body else ""
+    body = "\n".join(l for l in body.split("\n") if not l.lstrip().startswith("!"))
+    if not body.strip():
+        return
+    try:
+        ast.parse(body)
+    except SyntaxError as exc:
+        lines = body.split("\n")
+        near = lines[max(0, (exc.lineno or 1) - 2):(exc.lineno or 1) + 1]
+        raise SystemExit(f"cell {index} will not compile: {exc.msg} at line {exc.lineno}\n  "
+                         + "\n  ".join(repr(l) for l in near)) from exc
+
+
 def build() -> dict:
     cells = []
     for i, (kind, src) in enumerate(CELLS):
+        if kind == "code":
+            check_parses(src, i)
         cid = hashlib.sha1(f"felix_09:{i}".encode()).hexdigest()[:8]
         cell = {"cell_type": kind, "id": cid, "metadata": {},
                 "source": [l + "\n" for l in src.split("\n")[:-1]] + [src.split("\n")[-1]]}
