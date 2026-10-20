@@ -58,11 +58,27 @@ def read_sites(path) -> pd.DataFrame:
     return df
 
 
+def probe(vcf: str, gcs_project: str | None = None) -> str:
+    """One-line verdict on whether bcftools can open ``vcf`` at all, with htslib's own message when it cannot.
+
+    Worth running once before a loop over chromosomes: a gs:// URI needs an htslib built with libcurl plus
+    GCS_OAUTH_TOKEN in the environment, and when either is missing every query fails the same way.
+    """
+    out = subprocess.run(_bcftools(["view", "-h", vcf], gcs_project), capture_output=True, text=True)
+    if out.returncode == 0:
+        n = len([l for l in out.stdout.splitlines() if l.startswith("##")])
+        return f"OK: header read ({n} header lines)"
+    env = [k for k in ("GCS_OAUTH_TOKEN", "GCS_REQUESTER_PAYS_PROJECT") if os.environ.get(k)]
+    return (f"FAILED (exit {out.returncode}). bcftools said:\n    "
+            + "\n    ".join(out.stderr.strip().splitlines()[-6:] or ["<no stderr>"])
+            + f"\n  environment carrying credentials: {env or 'none of GCS_OAUTH_TOKEN, GCS_REQUESTER_PAYS_PROJECT'}")
+
+
 def available_format_tags(vcf: str, gcs_project: str | None = None) -> set[str]:
     """FORMAT tags the VCF header declares. Asking bcftools for an undeclared tag is an error, so this gates the query."""
     out = subprocess.run(_bcftools(["view", "-h", vcf], gcs_project), capture_output=True, text=True)
     if out.returncode != 0:
-        raise RuntimeError(f"bcftools view -h failed for {vcf}:\n{out.stderr.strip()[:500]}")
+        raise RuntimeError(f"bcftools view -h failed for {vcf}\n  {out.stderr.strip()[-700:] or '<no stderr>'}")
     return set(re.findall(r"^##FORMAT=<ID=([^,>]+)", out.stdout, flags=re.MULTILINE))
 
 
@@ -193,19 +209,27 @@ def call_rate_by_group(rows: pd.DataFrame, groups: dict[str, str], dp_gq: bool =
     return pd.DataFrame(out)
 
 
-def imputed_fraction_by_group(pre: pd.DataFrame, post: pd.DataFrame, groups: dict[str, str]) -> pd.DataFrame:
+def imputed_fraction_by_group(pre: pd.DataFrame, post: pd.DataFrame | None, groups: dict[str, str]) -> pd.DataFrame:
     """Per locus, the share of the genotypes the scan USED that phasing filled in rather than observed.
 
-    ``pre`` is the pre-phasing callset's rows, ``post`` the phased callset's. A genotype counted as imputed is a
-    no-call in ``pre`` that is called in ``post``. Split by case and control, because a difference between the two is
-    the failure mode a plain call-rate comparison cannot see: if the scan leaned on filled-in genotypes more for cases
-    than for controls, the association is partly about phasing.
+    ``pre`` is the pre-phasing callset's rows. A genotype counted as imputed is a no-call in ``pre`` that is called
+    afterwards. Split by case and control, because a difference between the two is the failure mode a plain call-rate
+    comparison cannot see: if the scan leaned on filled-in genotypes more for cases than for controls, the association
+    is partly about phasing.
+
+    ``post`` may be None, which asserts that phasing filled every no-call so every pre-phasing no-call is an imputed
+    genotype. That is the measured situation here -- MissingRate is exactly 0 at every record of FELIX's input -- and
+    it makes the phased query unnecessary. Pass the phased rows instead to verify it rather than assume it.
     """
-    if pre.empty or post.empty:
+    if pre.empty:
         return pd.DataFrame()
     a = pre[["locus_id", "sample", "GT"]].rename(columns={"GT": "gt_pre"})
-    b = post[["locus_id", "sample", "GT"]].rename(columns={"GT": "gt_post"})
-    m = a.merge(b, on=["locus_id", "sample"], how="inner")
+    if post is None or len(post) == 0:
+        m = a.copy()
+        m["gt_post"] = "0/0"  # called, whatever the call is: phasing leaves no no-calls behind
+    else:
+        b = post[["locus_id", "sample", "GT"]].rename(columns={"GT": "gt_post"})
+        m = a.merge(b, on=["locus_id", "sample"], how="inner")
     m["group"] = m["sample"].map(groups)
     m = m[m.group.isin(("case", "control"))]
     if m.empty:
@@ -233,17 +257,34 @@ def _fisher(a: int, b: int, c: int, d: int) -> float:
         return math.nan
 
 
-def case_control_map(pheno_cov, phecode: str, analysis_samples=None, id_col: str = "person_id") -> dict[str, str]:
-    """{sample: 'case'|'control'} for one phecode from pheno_cov.tsv, restricted to the analysis sample list.
+def phenotype_column(df: pd.DataFrame, names) -> str:
+    """The first of ``names`` that is a column of ``df``; raises KeyError naming all of them if none is.
 
-    The phecode columns are 0/1; anything else (blank, NA) is neither a case nor a control and is left out, which is
-    how a phecode's own eligible set differs from the cohort.
+    pheno_cov.tsv names its phenotype columns with the pipeline's underscore form (``BI_164_6``), while the PhecodeX
+    tables and the figure code use the dotted form (``BI_164.6``). They coincide only for codes without a sub-code, so
+    looking up the dotted form alone silently finds 82 of 193 dossier phenotypes and reports the rest as absent.
+    """
+    if isinstance(names, str):
+        names = [names]
+    for n in names:
+        if n in df.columns:
+            return n
+    raise KeyError(f"pheno_cov has none of the column name(s) {list(names)}")
+
+
+def case_control_map(pheno_cov, phecode, analysis_samples=None, id_col: str = "person_id") -> dict[str, str]:
+    """{sample: 'case'|'control'} for one phenotype from pheno_cov.tsv, restricted to the analysis sample list.
+
+    ``phecode`` may be one name or several candidates, tried in order -- pass both the underscore and the dotted form
+    and whichever pheno_cov uses is found (see ``phenotype_column``).
+
+    The phenotype columns are 0/1; anything else (blank, NA) is neither a case nor a control and is left out, which is
+    how a phenotype's own eligible set differs from the cohort.
     """
     df = pheno_cov if isinstance(pheno_cov, pd.DataFrame) else pd.read_csv(pheno_cov, sep="\t", low_memory=False)
     if id_col not in df.columns:
         raise KeyError(f"pheno_cov lacks {id_col}; has {list(df.columns)[:10]}...")
-    if phecode not in df.columns:
-        raise KeyError(f"pheno_cov has no column {phecode}")
+    phecode = phenotype_column(df, phecode)
     keep = None
     if analysis_samples is not None:
         if isinstance(analysis_samples, (str, Path)):

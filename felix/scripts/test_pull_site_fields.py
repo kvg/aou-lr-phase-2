@@ -232,3 +232,52 @@ def test_case_control_map_restricts_to_the_analysis_samples(tmp_path):
 def test_case_control_map_rejects_an_unknown_phecode(tmp_path):
     with pytest.raises(KeyError, match="ZZ_999"):
         ps.case_control_map(_pheno(tmp_path), "ZZ_999")
+
+
+def test_phenotype_column_prefers_the_first_name_present(tmp_path):
+    df = pd.DataFrame({"person_id": ["1"], "BI_164_6": [1]})
+    assert ps.phenotype_column(df, ["BI_164_6", "BI_164.6"]) == "BI_164_6"
+    assert ps.phenotype_column(df, ["BI_164.6", "BI_164_6"]) == "BI_164_6"   # falls through to the one that exists
+    assert ps.phenotype_column(df, "BI_164_6") == "BI_164_6"
+
+
+def test_phenotype_column_names_everything_it_tried(tmp_path):
+    df = pd.DataFrame({"person_id": ["1"], "BI_164_6": [1]})
+    with pytest.raises(KeyError, match=r"XX_1.*XX\.1|XX\.1.*XX_1"):
+        ps.phenotype_column(df, ["XX_1", "XX.1"])
+
+
+def test_case_control_map_finds_the_underscore_column_given_both_forms(tmp_path):
+    """pheno_cov uses BI_164_6; the figure code and PhecodeX tables use BI_164.6. Both are offered, one is found."""
+    df = pd.DataFrame({"person_id": ["1", "2", "3"], "BI_164_6": [1, 0, None]})
+    assert ps.case_control_map(df, ["BI_164_6", "BI_164.6"]) == {"1": "case", "2": "control"}
+    assert ps.case_control_map(df, ["BI_164.6", "BI_164_6"]) == {"1": "case", "2": "control"}
+
+
+def test_imputed_fraction_without_the_phased_rows_counts_every_pre_nocall():
+    """Phasing leaves no no-calls behind, so the phased query is unnecessary; passing None asserts that."""
+    pre = _rows({"c1": ("./.", 0, 0), "c2": ("0/0", 30, 40), "n1": ("0/0", 30, 40), "n2": ("0/0", 30, 40)})
+    groups = {"c1": "case", "c2": "case", "n1": "control", "n2": "control"}
+    out = ps.imputed_fraction_by_group(pre, None, groups).iloc[0]
+    assert out.imputed_frac_case == 0.5 and out.imputed_frac_control == 0.0
+
+
+def test_imputed_fraction_with_phased_rows_can_contradict_the_assumption():
+    """If a genotype is still a no-call after phasing it is not an imputed genotype, and passing post shows that."""
+    pre = _rows({"c1": ("./.", 0, 0)})
+    post = _rows({"c1": ("./.", 0, 0)})
+    assert ps.imputed_fraction_by_group(pre, post, {"c1": "case"}).iloc[0].imputed_frac_case == 0.0
+    assert ps.imputed_fraction_by_group(pre, None, {"c1": "case"}).iloc[0].imputed_frac_case == 1.0
+
+
+@needs_bcftools
+def test_probe_reports_success_on_a_readable_file(tmp_path):
+    vcf = _vcf(tmp_path, ["chr9\t100\t.\tA\tT\t.\t.\t.\tGT\t0/0\t0/1\t./.\t1/1"])
+    assert ps.probe(vcf).startswith("OK:")
+
+
+@needs_bcftools
+def test_probe_reports_what_bcftools_said_on_failure(tmp_path):
+    out = ps.probe(str(tmp_path / "absent.vcf.gz"))
+    assert out.startswith("FAILED") and "bcftools said" in out
+    assert "environment carrying credentials" in out

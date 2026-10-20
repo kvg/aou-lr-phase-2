@@ -365,9 +365,24 @@ for u in needed:
     print(f"  {Path(u).name}: {len(pheno_by_uri[u])} rows, {len(pheno_by_uri[u].columns)} columns, "
           f"{have}/{sites.phenotype.nunique()} dossier phenotypes present")
 
+# The phased callset is only worth reading to VERIFY that phasing left no no-calls behind; it is 0 at every record
+# of FELIX's input, so by default we take that as given and read the pre-phasing callset alone.
+VERIFY_PHASED = False
+sources = {"pre": PRE_PHASING_VCFS}
+if VERIFY_PHASED:
+    sources["post"] = PHASED_VCFS
+
+# One probe per source before the loop: a gs:// URI needs an htslib built with libcurl AND GCS_OAUTH_TOKEN in the
+# environment, and when either is missing every chromosome fails identically. Better to see htslib's own words once.
+for label, mapping in sources.items():
+    if mapping:
+        uri = sorted(mapping.values())[0]
+        print(f"{label}: probing " + uri.rsplit("/", 1)[-1])
+        print("  " + ps.probe(uri, os.environ.get("GOOGLE_PROJECT")), flush=True)
+
 pulled = {}
-for label, mapping in (("pre", PRE_PHASING_VCFS), ("post", PHASED_VCFS)):
-    frames = []
+for label, mapping in sources.items():
+    frames, failed = [], 0
     for chrom_name, uri in sorted(mapping.items()):
         want = sites[sites.chrom_name == chrom_name]
         if want.empty:
@@ -376,12 +391,17 @@ for label, mapping in (("pre", PRE_PHASING_VCFS), ("post", PHASED_VCFS)):
             got = ps.query_sites(uri, want, fields=("GT", "DP", "GQ", "RNC"),
                                  gcs_project=os.environ.get("GOOGLE_PROJECT"))
         except Exception as exc:
-            print(f"  {label} {chrom_name}: {type(exc).__name__}: {str(exc)[:200]}")
+            failed += 1
+            if failed == 1:                      # the first failure in full; the rest would repeat it
+                print(f"  {label} {chrom_name} FAILED: {exc}")
             continue
         print(f"  {label} {chrom_name}: {len(got)} rows for {got.locus_id.nunique() if len(got) else 0} loci",
               flush=True)
         frames.append(got)
+    if failed > 1:
+        print(f"  {label}: {failed} chromosomes failed the same way")
     pulled[label] = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+pulled.setdefault("post", pd.DataFrame())
 
 # Each locus is its own phenotype, so the case/control split is per locus, not global.
 rows = []
@@ -390,12 +410,19 @@ for _, S in sites.iterrows():
     if pheno is None:
         rows.append(dict(locus_id=S.locus_id, note=f"no pheno_cov for run {S.run}"))
         continue
+    # pheno_cov names its columns with the underscore form (BI_164_6); the figure code and PhecodeX use the dotted
+    # form (BI_164.6). They coincide only without a sub-code, so offer both and let it find whichever is there.
+    candidates = [S.run.removeprefix("felix.prod."), S.phenotype]
     try:
-        groups = ps.case_control_map(pheno, S.phenotype)
+        column = ps.phenotype_column(pheno, candidates)
+        groups = ps.case_control_map(pheno, column)
     except KeyError:
-        rows.append(dict(locus_id=S.locus_id, note=f"no {S.phenotype} column in {Path(pheno_cov_by_run[S.run]).name}"))
+        rows.append(dict(locus_id=S.locus_id, phenotype=S.phenotype,
+                         note=f"none of {candidates} is a column in {Path(pheno_cov_by_run[S.run]).name}"))
         continue
-    rec = dict(locus_id=S.locus_id, phenotype=S.phenotype, note="")
+    rec = dict(locus_id=S.locus_id, phenotype=S.phenotype, pheno_column=column, note="",
+               n_case_total=sum(1 for v in groups.values() if v == "case"),
+               n_control_total=sum(1 for v in groups.values() if v == "control"))
     for label in ("pre", "post"):
         df = pulled[label]
         sub = df[df.locus_id == S.locus_id] if len(df) else pd.DataFrame()
@@ -404,9 +431,10 @@ for _, S in sites.iterrows():
             for k, v in cr.iloc[0].items():
                 if k != "locus_id":
                     rec[f"{label}_{k}"] = v
-    if len(pulled["pre"]) and len(pulled["post"]):
-        imp = ps.imputed_fraction_by_group(pulled["pre"][pulled["pre"].locus_id == S.locus_id],
-                                           pulled["post"][pulled["post"].locus_id == S.locus_id], groups)
+    if len(pulled["pre"]):
+        post_rows = (pulled["post"][pulled["post"].locus_id == S.locus_id]
+                     if len(pulled["post"]) else None)   # None = take it that phasing filled every no-call
+        imp = ps.imputed_fraction_by_group(pulled["pre"][pulled["pre"].locus_id == S.locus_id], post_rows, groups)
         if len(imp):
             for k, v in imp.iloc[0].items():
                 if k != "locus_id":
@@ -416,9 +444,17 @@ for _, S in sites.iterrows():
 callrate = pd.DataFrame(rows)
 callrate.to_csv(fhd.CALLRATE_FILE, sep="\t", index=False)
 print(f"\\nwrote {fhd.CALLRATE_FILE}: {len(callrate)} loci")
-cols = [c for c in ("locus_id", "pre_call_rate_case", "pre_call_rate_control", "pre_fisher_p",
-                    "imputed_frac_case", "imputed_frac_control", "imputed_frac_diff") if c in callrate.columns]
-if len(cols) > 1:
+resolved = callrate.get("pheno_column")
+if resolved is not None:
+    print(f"phenotype column resolved for {int(resolved.notna().sum())}/{len(callrate)} loci")
+notes = callrate[callrate.note.astype(str).str.len() > 0] if "note" in callrate.columns else pd.DataFrame()
+if len(notes):
+    print(f"{len(notes)} loci could not be mapped; first few:")
+    display(notes[["locus_id", "phenotype", "note"]].head(5))
+cols = [c for c in ("locus_id", "phenotype", "n_case_total", "pre_call_rate_case", "pre_call_rate_control",
+                    "pre_fisher_p", "imputed_frac_case", "imputed_frac_control", "imputed_frac_diff")
+        if c in callrate.columns]
+if len(cols) > 2:
     display(callrate[cols].head(12))
 """)
 
