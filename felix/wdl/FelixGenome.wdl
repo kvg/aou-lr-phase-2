@@ -1051,7 +1051,8 @@ task RunFelixStep2RuVcf {
     ln -sf "~{admixed_vcf}" ru.admixed.vcf.gz
     ln -sf "~{admixed_vcf_index}" ru.admixed.vcf.gz.csi
 
-    # stderr is DISCARDED.
+    # stderr is KEPT ON LOCAL DISK AND TAILED ON FAILURE -- it is not sent to
+    # fd 2 on the healthy path, and the reason it cannot be is volume.
     #
     # FELIX's VCF reader prints one line per multiallelic record
     # (src/VCF.cpp:181, "Warning: skipping multiallelic variant"), and the
@@ -1070,16 +1071,30 @@ task RunFelixStep2RuVcf {
     # multiple ALTs are informational; only the reported ALT string takes
     # alts()[0].
     #
-    # This replaces an earlier capture-count-gzip-and-tail-on-failure block.
-    # That version had to grep the stream, and a grep that matched nothing
-    # exited 1 under `set -o pipefail` and killed the task on exactly the
-    # HEALTHY case. `2> /dev/null` has no pattern to miss and no pipeline to
-    # break, which is why it is preferred here: the task runs ~42,000 times
-    # across both arms and the simplest construct that cannot fail wins. The
-    # cost is that a failing shard leaves no stderr anywhere -- diagnose those
-    # by re-running the single shard with this redirect removed.
+    # so stderr goes to a LOCAL FILE on the task disk, not to fd 2. The Batch
+    # agent ingests only what the runnable writes to its own stdout/stderr, and
+    # this file is not a task output, so the 2.4M warning lines are written
+    # once to a disk that is destroyed with the VM: no Cloud Logging ingestion,
+    # no delocalization, nothing to pay for or delete. ~150 MB against a 50 GB
+    # local-disk request.
+    #
+    # On failure the last 200 lines are echoed to fd 2 and DO get ingested,
+    # which is the point -- an R error is the last thing written to stderr, so
+    # a fixed tail always contains it. This is what `2> /dev/null` cost us:
+    # RuStep2 died at chunk 14 of chr3 on BI_177_4 with exit 1, and the message
+    # went to /dev/null, leaving only a stdout log that stops mid-chunk. It
+    # also discarded get_jointScore_pvalue's pinv-fallback diagnostics
+    # (SKAT_funcs.cpp:1597) on every shard.
+    #
+    # An earlier version of this block grepped the stream to count warnings,
+    # and a grep that matched nothing exited 1 under `set -o pipefail` and
+    # killed the task on exactly the HEALTHY case. There is no grep and no
+    # pipeline here: `tail` reads a file that is guaranteed to exist, runs only
+    # when rc is already non-zero, and the task exits with the Rscript rc
+    # either way. The `|| rc=$?` keeps `set -e` from exiting before the tail.
     #
     # --min-mac is a carrier count here (samples with a non-zero dosage).
+    rc=0
     Rscript "~{run_step2_script}" \
       --vcf-file ru.admixed.vcf.gz \
       --vcf-index ru.admixed.vcf.gz.csi \
@@ -1095,7 +1110,13 @@ task RunFelixStep2RuVcf {
       --n-threads 1 \
       --out-tsv "${PHENO}.ru.felix.tsv" \
       --out-raw "${PHENO}.ru.felix.raw.txt" \
-      2> /dev/null
+      2> step2_stderr.log || rc=$?
+
+    if [[ "${rc}" -ne 0 ]]; then
+      echo "RuStep2 ${PHENO} ${CHROM}: Rscript exited ${rc}. Last 200 stderr lines:" >&2
+      tail -n 200 step2_stderr.log >&2
+      exit "${rc}"
+    fi
 
     mv "${PHENO}.ru.felix.tsv" results.ru.felix.tsv
   >>>
