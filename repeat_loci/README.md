@@ -137,12 +137,22 @@ flanking heterozygous SNVs that fix its haplotype, so the join is a measurement.
 
 Image: `repeat_loci/docker/Dockerfile` (whatshap + TRGT + samtools/bcftools),
 built with `repeat_loci/build_docker.sh` (Cloud Build by default, `--local` for
-a laptop build) and tagged `aou-trgt-phase:0.1.0`. Nothing from the repo is
+a laptop build) and pushed as `aou-trgt-phase:0.1.0`. Nothing from the repo is
 baked in — the WDL takes `phase_trgt_by_haplotag.py` as a File input from the
 workspace bucket, as the other repeat_loci workflows do — so the build context
-is just `repeat_loci/`. Pin `TrgtHaplotypePhase.docker` to the `@sha256` digest
-rather than the tag for any run whose outputs are kept. Example inputs:
+is just `repeat_loci/`. Example inputs:
 `configs/trgt_haplotype_phase.inputs.json.example`.
+
+`TrgtHaplotypePhase.docker` is pinned by **digest**, not tag, because a
+re-pushed tag would silently change what ran:
+
+    aou-trgt-phase@sha256:4a6d36d095aa7021431ce65bdea84780be5de58e23683869c01d2b58f890ac88
+
+built 2026-10-20 from Cloud Build `c32d8ec2-81ed-4609-9ec5-29ec8a389137`, with
+`trgt` 1.5.1 (the design needs ≥ 0.7.0 for `HP` during genotyping and ≥ 0.5.0
+for read-to-allele assignments in the spanning BAM), `whatshap` 2.3 and
+samtools/bcftools 1.21. After any rebuild, re-pin with the digest
+`build_docker.sh` prints on exit.
 
 **Submit the first run with `allele_tag` empty.** The spanning BAM's
 read-to-allele tag is TRGT-version-dependent, so it is never defaulted: an

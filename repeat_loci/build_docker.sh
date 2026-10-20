@@ -157,7 +157,23 @@ case "${MODE}" in
     echo "Submitting Cloud Build..."
     run gcloud "${CB_ARGS[@]}"
     echo "Cloud Build finished. Image: ${FULL_IMAGE}"
-    echo "Point TrgtHaplotypePhase.docker at ${FULL_IMAGE} (or its @sha256 digest)."
+    # `gcloud builds submit` does not print the pushed digest, and
+    # TrgtHaplotypePhase.docker is pinned by digest, so resolve it here.
+    if [[ "${DRY_RUN}" -eq 0 ]]; then
+      DIGEST="$(gcloud artifacts docker images describe "${FULL_IMAGE}" \
+        --format='value(image_summary.digest)' 2>/dev/null || true)"
+    else
+      DIGEST=""
+    fi
+    if [[ -n "${DIGEST}" ]]; then
+      echo "Digest: ${DIGEST}"
+      echo "Pin TrgtHaplotypePhase.docker to:"
+      echo "  ${IMAGE}@${DIGEST}"
+    else
+      echo "Resolve the digest to pin TrgtHaplotypePhase.docker:"
+      echo "  gcloud artifacts docker images describe ${FULL_IMAGE} \\"
+      echo "    --format='value(image_summary.digest)'"
+    fi
     ;;
 
   *)

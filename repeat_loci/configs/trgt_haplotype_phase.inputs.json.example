@@ -28,7 +28,7 @@
   "TrgtHaplotypePhase.gcs_project": "",
 
   "TrgtHaplotypePhase.phase_trgt_by_haplotag_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/phase_trgt_by_haplotag.py",
-  "TrgtHaplotypePhase.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase:0.1.0",
+  "TrgtHaplotypePhase.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase@sha256:4a6d36d095aa7021431ce65bdea84780be5de58e23683869c01d2b58f890ac88",
   "TrgtHaplotypePhase.cpu": 4,
   "TrgtHaplotypePhase.memory_gb": 32,
   "TrgtHaplotypePhase.disk_gb": 100,

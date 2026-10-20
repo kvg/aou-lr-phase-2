@@ -62,7 +62,7 @@ workflow TrgtHaplotypePhase {
 
     File phase_trgt_by_haplotag_py
 
-    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase:0.1.0"
+    String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase@sha256:4a6d36d095aa7021431ce65bdea84780be5de58e23683869c01d2b58f890ac88"
     Int cpu = 4
     Int memory_gb = 32
     Int disk_gb = 100
