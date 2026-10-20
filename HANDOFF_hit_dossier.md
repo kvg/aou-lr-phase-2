@@ -37,7 +37,7 @@ isolated: everything except the regional plot comes out of the harvest cache `fe
 | export | fills | without it the page shows |
 |---|---|---|
 | `felix_dossier_loci.tsv` | the locus list, the header's case count and arm λ | recomputed from `felix_sweep_all_hits.tsv` (same rule, pinned by a test) |
-| `felix_dossier_leads.tsv` | **panels B, C, D, E** and four of the seven checks | four hatched panels and four `N/A` checks |
+| `felix_dossier_leads.tsv` | **panels B, C, D, E** and four of the eight checks | four hatched panels and four `N/A` checks |
 | `dossier_regions/*.tsv.gz` | **panel A** and the regional-support check | a hatched panel A and `N/A` regional support |
 | `felix_dossier_context.tsv` | the header's cytoband and gene, the genomic-context check | already in `data/` — annotated locally |
 | `felix_dossier_genes.tsv` | panel A's gene track | already in `data/` |
@@ -63,7 +63,7 @@ every page**, not just the handful with leftover Figure 3 card extracts:
 - section 6 annotated all 227 with no failed lookup: 2 pericentromeric, 10 in segmental duplications, 43 in tandem
   repeats, 1,330 genes, 15,109 track features.
 
-Verdicts: **146 incomplete, 77 warn, 4 fail**, identical between Terra's dry run and the local render.
+Verdicts: **138 incomplete, 85 warn, 4 fail**, identical between Terra's dry run and the local render.
 
 | check | pass | warn | fail | n/a |
 |---|---|---|---|---|
@@ -73,7 +73,28 @@ Verdicts: **146 incomplete, 77 warn, 4 fail**, identical between Terra's dry run
 | p vs score statistic | 227 | — | — | — |
 | Call rate | — | — | — | 227 |
 | Regional support | 214 | 13 | — | — |
+| Allelic series | — | **36** | — | 191 |
 | Genomic context | 167 | 60 | — | — |
+
+### Allelic series: no locus in the set has a graded effect
+
+`regional_support` asks whether the peak has LD partners, and at a short tandem repeat that question is unanswerable:
+recurrent mutation erodes LD with the flanking SNPs, so an empty 100 kb window is expected whatever the truth. The
+within-site counterpart survives that objection. felixla splits a merged multiallelic record into one REF/ALT test per
+ALT, all sharing the record's POS, so the regional extract already holds the whole allele series; if repeat length
+drives risk, the lead's own length neighbours should not be flat.
+
+**36 of the 227 leads sit on a record carrying three or more split tests, and in every one of them the signal is
+confined to a single allele — not one locus grades.** The warned set is also concentrated at the margin (median
+p 1.8e-8 against 2.5e-8 for the rest). Multiplying each lead's p by the number of tests at its own site — the
+multiplicity the headline p does not carry — leaves **12 of the 36 below 5e-8** (median 5 tests per site, maximum 17).
+
+Worked example, GI_542.11 (cirrhosis of liver) chr1:26,664,446, dossier page 3: a TG dinucleotide repeat whose record
+merges 29 alleles, 13 of them tested. The lead contrast is `AATGTGTGTGTGTGTGTGTGTGTGTGTGT` → `AATGTGTGTGTGTGTGTGTGTGTGT`
+(29 bp → 25 bp, −4 bp) at p 4.18e-8, and **the next best allele at the same site is p 6.2e-2**. The repeat arms do not
+settle it either way, because they test different alternatives: `ru` tests a monotone length trend (p 0.059) and
+`ru_biallelic` a carrier state that is **69% prevalent** at this repeat (p 0.66). A single-allele effect is invisible to
+both, so cross-arm concordance is the wrong check here and the allele series is the right one.
 
 - **The four failures all fail joint-test coherence**: DE_668.1 chr1:105,106,636 (p 2.4e-8), CA_140 chr7:106,687,110
   (3.5e-8), GI_545 chr15:93,448,345 (5.0e-8) and CV_440 chr22:21,651,719 (1.3e-74, which also warns on control F
@@ -82,7 +103,7 @@ Verdicts: **146 incomplete, 77 warn, 4 fail**, identical between Terra's dry run
   at chr11:5,227,002 **inside HBB** with p 3.5e-35 and 43 of 54 case carriers (it was chr11:4,926,224, p 7.3e-17,
   33 carriers). The effect is AFR-only, control allele frequency 0.011 at F +0.027, and it carries **92 supporting
   neighbours within 100 kb, all 92 genome-wide significant**. GE_970 hits the same base pair at p 1.9e-12.
-- **146 pages are "incomplete" only because call rate is unassessed** — no page can be complete until section 8 runs
+- **138 pages are "incomplete" only because call rate is unassessed** — no page can be complete until section 8 runs
   with `PRE_PHASING_VCFS` filled.
 
 ## Open points

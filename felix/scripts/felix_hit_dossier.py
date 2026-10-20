@@ -548,6 +548,8 @@ LD_PARTNER_AF = 0.05  # above this allele frequency a real signal should bring n
 LD_PARTNER_WINDOW = 100_000  # distance within which a supporting neighbour is looked for
 LD_PARTNER_ORDERS = 3.0  # a neighbour counts as support when its p is within this many orders of magnitude of the lead
 FIXED_HET_FRAC = 0.90  # control heterozygous fraction at or above which the record is a collapsed paralogue, not a variant
+ALLELIC_MIN_TESTS = 3  # fewer split tests than this at one record is not an allelic series and the check does not apply
+ALLELIC_ORDERS = 3.0  # a second allele of the series within this many orders of the lead counts as a graded effect
 
 
 def _norm_sf(z: float) -> float:
@@ -756,6 +758,52 @@ def regional_support(region: pd.DataFrame | None, pos: int, lead_p: float, p_col
     return out
 
 
+def allelic_series(region: pd.DataFrame | None, pos: int, lead_marker: str | None = None, p_col: str = P_COL,
+                   min_tests: int = ALLELIC_MIN_TESTS, orders: float = ALLELIC_ORDERS) -> dict:
+    """Does the effect grade across the allele series of a merged multiallelic record, or sit on one allele?
+
+    felixla splits a merged record into one REF/ALT test per ALT, and every split test keeps the record's POS, so the
+    series is the set of rows at the lead's own position in the regional extract. This is the within-site counterpart
+    of ``regional_support``, and unlike it the reasoning survives a hypermutable repeat: recurrent mutation erodes LD
+    with the flanking SNPs, so an empty 100 kb window around a short tandem repeat is uninformative, but it says
+    nothing about why the neighbouring *lengths* of the same repeat should be flat. If repeat length drives risk, a
+    25 bp allele being strongly associated while 23 bp and 27 bp are null is not what the mechanism predicts.
+
+    Reports the size of the series, the lead's own length change, the second-best p within it, and how many alleles
+    fall within ``orders`` of the lead. ``n_merged`` is the number of alleles in the lead's MarkerID, which is the
+    number of contrasts the site offered -- a multiplicity the single headline p does not carry.
+    """
+    out = dict(available=False, n_tests=0, n_merged=0, lead_delta_bp=math.nan, second_p=math.nan,
+               second_delta_bp=math.nan, n_within_orders=0)
+    if lead_marker:
+        out["n_merged"] = str(lead_marker).count(";") + 1
+    if region is None or len(region) == 0 or p_col not in region.columns or "POS" not in region.columns:
+        return out
+    r = region.copy()
+    r["_p"] = pd.to_numeric(r[p_col], errors="coerce")
+    site = r[(r.POS == pos) & r["_p"].notna() & (r["_p"] > 0)]
+    if len(site) < min_tests:
+        out["available"] = len(site) > 0
+        out["n_tests"] = len(site)
+        return out
+    site = site.sort_values("_p")
+    lead_row, rest = site.iloc[0], site.iloc[1:]
+
+    def delta(marker) -> float:
+        al = split_alleles(marker)
+        return float(len(al[1]) - len(al[0])) if al else math.nan
+
+    second = rest.iloc[0]
+    out.update(available=True, n_tests=len(site), lead_delta_bp=delta(lead_row.get("MarkerID")),
+               second_p=float(second["_p"]), second_delta_bp=delta(second.get("MarkerID")),
+               n_within_orders=int((rest["_p"] <= float(lead_row["_p"]) * (10.0 ** orders)).sum()))
+    if lead_marker:  # the lead row of the extract is the same record, so prefer the caller's full MarkerID
+        out["n_merged"] = str(lead_marker).count(";") + 1
+    elif isinstance(lead_row.get("MarkerID"), str):
+        out["n_merged"] = lead_row["MarkerID"].count(";") + 1
+    return out
+
+
 def checks(locus: pd.Series | dict, lead: pd.Series | dict | None, context: pd.Series | dict | None,
            region: pd.DataFrame | None = None, callrate: pd.Series | dict | None = None) -> list[dict]:
     """The flag chips for one locus: name, status ('pass', 'warn', 'fail' or 'n/a') and a one-line reading.
@@ -838,6 +886,24 @@ def checks(locus: pd.Series | dict, lead: pd.Series | dict | None, context: pd.S
             f"no neighbour within {LD_PARTNER_ORDERS:.0f} orders of the lead, at allele frequency {af:.2f}")
     else:
         add("Regional support", "pass", "lone peak, as expected for a rare allele")
+
+    al = allelic_series(region, int(locus["pos"]),
+                        lead_marker=(lead.get("MarkerID") if lead is not None else locus.get("lead_marker")))
+    if not al["available"]:
+        add("Allelic series", "n/a", "no region extract for this locus yet")
+    elif al["n_tests"] < ALLELIC_MIN_TESTS:
+        add("Allelic series", "n/a",
+            f"{al['n_tests']} allele(s) tested at this record: no series to grade the effect across")
+    elif al["n_within_orders"] > 0:
+        add("Allelic series", "pass",
+            f"{al['n_tests']} alleles tested here, {al['n_within_orders']} within {ALLELIC_ORDERS:.0f} orders of the "
+            f"lead: the effect grades across the series")
+    else:
+        d = al["lead_delta_bp"]
+        lead_bit = f"the {d:+.0f} bp allele" if not math.isnan(d) else "one allele"
+        add("Allelic series", "warn",
+            f"{al['n_tests']} alleles tested here but only {lead_bit} is associated "
+            f"(next best p {al['second_p']:.1e}): a length effect should not skip its own neighbours")
 
     if context is None or str(context.get("cytoband", "")) == "":
         add("Genomic context", "n/a", "context not annotated")

@@ -238,6 +238,60 @@ def test_regional_support_is_unavailable_without_an_extract():
     assert fhd.regional_support(pd.DataFrame(), 1000, 1e-9)["available"] is False
 
 
+def series(deltas, ps, pos=1000):
+    """A merged repeat record split into one test per ALT: every split test keeps the record's POS."""
+    ref = "A" + "TG" * 10
+    return pd.DataFrame({"POS": [pos] * len(deltas),
+                         "MarkerID": [f"chr1_{pos}_{ref}_{'A' + 'TG' * (10 + d // 2)}" for d in deltas],
+                         fhd.P_COL: ps})
+
+
+def test_allelic_series_flags_a_signal_confined_to_one_length():
+    out = fhd.allelic_series(series([-4, -2, 0, 2, 6], [4.2e-8, 0.062, 0.19, 0.21, 0.33]), 1000)
+    assert out["available"] and out["n_tests"] == 5
+    assert out["lead_delta_bp"] == -4 and out["second_p"] == 0.062
+    assert out["n_within_orders"] == 0  # the lead's own length neighbours are flat
+
+
+def test_allelic_series_passes_when_the_effect_grades_across_lengths():
+    out = fhd.allelic_series(series([-4, -2, 0, 2], [4.2e-8, 9e-7, 3e-6, 0.4]), 1000)
+    assert out["n_within_orders"] == 2 and out["second_p"] == 9e-7
+
+
+def test_allelic_series_does_not_apply_to_a_biallelic_record():
+    out = fhd.allelic_series(series([-4], [4.2e-8]), 1000)
+    assert out["n_tests"] == 1 and out["n_within_orders"] == 0
+    assert math.isnan(out["second_p"])
+
+
+def test_allelic_series_ignores_rows_at_other_positions():
+    df = pd.concat([series([-4, -2, 0], [4.2e-8, 0.062, 0.19]), series([-2, 0, 2], [1e-9, 1e-9, 1e-9], pos=5000)])
+    assert fhd.allelic_series(df, 1000)["n_tests"] == 3
+
+
+def test_allelic_series_counts_the_alleles_merged_into_the_lead_record():
+    marker = "chr1_1000_AT_A;chr1_1000_ATG_A;chr1_1000_A_ATG"
+    assert fhd.allelic_series(series([-4, -2, 0], [4.2e-8, 0.062, 0.19]), 1000, lead_marker=marker)["n_merged"] == 3
+
+
+def test_allelic_series_is_unavailable_without_an_extract():
+    assert fhd.allelic_series(None, 1000)["available"] is False
+    assert fhd.allelic_series(pd.DataFrame(), 1000)["available"] is False
+
+
+def test_the_allelic_series_chip_warns_on_a_lone_length():
+    flags = fhd.checks(dict(pos=1000, p=4.2e-8, ctrl_F=0.01, ctrl_het_frac=0.05), None, None,
+                       region=series([-4, -2, 0, 2, 6], [4.2e-8, 0.062, 0.19, 0.21, 0.33]))
+    chip = next(f for f in flags if f["check"] == "Allelic series")
+    assert chip["status"] == "warn" and "-4 bp" in chip["detail"]
+
+
+def test_the_allelic_series_chip_is_not_applicable_to_a_single_allele():
+    flags = fhd.checks(dict(pos=1000, p=4.2e-8, ctrl_F=0.01, ctrl_het_frac=0.05), None, None,
+                       region=series([-4], [4.2e-8]))
+    assert next(f for f in flags if f["check"] == "Allelic series")["status"] == "n/a"
+
+
 def test_an_extract_for_another_window_is_not_support():
     """A file cut for a different locus must read as 'not available', never as 'no neighbours'."""
     out = fhd.regional_support(region([5_000_000, 5_000_500], [1e-9, 1e-9]), 1000, 1e-9)
