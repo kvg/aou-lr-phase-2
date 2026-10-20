@@ -272,18 +272,38 @@ def phenotype_column(df: pd.DataFrame, names) -> str:
     raise KeyError(f"pheno_cov has none of the column name(s) {list(names)}")
 
 
-def case_control_map(pheno_cov, phecode, analysis_samples=None, id_col: str = "person_id") -> dict[str, str]:
+# The sample-ID column of pheno_cov.tsv, in the order make_restricted_pheno_cov.py looks for it. FELIX's own
+# fit_felix_null.R passes --sampleIDColinphenoFile=ID, so "ID" is what the production file actually uses; assuming
+# person_id makes every lookup raise, and a bare `except KeyError` around the phenotype lookup then blames the
+# phenotype name for it.
+ID_COLUMN_CANDIDATES = ("ID", "IID", "person_id", "research_id", "sample_id", "s")
+
+
+def sample_id_column(df: pd.DataFrame, id_col: str | None = None) -> str:
+    """The sample-ID column of a pheno_cov frame: ``id_col`` if given, else the first of ID_COLUMN_CANDIDATES present."""
+    if id_col:
+        if id_col not in df.columns:
+            raise KeyError(f"pheno_cov lacks the given id column {id_col!r}; has {list(df.columns)[:8]}...")
+        return id_col
+    for c in ID_COLUMN_CANDIDATES:
+        if c in df.columns:
+            return c
+    raise KeyError(f"pheno_cov has none of the sample-ID columns {list(ID_COLUMN_CANDIDATES)}; "
+                   f"has {list(df.columns)[:8]}...")
+
+
+def case_control_map(pheno_cov, phecode, analysis_samples=None, id_col: str | None = None) -> dict[str, str]:
     """{sample: 'case'|'control'} for one phenotype from pheno_cov.tsv, restricted to the analysis sample list.
 
     ``phecode`` may be one name or several candidates, tried in order -- pass both the underscore and the dotted form
-    and whichever pheno_cov uses is found (see ``phenotype_column``).
+    and whichever pheno_cov uses is found (see ``phenotype_column``). ``id_col`` defaults to whichever of
+    ID_COLUMN_CANDIDATES the frame carries, which for the production file is ``ID``.
 
     The phenotype columns are 0/1; anything else (blank, NA) is neither a case nor a control and is left out, which is
     how a phenotype's own eligible set differs from the cohort.
     """
     df = pheno_cov if isinstance(pheno_cov, pd.DataFrame) else pd.read_csv(pheno_cov, sep="\t", low_memory=False)
-    if id_col not in df.columns:
-        raise KeyError(f"pheno_cov lacks {id_col}; has {list(df.columns)[:10]}...")
+    id_col = sample_id_column(df, id_col)
     phecode = phenotype_column(df, phecode)
     keep = None
     if analysis_samples is not None:

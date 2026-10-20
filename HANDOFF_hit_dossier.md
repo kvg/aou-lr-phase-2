@@ -47,30 +47,43 @@ isolated: everything except the regional plot comes out of the harvest cache `fe
 So the Terra run is needed for three things — the lead per-ancestry block, the regional extracts and the call rate —
 and those are sections 4, 7 and 8.
 
-## Where the dossier stands now, on the 439-run sweep
+## Where the dossier stands now, on the 637-run sweep
 
-A newer sweep landed in `data/` on 2026-10-18 at 23:14 and the scope grew with it: **439 runs**, 7,273 reported hits →
-254 retained by the screen → 238 with at least 10 case carriers → **127 loci across 112 phenotypes** after merging
-hits of one phenotype within 500 kb. (The 329-run sweep gave 90 loci; anything quoting 90 predates this.) Rendering
-today gives `{'incomplete': 86, 'warn': 40, 'fail': 1}`:
+The first full Terra run landed 2026-10-20. **637 runs**, 10,254 reported hits → 492 retained by the screen → 442 with
+at least 10 case carriers → **227 loci across 193 phenotypes**. Lead arms: main 221, ru_biallelic 4, ru 2.
+(Earlier sweeps gave 90 and 127 loci; anything quoting those predates this.)
 
-- **1 page fails — and it is the right one.** CV_440, chr22:21,651,719, the strongest hit in the whole scan at
-  p = 1.3e-74, is condemned on three independent counts: the joint-test coherence ratio is **174** (P_het implies
-  chi-square 357 while the per-ancestry z sum to 2), controls show a heterozygote deficit at F +0.447 with allele
-  frequency 0.940, and the peak is alone — no neighbour within 3 orders of magnitude across 500 kb at an allele
-  frequency of 0.94. No per-ancestry p is below 0.19. The plate reaches that verdict from the data, with no entry
-  on a list of known-bad loci.
-- **The positive control behaves like one.** GE_983.2 (Hemoglobin C / sickle-cell trait, chr11:4,926,224 in the HBB
-  region, p = 7.3e-17) passes every check it can compute: control F +0.058, coherence 1.20, unique sequence, and **77
-  supporting neighbours within 100 kb, all 77 genome-wide significant in their own right** — a real locus brings its
-  LD partners. Only "fewer than two strata with an effect estimate" is `n/a`, which is what an ancestry-restricted
-  allele should look like. Set against CV_440's lone 74-order spike with nothing beside it, the regional panel alone
-  separates the two.
-- **40 pages flagged**: 38 for genomic context (27 leads inside a tandem repeat, 5 inside a segmental duplication,
-  2 pericentromeric) and 4 for a control heterozygote deficit above F 0.3 — DE_660.12 chr7:129,570,069 (+0.580),
-  BI_181 chr18:70,042,366 (+0.549), CV_440 chr22:21,651,719 (+0.447), GE_972 chr19:54,111,497 (+0.307).
-- **86 pages incomplete**: no page is complete, because call rate is `n/a` everywhere until section 8 runs. 119 of the
-  127 also await the per-ancestry block, which exists for the 8 loci with a region extract in `data/`.
+Every input is now the real export — `source` reads `dossier` for all seven — so **panels B through E are real on
+every page**, not just the handful with leftover Figure 3 card extracts:
+
+- section 4 matched a `top_hits` row for all 240 locus × arm leads, 0 missed, and the lead p agrees with the sweep for
+  **227/227 loci, largest relative difference 0.00e+00**;
+- section 7 cut regions in 4 h 15 min wall (CPU total 4 h 3 min), 198 new files plus 161 loci already done — **693
+  region files, all 227 loci covered**;
+- section 6 annotated all 227 with no failed lookup: 2 pericentromeric, 10 in segmental duplications, 43 in tandem
+  repeats, 1,330 genes, 15,109 track features.
+
+Verdicts: **146 incomplete, 77 warn, 4 fail**, identical between Terra's dry run and the local render.
+
+| check | pass | warn | fail | n/a |
+|---|---|---|---|---|
+| Hardy-Weinberg | 219 | 7 | — | 1 |
+| Joint-test coherence | 223 | — | **4** | — |
+| Effect consistency | 63 | 18 | — | 146 |
+| p vs score statistic | 227 | — | — | — |
+| Call rate | — | — | — | 227 |
+| Regional support | 214 | 13 | — | — |
+| Genomic context | 167 | 60 | — | — |
+
+- **The four failures all fail joint-test coherence**: DE_668.1 chr1:105,106,636 (p 2.4e-8), CA_140 chr7:106,687,110
+  (3.5e-8), GI_545 chr15:93,448,345 (5.0e-8) and CV_440 chr22:21,651,719 (1.3e-74, which also warns on control F
+  +0.447). The joint p at each is unsupported by the per-ancestry statistics it is built from.
+- **The positive control got stronger and moved onto the gene.** GE_983.2 (Hemoglobin C / sickle-cell trait) now leads
+  at chr11:5,227,002 **inside HBB** with p 3.5e-35 and 43 of 54 case carriers (it was chr11:4,926,224, p 7.3e-17,
+  33 carriers). The effect is AFR-only, control allele frequency 0.011 at F +0.027, and it carries **92 supporting
+  neighbours within 100 kb, all 92 genome-wide significant**. GE_970 hits the same base pair at p 1.9e-12.
+- **146 pages are "incomplete" only because call rate is unassessed** — no page can be complete until section 8 runs
+  with `PRE_PHASING_VCFS` filled.
 
 ## Open points
 

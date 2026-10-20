@@ -362,8 +362,10 @@ for u in needed:
         subprocess.run(["gsutil", "cp", u, str(local)], check=True)
     pheno_by_uri[u] = pd.read_csv(local, sep="\t", low_memory=False)
     have = sum(1 for ph in sites.phenotype.unique() if ph in pheno_by_uri[u].columns)
+    bare = sum(1 for r in sites.run.unique() if r.removeprefix("felix.prod.") in pheno_by_uri[u].columns)
     print(f"  {Path(u).name}: {len(pheno_by_uri[u])} rows, {len(pheno_by_uri[u].columns)} columns, "
-          f"{have}/{sites.phenotype.nunique()} dossier phenotypes present")
+          f"{have} dotted + {bare} underscore of {sites.phenotype.nunique()} dossier phenotypes present; "
+          f"sample-ID column {ps.sample_id_column(pheno_by_uri[u])!r}")
 
 # The phased callset is only worth reading to VERIFY that phasing left no no-calls behind; it is 0 at every record
 # of FELIX's input, so by default we take that as given and read the pre-phasing callset alone.
@@ -403,6 +405,10 @@ for label, mapping in sources.items():
     pulled[label] = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 pulled.setdefault("post", pd.DataFrame())
 
+# One sample-ID column for the whole loop, detected from the file rather than assumed (FELIX uses "ID").
+ID_COLUMN = ps.sample_id_column(next(iter(pheno_by_uri.values()))) if pheno_by_uri else None
+print(f"sample-ID column: {ID_COLUMN!r}")
+
 # Each locus is its own phenotype, so the case/control split is per locus, not global.
 rows = []
 for _, S in sites.iterrows():
@@ -412,13 +418,19 @@ for _, S in sites.iterrows():
         continue
     # pheno_cov names its columns with the underscore form (BI_164_6); the figure code and PhecodeX use the dotted
     # form (BI_164.6). They coincide only without a sub-code, so offer both and let it find whichever is there.
+    # The two lookups are caught SEPARATELY and the real exception text is kept: catching them together once made an
+    # ID-column error ("pheno_cov lacks person_id") read as "none of [phenotype] is a column", which is a wrong cause.
     candidates = [S.run.removeprefix("felix.prod."), S.phenotype]
     try:
         column = ps.phenotype_column(pheno, candidates)
-        groups = ps.case_control_map(pheno, column)
-    except KeyError:
-        rows.append(dict(locus_id=S.locus_id, phenotype=S.phenotype,
-                         note=f"none of {candidates} is a column in {Path(pheno_cov_by_run[S.run]).name}"))
+    except KeyError as exc:
+        rows.append(dict(locus_id=S.locus_id, phenotype=S.phenotype, note=f"phenotype column: {exc}"))
+        continue
+    try:
+        groups = ps.case_control_map(pheno, column, id_col=ID_COLUMN)
+    except KeyError as exc:
+        rows.append(dict(locus_id=S.locus_id, phenotype=S.phenotype, pheno_column=column,
+                         note=f"case/control map: {exc}"))
         continue
     rec = dict(locus_id=S.locus_id, phenotype=S.phenotype, pheno_column=column, note="",
                n_case_total=sum(1 for v in groups.values() if v == "case"),

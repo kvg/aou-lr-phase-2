@@ -216,7 +216,7 @@ def test_imputed_fraction_does_not_count_a_genotype_still_missing_after_phasing(
 
 
 def _pheno(tmp_path):
-    return pd.DataFrame({"person_id": ["1", "2", "3", "4"], "BI_174": [1, 0, 0, None], "CV_400": [0, 0, 1, 1]})
+    return pd.DataFrame({"ID": ["1", "2", "3", "4"], "BI_174": [1, 0, 0, None], "CV_400": [0, 0, 1, 1]})
 
 
 def test_case_control_map_reads_one_phecode(tmp_path):
@@ -281,3 +281,34 @@ def test_probe_reports_what_bcftools_said_on_failure(tmp_path):
     out = ps.probe(str(tmp_path / "absent.vcf.gz"))
     assert out.startswith("FAILED") and "bcftools said" in out
     assert "environment carrying credentials" in out
+
+
+def test_sample_id_column_finds_the_production_name():
+    """FELIX passes --sampleIDColinphenoFile=ID, so the production pheno_cov uses ID, not person_id."""
+    assert ps.sample_id_column(pd.DataFrame({"ID": [], "BI_174": []})) == "ID"
+    assert ps.sample_id_column(pd.DataFrame({"person_id": [], "BI_174": []})) == "person_id"
+    assert ps.sample_id_column(pd.DataFrame({"IID": [], "ID": []})) == "ID"   # candidate order wins
+
+
+def test_sample_id_column_reports_when_there_is_none():
+    with pytest.raises(KeyError, match="none of the sample-ID columns"):
+        ps.sample_id_column(pd.DataFrame({"something_else": [], "BI_174": []}))
+
+
+def test_sample_id_column_honours_an_explicit_name():
+    with pytest.raises(KeyError, match="lacks the given id column"):
+        ps.sample_id_column(pd.DataFrame({"ID": []}), id_col="person_id")
+
+
+def test_case_control_map_works_without_being_told_the_id_column(tmp_path):
+    assert ps.case_control_map(_pheno(tmp_path), "BI_174") == {"1": "case", "2": "control", "3": "control"}
+
+
+def test_a_missing_id_column_is_not_reported_as_a_missing_phenotype(tmp_path):
+    """The bug this guards: an ID-column KeyError caught alongside the phenotype lookup blamed the phenotype name."""
+    df = pd.DataFrame({"weird_id": ["1"], "BI_174": [1]})
+    with pytest.raises(KeyError) as exc:
+        ps.case_control_map(df, ["BI_174", "BI_174"])
+    msg = str(exc.value)
+    assert "sample-ID" in msg                       # the real cause
+    assert "has none of the column name(s)" not in msg   # not phenotype_column's message
