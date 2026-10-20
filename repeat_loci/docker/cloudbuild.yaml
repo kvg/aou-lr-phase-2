@@ -1,0 +1,41 @@
+# Cloud Build config for repeat_loci/docker/Dockerfile
+# Invoked from repeat_loci/ via:
+#   gcloud builds submit . --config=docker/cloudbuild.yaml --substitutions=_IMAGE=...,_TAG=...
+#
+# Context directory is repeat_loci/ (parent of docker/). Nothing from the repo is
+# baked in: TrgtHaplotypePhase.wdl passes phase_trgt_by_haplotag.py as a File
+# input from the workspace bucket, the same way the other repeat_loci workflows
+# take their scripts. The image carries only the third-party tools.
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase
+  _TAG: "0.1.0"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_32
+  diskSizeGb: 200
+
+timeout: 7200s
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --platform
+      - linux/amd64
+      - -f
+      - docker/Dockerfile
+      - -t
+      - ${_IMAGE}:${_TAG}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - ${_IMAGE}:${_TAG}
+
+images:
+  - ${_IMAGE}:${_TAG}

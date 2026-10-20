@@ -10,6 +10,10 @@ and the PLVI table into the rarefaction curve and the example histograms.
 `RepeatLocusDosage` sums integrated SNV/indel/SV records. That is not the
 Panel C input. `TrgtLocusConcordance` on chr20 is already done.
 
+`TrgtHaplotypePhase` is unrelated to Panel C: it is the prototype for re-basing
+the FELIX repeat-dosage arm on TRGT lengths. See
+[TRGT haplotype phasing](#trgt-haplotype-phasing) below.
+
 | Step | Workflow | Script | Output |
 |---|---|---|---|
 | Allele tables | `wdl/TrgtAlleleCounts.wdl` (Phase 1 and Phase 2) | `trgt_allele_counts.py` | `<label>.alleles.tsv.gz` (locus × dosage × haplotype count) and `<label>.summary.json` |
@@ -103,3 +107,54 @@ python -m pytest scripts/test_aggregate_repeat_loci.py scripts/test_trgt_plvi.py
   scripts/test_trgt_allele_counts.py scripts/test_compare_trgt_locus_dosage.py \
   scripts/test_panel_c_repeat_alleles.py
 ```
+
+## TRGT haplotype phasing
+
+Prototype for the repeat-dosage re-base, not part of Figure 2C. The locus-level
+`ru` arm infers a haplotype's repeat length by summing the integrated callset's
+records at a catalog locus, which double-counts an event described once as a
+GLnexus indel and once as a merged SV record: 99.84% exact where the repeat does
+not change length, 8.10% exact where it expands by 50 bp or more. TRGT measures
+the repeat directly. The obstacle is that the production TRGT VCFs are raw TRGT
+output — `/`-separated genotypes, no `PS` — so no allele can be attributed to
+the haplotype carrying a FLARE ancestry call. HiPhase was run on the small and
+SV BCFs only, never on the TRGT VCF, so there is no phased sibling.
+
+`wdl/TrgtHaplotypePhase.wdl` resolves it at read level for one sample over one
+window: `bcftools` pulls the sample out of the ligated phased callset (this
+defines the haplotype frame — slot 0 is the haplotype `AN1` describes),
+`samtools` reads the window out of the haplotagged BAM and strips HiPhase's
+`HP`/`PS` (they are in HiPhase's block frame, not SHAPEIT4's), `whatshap
+haplotag` re-tags against the phased callset, `trgt` re-genotypes from the
+tagged reads, and `phase_trgt_by_haplotag.py` joins read → haplotype against
+read → allele. A single HiFi molecule carries both the repeat allele and the
+flanking heterozygous SNVs that fix its haplotype, so the join is a measurement.
+
+| Step | Workflow | Script | Output |
+|---|---|---|---|
+| Haplotype-resolved TRGT | `wdl/TrgtHaplotypePhase.wdl` | `phase_trgt_by_haplotag.py` | `<sample>.hap_alleles.tsv.gz` (locus × haplotype × length), `<sample>.trgt.phased.vcf.gz`, `<sample>.phase_summary.json` |
+| Verification | `notebooks/terra/repeat_01_trgt_haplotype_phase.ipynb` | same | tag census, resolution tally, orientation agreement by length stratum, exposure |
+
+Image: `repeat_loci/docker/Dockerfile` (whatshap + TRGT + samtools/bcftools),
+built with `repeat_loci/build_docker.sh` (Cloud Build by default, `--local` for
+a laptop build) and tagged `aou-trgt-phase:0.1.0`. Nothing from the repo is
+baked in — the WDL takes `phase_trgt_by_haplotag.py` as a File input from the
+workspace bucket, as the other repeat_loci workflows do — so the build context
+is just `repeat_loci/`. Pin `TrgtHaplotypePhase.docker` to the `@sha256` digest
+rather than the tag for any run whose outputs are kept. Example inputs:
+`configs/trgt_haplotype_phase.inputs.json.example`.
+
+**Submit the first run with `allele_tag` empty.** The spanning BAM's
+read-to-allele tag is TRGT-version-dependent, so it is never defaulted: an
+empty `allele_tag` runs the join in `--census-only` mode, which writes the SAM
+tag census and stops. Read the tag off `phase_summary`, then re-submit with it
+set. A guessed tag would produce an empty join rather than an error.
+
+Orientation only changes a per-ancestry dosage where a locus is
+length-heterozygous **and** the sample's two haplotypes carry different local
+ancestry — a same-ancestry swap leaves `DS{k}` unchanged, because it sums over
+one bin. Section 5 of the notebook measures that product. It sizes the
+genome-wide job, and a small value argues for a pooled length test plus a
+per-ancestry carrier test instead of a per-ancestry length test.
+
+Nothing here touches `FelixGenome.wdl` or any cached result.

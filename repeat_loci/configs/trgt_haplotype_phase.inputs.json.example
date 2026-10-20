@@ -1,0 +1,36 @@
+{
+  "_comment_first_run": "Leave allele_tag empty on the first submission. The task then runs the join in --census-only mode and phase_summary carries the spanning BAM's SAM-tag census; read the tag holding the allele index out of it and re-submit with allele_tag set. The tag is TRGT-version-dependent, so a guessed default would give an empty join instead of an error.",
+  "_comment_window": "chr20:10000000-20000000 is the window TrgtLocusConcordance already ran, so its CONCORDANCE table is directly comparable.",
+
+  "TrgtHaplotypePhase.sample_id": "1000234",
+  "TrgtHaplotypePhase.region": "chr20:10000000-20000000",
+
+  "TrgtHaplotypePhase.bam": "gs://prod-drc-broad/v9/lrWGS/haplotagged_bams/1000234.bam",
+  "TrgtHaplotypePhase.bam_index": "gs://prod-drc-broad/v9/lrWGS/haplotagged_bams/1000234.bam.bai",
+
+  "_comment_phased_vcf": "The ligated phased callset for the chromosome (flare_lai_prod.gt_vcf / ligated_vcf). This file DEFINES the haplotype frame: slot 0 is the haplotype AN1 describes. Do not substitute the FLARE anc VCF.",
+  "TrgtHaplotypePhase.phased_vcf": "<flare_lai_prod.gt_vcf for chr20>",
+  "TrgtHaplotypePhase.phased_vcf_index": "<flare_lai_prod.gt_vcf_index for chr20>",
+
+  "TrgtHaplotypePhase.reference_fasta": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa",
+  "TrgtHaplotypePhase.reference_fasta_index": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa.fai",
+  "TrgtHaplotypePhase.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+
+  "_comment_production": "Optional: the as-delivered TRGT call for this sample, sliced to the window so the notebook can compare re-genotyped against delivered calls. Path from tractor_mix/resources/trgt_table.txt.",
+  "TrgtHaplotypePhase.production_trgt_vcf": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/CCS/terra-d45cc5ca/outputs/GRCh38/TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz",
+  "TrgtHaplotypePhase.production_trgt_vcf_index": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/CCS/terra-d45cc5ca/outputs/GRCh38/TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz.tbi",
+
+  "TrgtHaplotypePhase.allele_tag": "",
+  "TrgtHaplotypePhase.variant_flank": 20000,
+  "TrgtHaplotypePhase.min_reads": 2,
+  "TrgtHaplotypePhase.min_purity": 0.8,
+  "TrgtHaplotypePhase.ignore_read_groups": false,
+  "TrgtHaplotypePhase.gcs_project": "",
+
+  "TrgtHaplotypePhase.phase_trgt_by_haplotag_py": "gs://YOUR_WORKSPACE_BUCKET/scripts/phase_trgt_by_haplotag.py",
+  "TrgtHaplotypePhase.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase:0.1.0",
+  "TrgtHaplotypePhase.cpu": 4,
+  "TrgtHaplotypePhase.memory_gb": 32,
+  "TrgtHaplotypePhase.disk_gb": 100,
+  "TrgtHaplotypePhase.preemptible": 1
+}
