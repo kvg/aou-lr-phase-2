@@ -212,15 +212,28 @@ the definition it was given into INFO, so `TRID`, `MOTIFS` and `STRUC` are all
 there (`STRUC=<TR22>` for a simple locus, `STRUC=<VC2>` for a compound one):
 
     CATALOG=gs://.../refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz
-    N=$(gsutil cat "$CATALOG" | gunzip | wc -l)
+    N=$(gsutil cat "$CATALOG" | gunzip | wc -l) && echo "catalog loci: $N" \
+      && python3 scripts/trgt_defs_from_vcf.py \
+           --vcf gs://.../TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz \
+           --expect-loci "$N" \
+           --out trexplorer_v1.0.1.trgt_definitions.bed.gz \
+      && gsutil cp trexplorer_v1.0.1.trgt_definitions.bed.gz \
+           gs://.../refs/repeat_loci/ \
+      && gsutil cat gs://.../refs/repeat_loci/trexplorer_v1.0.1.trgt_definitions.bed.gz \
+           | gunzip | wc -l
 
-    python3 scripts/trgt_defs_from_vcf.py \
-      --vcf gs://.../TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz \
-      --expect-loci "$N" \
-      --out trexplorer_v1.0.1.trgt_definitions.bed.gz
+The catalog holds **4,439,813** loci, which is the `--expect-loci` value and a
+useful cross-check on the earlier run's "14,618 loci in window" for 10 Mb of
+chr20. Chain the steps with `&&`: run as a bare sequence, a failed conversion
+still lets `gsutil cp` publish whatever is on disk, and that is how a 64-byte
+empty gzip once landed at the canonical path. The final `gsutil cat` reads the
+uploaded object back rather than the local file, which is the check that matters.
 
-    gsutil cp trexplorer_v1.0.1.trgt_definitions.bed.gz \
-      gs://.../refs/repeat_loci/
+The script copies a `gs://` input down with gsutil before reading it. htslib in
+the Terra notebook image cannot open `gs://` at all — it reports `Protocol not
+supported` even with `GCS_OAUTH_TOKEN` and `GCS_REQUESTER_PAYS_PROJECT`
+exported, so that is a build limitation rather than a credentials one, and it is
+why the rest of this repo streams with `gsutil cat` instead of through htslib.
 
 This is by construction the definition set those calls were genotyped against,
 which is what keeps a re-genotyped call locus-for-locus comparable with the

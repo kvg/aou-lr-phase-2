@@ -21,6 +21,11 @@ which is also the set that makes a re-genotyping comparison locus-for-locus.
     trgt_defs_from_vcf.py --vcf <sample>_trgt.TR_Explorer_1.01.vcf.gz \\
         --out trexplorer_v1.0.1.trgt_definitions.bed
 
+A ``gs://`` input is copied down with gsutil first. htslib in the Terra
+notebook image cannot open ``gs://`` at all -- it reports "Protocol not
+supported" even with GCS_OAUTH_TOKEN and GCS_REQUESTER_PAYS_PROJECT exported,
+so that is a build limitation, not a credentials one. A TRGT VCF is ~180 MB.
+
 Coordinates: VCF ``POS`` is the 1-based locus start and BED is half-open, so the
 start is ``POS - 1`` and the end is INFO ``END``. This matches the derived
 catalog, whose rows read ``chr20 10000929 10000950 20-10000930-10000950-A``.
@@ -35,8 +40,11 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -60,6 +68,31 @@ def query_lines(vcf: str) -> Iterator[str]:
             raise SystemExit(f"bcftools query failed on {vcf}:\n{err.strip()}")
 
 
+def localize(uri: str, into: str) -> str:
+    """Copy a gs:// object down and return the local path.
+
+    htslib in the Terra notebook image cannot open gs:// at all -- it reports
+    `Protocol not supported` even with GCS_OAUTH_TOKEN and
+    GCS_REQUESTER_PAYS_PROJECT exported, so this is a build limitation and not a
+    credentials one. gsutil works, which is why the rest of this repo streams
+    with `gsutil cat` rather than through htslib. A TRGT VCF is ~180 MB, so
+    copying it is cheaper than arguing with the protocol.
+    """
+    dest = os.path.join(into, os.path.basename(uri))
+    cmd = ["gsutil", "-q", "cp", uri, dest]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not os.path.exists(dest):
+        raise SystemExit(f"gsutil cp failed for {uri}:\n{proc.stderr.strip()}")
+    # bcftools wants the index beside the file for random access; this script
+    # reads sequentially, so a missing .tbi is not an error.
+    for suffix in (".tbi", ".csi"):
+        idx = subprocess.run(["gsutil", "-q", "cp", uri + suffix, dest + suffix],
+                             capture_output=True, text=True)
+        if idx.returncode == 0:
+            break
+    return dest
+
+
 def definition(chrom: str, pos: str, end: str, trid: str, motifs: str, struc: str) -> str:
     return f"{chrom}\t{int(pos) - 1}\t{int(end)}\tID={trid};MOTIFS={motifs};STRUC={struc}"
 
@@ -67,23 +100,43 @@ def definition(chrom: str, pos: str, end: str, trid: str, motifs: str, struc: st
 def run(args: argparse.Namespace) -> dict:
     counts = {"records": 0, "written": 0, "skipped_missing_field": 0}
     skipped: list[str] = []
+    scratch = tempfile.mkdtemp(prefix="trgt_defs_")
+    try:
+        vcf = localize(args.vcf, scratch) if args.vcf.startswith("gs://") else args.vcf
+    except BaseException:
+        shutil.rmtree(scratch, ignore_errors=True)
+        raise
+    # Write to a sibling temp file and rename only on success. The first
+    # version opened args.out directly, so a bcftools failure left a valid
+    # but empty .gz behind -- which was then uploaded over the real path.
+    tmp = args.out + ".tmp"
     opener = gzip.open if args.out.endswith(".gz") else open
-    with opener(args.out, "wt") as fh:
-        for line in query_lines(args.vcf):
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) < 6:
-                continue
-            counts["records"] += 1
-            chrom, pos, end, trid, motifs, struc = fields[:6]
-            if any(v in MISSING for v in (end, trid, motifs, struc)):
-                counts["skipped_missing_field"] += 1
-                if len(skipped) < 5:
-                    skipped.append(f"{chrom}:{pos} TRID={trid} MOTIFS={motifs} STRUC={struc}")
-                continue
-            fh.write(definition(chrom, pos, end, trid, motifs, struc) + "\n")
-            counts["written"] += 1
+    try:
+        with opener(tmp, "wt") as fh:
+            for line in query_lines(vcf):
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) < 6:
+                    continue
+                counts["records"] += 1
+                chrom, pos, end, trid, motifs, struc = fields[:6]
+                if any(v in MISSING for v in (end, trid, motifs, struc)):
+                    counts["skipped_missing_field"] += 1
+                    if len(skipped) < 5:
+                        skipped.append(f"{chrom}:{pos} TRID={trid} MOTIFS={motifs} STRUC={struc}")
+                    continue
+                fh.write(definition(chrom, pos, end, trid, motifs, struc) + "\n")
+                counts["written"] += 1
+    except BaseException:
+        # Leave nothing behind. A partial file at args.out is worse than none:
+        # the first version's empty .gz got uploaded over the canonical path.
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
     if counts["written"] == 0:
+        os.unlink(tmp)
         raise SystemExit(
             f"error: no definition written from {args.vcf}. If every record lacked STRUC, this "
             "is not a TRGT output VCF, or TRGT was run without a STRUC-bearing catalog.")
@@ -91,9 +144,12 @@ def run(args: argparse.Namespace) -> dict:
         print(f"warning: skipped {counts['skipped_missing_field']:,} record(s) missing END, TRID, "
               f"MOTIFS or STRUC; e.g. {'; '.join(skipped)}", file=sys.stderr)
     if args.expect_loci is not None and counts["written"] != args.expect_loci:
+        os.unlink(tmp)
         raise SystemExit(
             f"error: wrote {counts['written']:,} definitions but --expect-loci is "
             f"{args.expect_loci:,}. One sample's VCF holds only the loci TRGT emitted for it.")
+
+    os.replace(tmp, args.out)
     return counts
 
 

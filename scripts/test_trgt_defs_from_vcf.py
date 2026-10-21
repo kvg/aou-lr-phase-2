@@ -125,3 +125,73 @@ def test_bcftools_failure_is_surfaced(tmp_path: Path):
     with pytest.raises(SystemExit) as exc:
         list(tdv.query_lines(str(tmp_path / "missing.vcf.gz")))
     assert "bcftools query failed" in str(exc.value)
+
+
+def test_unreadable_input_leaves_no_output_file(tmp_path: Path):
+    """The defect that put an empty .gz at the canonical refs/ path.
+
+    bcftools failed, but the output had already been opened, so a valid empty
+    gzip was written and then uploaded over the real definitions.
+    """
+    out = tmp_path / "defs.bed.gz"
+    proc = run_script(tmp_path / "missing.vcf.gz", out)
+    assert proc.returncode != 0
+    assert not out.exists(), "a failed run must leave nothing at the output path"
+    assert not (tmp_path / "defs.bed.gz.tmp").exists(), "and no temp file either"
+
+
+def test_expect_loci_mismatch_leaves_no_output_file(vcf: Path, tmp_path: Path):
+    out = tmp_path / "defs.bed"
+    proc = run_script(vcf, out, "--expect-loci", "99")
+    assert proc.returncode != 0
+    assert not out.exists()
+    assert not Path(str(out) + ".tmp").exists()
+
+
+def test_no_struc_anywhere_leaves_no_output_file(tmp_path: Path):
+    p = tmp_path / "nostruc.vcf"
+    p.write_text(HEADER + "\t".join((
+        "chr1", "100", ".", "AAAA", "<TR>", ".", ".",
+        "TRID=x;END=110;MOTIFS=A;STRUC=.", "GT", "0/1")) + "\n")
+    out = tmp_path / "defs.bed"
+    assert run_script(p, out).returncode != 0
+    assert not out.exists()
+
+
+def test_gs_uri_is_localized_not_streamed(tmp_path: Path, monkeypatch):
+    """htslib cannot open gs:// in the Terra image, so the object is copied down."""
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        Path(cmd[-1]).write_text("")          # pretend gsutil produced the file
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tdv.subprocess, "run", fake_run)
+    dest = tdv.localize("gs://bucket/x_trgt.vcf.gz", str(tmp_path))
+    assert dest == str(tmp_path / "x_trgt.vcf.gz")
+    assert calls[0][:3] == ["gsutil", "-q", "cp"], "the object is fetched with gsutil"
+
+
+def test_gsutil_failure_is_surfaced(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(tdv.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "AccessDenied"))
+    with pytest.raises(SystemExit) as exc:
+        tdv.localize("gs://bucket/x.vcf.gz", str(tmp_path))
+    assert "gsutil cp failed" in str(exc.value) and "AccessDenied" in str(exc.value)
+
+
+def test_unreachable_gs_uri_leaves_no_output(tmp_path: Path):
+    out = tmp_path / "defs.bed.gz"
+    proc = run_script(Path("gs://nonexistent-bucket-xyz-zzz/none.vcf.gz"), out)
+    assert proc.returncode != 0
+    assert not out.exists() and not Path(str(out) + ".tmp").exists()
+
+
+def test_successful_run_replaces_an_existing_output(vcf: Path, tmp_path: Path):
+    out = tmp_path / "defs.bed"
+    out.write_text("stale\n")
+    assert run_script(vcf, out).returncode == 0
+    assert "stale" not in out.read_text()
+    assert len(out.read_text().splitlines()) == 2
+
