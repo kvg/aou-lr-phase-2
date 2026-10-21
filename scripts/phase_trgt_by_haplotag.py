@@ -12,8 +12,11 @@ read-level tables that both key on read name::
 
     read -> haplotype   whatshap haplotag --output-haplotag-list, run against
                         the phased callset, so haplotype 1/2 are *our* indices
-    read -> allele      TRGT's spanning-read BAM, which has carried
-                        read-to-allele assignments since TRGT 0.5.0
+    read -> slot        TRGT's spanning-read BAM, which has carried
+                        read-to-allele assignments since TRGT 0.5.0. The tag
+                        holds the GENOTYPE SLOT (0 or 1), not the ALT index
+                        and not an allele length: at a 1/2 locus the slots
+                        carry alleles 1 and 2 while reads still say 0 and 1.
 
 A single HiFi molecule physically carries both the repeat allele and the
 flanking heterozygous SNVs that decide its haplotype, so the join is a
@@ -224,7 +227,8 @@ def iter_bam(bam: str, region: str = "") -> Iterator[tuple[str, str, int, int, d
 
 
 def collect_votes(bam: str, loci: LocusIndex, haps: dict[str, int], allele_tag: str,
-                  region: str) -> tuple[dict[str, Counter], Counter]:
+                  region: str, trid_tag: str = "", known: frozenset = frozenset()
+                  ) -> tuple[dict[str, Counter], Counter]:
     """(locus, allele index, haplotype) vote counts from the spanning reads."""
     votes: dict[str, Counter] = defaultdict(Counter)
     tally: Counter = Counter()
@@ -237,21 +241,41 @@ def collect_votes(bam: str, loci: LocusIndex, haps: dict[str, int], allele_tag: 
             continue
         seen_tag = True
         try:
-            allele = int(raw)
+            slot = int(raw)
         except ValueError:
             tally["read_allele_tag_unparsed"] += 1
+            continue
+        if slot not in (0, 1):
+            # TRGT writes AL:i:0 / AL:i:1 -- the genotype SLOT the read was
+            # assigned to, not the ALT index and not a length. Anything else
+            # means the wrong tag was named.
+            tally["read_slot_out_of_range"] += 1
             continue
         hap = haps.get(name)
         if hap is None:
             tally["read_not_haplotagged"] += 1
             continue
-        trid, ambiguous = loci.lookup(chrom, start, end)
-        if trid is None:
-            tally["read_no_locus"] += 1
-            continue
-        if ambiguous:
-            tally["read_ambiguous_locus"] += 1
-        votes[trid][(allele, hap)] += 1
+        # TRGT stamps the locus id on every spanning record, so prefer it. The
+        # catalog has overlapping definitions (chr20:10,002,372-10,002,525 and
+        # 10,002,512-10,002,565 among others), which makes assignment by
+        # interval overlap genuinely ambiguous; the tag is exact.
+        trid = tags.get(trid_tag) if trid_tag else None
+        if trid is not None:
+            trid = trid.split(",")[0]
+            if trid not in known:
+                tally["read_locus_not_in_vcf"] += 1
+                continue
+            tally["read_locus_from_tag"] += 1
+        else:
+            if trid_tag:
+                tally["read_no_locus_tag"] += 1
+            trid, ambiguous = loci.lookup(chrom, start, end)
+            if trid is None:
+                tally["read_no_locus"] += 1
+                continue
+            if ambiguous:
+                tally["read_ambiguous_locus"] += 1
+        votes[trid][(slot, hap)] += 1
         tally["read_joined"] += 1
     if not seen_tag and tally["spanning_reads"]:
         raise SystemExit(
@@ -265,7 +289,8 @@ def assign(slots: list[str], votes: Counter, min_reads: int, min_purity: float
            ) -> tuple[Optional[list[int]], str, dict[int, tuple[int, float]]]:
     """Order the genotype slots so slot 0 is haplotype 1.
 
-    ``slots`` holds the allele index per genotype slot, as written by TRGT.
+    ``slots`` holds the allele index per genotype slot, as written by TRGT;
+    the votes are keyed by slot POSITION, which is what the read tag carries.
     Returns the permutation to apply, why, and per-slot (read count, purity).
     Homozygous and single-slot calls need no evidence: the permutation is the
     identity and nothing is claimed about phase.
@@ -274,8 +299,8 @@ def assign(slots: list[str], votes: Counter, min_reads: int, min_purity: float
     if len(slots) < 2 or slots[0] == slots[1]:
         return list(range(len(slots))), "homozygous", support
     hap_of: dict[int, int] = {}
-    for pos, allele in enumerate(slots):
-        counts = Counter({h: votes.get((allele, h), 0) for h in (1, 2)})
+    for pos in range(len(slots)):
+        counts = Counter({h: votes.get((pos, h), 0) for h in (1, 2)})
         total = sum(counts.values())
         hap, top = counts.most_common(1)[0]
         purity = (top / total) if total else 0.0
@@ -356,7 +381,9 @@ def run(args: argparse.Namespace) -> dict:
     loci.finalize()
     summary["loci"] = len(records)
 
-    votes, read_tally = collect_votes(args.spanning_bam, loci, haps, args.allele_tag, args.region)
+    votes, read_tally = collect_votes(args.spanning_bam, loci, haps, args.allele_tag,
+                                      args.region, args.trid_tag,
+                                      frozenset(r[1] for r in records))
     summary["reads"] = dict(read_tally)
 
     resolution: Counter = Counter()
@@ -435,6 +462,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--haplotag-list", help="whatshap haplotag --output-haplotag-list TSV")
     p.add_argument("--allele-tag", help="SAM tag holding the read's allele index "
                                         "(see --census-only; not defaulted, it is version-dependent)")
+    p.add_argument("--trid-tag", default="TR",
+                   help="SAM tag holding the locus id (TRGT writes TR on every spanning "
+                        "record). Pass '' to assign reads to loci by interval overlap "
+                        "instead, which is ambiguous where catalog definitions overlap.")
     p.add_argument("--region", default="", help="chrom:start-end; restricts the BAM read")
     p.add_argument("--min-reads", type=int, default=2,
                    help="Haplotagged spanning reads required per allele to claim phase")

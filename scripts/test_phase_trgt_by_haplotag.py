@@ -44,6 +44,8 @@ ROWS = [
     (7000, 7100, "L_conflict", "AT", "0/1", "101,151", "5,4", "50,75"),
     # only one haplotagged read per allele
     (9000, 9100, "L_thin", "AT", "0/1", "101,151", "1,1", "50,75"),
+    # two ALT alleles: slots carry 1 and 2, reads still carry slot 0 and 1
+    (11000, 11100, "L_multi", "AT", "1/2", "121,181", "5,4", "60,90"),
 ]
 
 # read name -> (locus POS, allele index, haplotype in the haplotag list)
@@ -57,6 +59,8 @@ READS = [
     ("r_conf_b1", 7000, 1, 1), ("r_conf_b2", 7000, 1, 1),
     ("r_thin_a1", 9000, 0, 1),
     ("r_thin_b1", 9000, 1, 2),
+    ("r_multi_a1", 11000, 0, 2), ("r_multi_a2", 11000, 0, 2),
+    ("r_multi_b1", 11000, 1, 1), ("r_multi_b2", 11000, 1, 1),
 ]
 
 
@@ -72,12 +76,13 @@ def fixture_dir(tmp_path: Path) -> Path:
     vcf.write_text("\n".join(lines) + "\n")
 
     sam = tmp_path / "spanning.sam"
+    trid_of = {pos: trid for pos, _e, trid, _m, _g, _a, _s, _c in ROWS}
     sam_lines = ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:248956422"]
     for name, pos, allele, _hap in READS:
         seq = "A" * 200
         sam_lines.append("\t".join((
             name, "0", "chr1", str(pos - 10), "60", "200M", "*", "0", "0", seq,
-            "*" * 200, f"AL:i:{allele}", "FL:i:5")))
+            "*" * 200, f"TR:Z:{trid_of[pos]}", f"AL:i:{allele}", "FL:i:5")))
     sam.write_text("\n".join(sam_lines) + "\n")
 
     ht = tmp_path / "haplotag.tsv"
@@ -174,12 +179,12 @@ def test_assign_outcomes():
 def test_end_to_end_resolution_tally(fixture_dir: Path):
     summary = run_script(fixture_dir)
     assert summary["status"] == "ok"
-    assert summary["loci"] == 5
+    assert summary["loci"] == 6
     assert summary["resolution"] == {
-        "conflict": 1, "homozygous": 1, "insufficient_reads": 1, "reads": 2}
-    # Four het loci are orientation-relevant; two of them resolved.
-    assert summary["n_orientation_relevant"] == 4
-    assert summary["frac_resolved_of_relevant"] == pytest.approx(0.5)
+        "conflict": 1, "homozygous": 1, "insufficient_reads": 1, "reads": 3}
+    # Five het loci are orientation-relevant; three of them resolved.
+    assert summary["n_orientation_relevant"] == 5
+    assert summary["frac_resolved_of_relevant"] == pytest.approx(0.6)
     assert summary["tag_census"]["AL"] == len(READS)
     assert summary["reads"]["read_joined"] == len(READS)
 
@@ -262,10 +267,63 @@ def test_census_only_needs_no_tag_or_haplotags(fixture_dir: Path):
     assert proc.returncode == 0, proc.stderr
     summary = json.loads(out.read_text())
     assert summary["status"] == "census_only"
-    assert summary["tag_census"] == {"AL": len(READS), "FL": len(READS)}
+    assert summary["tag_census"] == {
+        "AL": len(READS), "FL": len(READS), "TR": len(READS)}
 
 
 def test_samtools_failure_is_surfaced(tmp_path: Path):
     with pytest.raises(SystemExit) as exc:
         list(ptb.iter_bam(str(tmp_path / "missing.bam")))
     assert "samtools view failed" in str(exc.value)
+
+
+def test_multiallelic_locus_is_oriented_by_slot_not_allele_index(fixture_dir: Path):
+    """The bug this guards: the read tag is a genotype SLOT, not an ALT index.
+
+    At L_multi the GT is 1/2, so the slots carry alleles 1 and 2 while the reads
+    still carry AL:i:0 and AL:i:1. Keying votes by the allele index found nothing
+    here and the locus fell through as insufficient_reads.
+    """
+    run_script(fixture_dir)
+    rows = allele_rows(fixture_dir)
+    # reads put slot 1 (AL 181) on haplotype 1 and slot 0 (AL 121) on haplotype 2
+    assert rows[("L_multi", "1")]["al_bp"] == "181"
+    assert rows[("L_multi", "2")]["al_bp"] == "121"
+    assert rows[("L_multi", "1")]["phase_source"] == "reads"
+
+    recs = vcf_records(fixture_dir)
+    gt = recs["L_multi"][9].split(":")[0]
+    assert gt == "2|1", "the ALT indices travel with the slots they label"
+
+
+def test_slot_tag_out_of_range_is_counted_not_silently_used(fixture_dir: Path):
+    """A tag holding a length rather than a slot must not be treated as a slot."""
+    sam = fixture_dir / "spanning.sam"
+    text = sam.read_text().replace("AL:i:0", "AL:i:101").replace("AL:i:1", "AL:i:151")
+    sam.write_text(text)
+    summary = run_script(fixture_dir)
+    assert summary["reads"]["read_slot_out_of_range"] == len(READS)
+    assert summary["reads"].get("read_joined", 0) == 0
+    assert summary["resolution"].get("reads", 0) == 0
+
+
+def test_locus_comes_from_the_tr_tag_by_default(fixture_dir: Path):
+    summary = run_script(fixture_dir)
+    assert summary["reads"]["read_locus_from_tag"] == len(READS)
+    assert "read_ambiguous_locus" not in summary["reads"]
+
+
+def test_overlap_fallback_still_works_when_the_tag_is_disabled(fixture_dir: Path):
+    summary = run_script(fixture_dir, "--trid-tag", "")
+    assert summary["reads"]["read_joined"] == len(READS)
+    assert "read_locus_from_tag" not in summary["reads"]
+    assert summary["resolution"]["reads"] == 3
+
+
+def test_a_tagged_locus_absent_from_the_vcf_is_counted(fixture_dir: Path):
+    sam = fixture_dir / "spanning.sam"
+    sam.write_text(sam.read_text().replace("TR:Z:L_swap", "TR:Z:L_not_in_vcf"))
+    summary = run_script(fixture_dir)
+    assert summary["reads"]["read_locus_not_in_vcf"] == 4, "the four L_swap reads"
+    assert "L_swap" not in allele_rows(fixture_dir).get(("L_swap", "1"), {})
+
