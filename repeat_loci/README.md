@@ -283,25 +283,68 @@ Two things the generator reports rather than hides:
   number you want up front rather than as a failed shard. Samples outside the
   intersection are absent from the table by construction and so cannot be
   submitted by accident.
-- **Duplicate TRGT calls.** `trgt_table.txt` has **12,421 rows but 12,393
-  distinct person ids**: 28 samples were genotyped under two different Terra
-  submissions and both copies are listed (`trgt_ids.txt` and `trgt_files.txt`
-  carry the same duplication; the rows split 10,023 / 1,234 / 762 / 402 across
-  `terra-d45cc5ca`, `terra-f6a059a8`, `terra-e7fd2863`, `terra-f6671367`). One
-  column holds one URI, so `--on-duplicate` makes the choice explicit: the
-  default refuses and names them, `first` or `last` resolves. A duplicate
-  outside the intersection never blocks the build.
+- **Two TRGT calls for one person.** `trgt_table.txt` has **12,421 rows over
+  12,393 distinct person ids**, and the 28 repeats are *not* resubmissions. TRGT
+  was batched one submission per sequencing site, and the 28 repeated ids are
+  exactly the 28 people present at more than one site in
+  `sample-hifi-hg38-all-cohorts` — intersection 28, zero on either side alone.
+  Each is a genuine second sample, genotyped once. The batches map to sites at
+  purity 1.0000: `terra-d45cc5ca` BI 10,023, `terra-f6a059a8` HA 1,234,
+  `terra-e7fd2863` BCM 762, `terra-f6671367` UW 402, and the pairs break down as
+  BI+UW 19, BI+HA 3, BI+BCM 3, HA+UW 3.
 
-Count TRGT samples as 12,393, not 12,421. Coverage still exceeds the 12,261
-releasable participants, but by 132 rather than 160.
+  The table is still keyed by **person**, because `aou2_v1_phased_bams` holds one
+  haplotagged BAM per person — so whichever sample represents a person was
+  already chosen upstream, when those BAMs were made. `--prefer-site` breaks the
+  28 ties in a stated order (default `BI,HA,BCM,UW`, which resolved all 28 as
+  BI 25 / HA 3) rather than by file position. The mapping is derived from
+  `--sample-list` by majority vote, not hardcoded, and a batch whose voters
+  disagree is refused rather than guessed.
 
-**Scaling past one window.** The workflow is single-sample, single-window by
-construction, and `region` must carry explicit coordinates — a bare contig like
-`chr20` leaves the task's `START` parsing with the contig name. Running a cohort
-genome-wide therefore means either one submission per chromosome with explicit
-coordinates, or a WDL change to scatter over a chromosome list and take
-`Array[File] phased_vcfs`. Either way it is a new method snapshot, so decide it
-before the next upload rather than after.
+  The stakes on that tie-break are low, and saying so matters more than the
+  default: the workflow **re-genotypes from the BAM**, and the TRGT VCF only
+  produces a comparison slice of the production call. So the choice decides what
+  a run is compared against, not what it computes.
+
+**What actually bounds this analysis.** The real table is 12,261 rows — exactly
+the releasable cohort. The BAM participant set is a *strict subset* of the TRGT
+set: BAM-and-TRGT 12,261, BAM-without-TRGT 0, TRGT-without-BAM 132. So the
+haplotagged BAMs, not the TRGT calls, are the limit, and there is no recoverable
+sample sitting outside the table. The BAM export also carries 293 non-numeric
+1000 Genomes and GIAB control ids (213 `HG`, 80 `NA`); those are counted on their
+own line rather than appearing as 293 samples "missing a TRGT call".
+
+**Scaling: one task per sample, whole genome.** An empty `region` now means the
+whole genome, which is the mode the cohort run uses (user's decision). A region
+with coordinates still windows exactly as before; a bare contig like `chr20` is
+*rejected* rather than parsed into an empty start and end.
+
+Why whole-genome rather than a 22-way scatter: TR loci sit roughly one per 698
+bp, so reading "only the loci we need" is already a whole-genome read, and there
+is nothing to save by cutting it up. `bam` and `phased_vcf` are
+`localization_optional`, so they stream through the index and a scatter would not
+re-copy them — but the reference is *not* streamed, so 22 shards would localize
+3.1 GB apiece unless the reference were pre-split per chromosome. One task per
+sample streams the BAM once, localizes the reference once, and needs no gather.
+The cost is a long task: whatshap alone extrapolates to about 2.1 h/sample, so
+preemption is a real risk and `preemptible` should be set with that in mind.
+
+Two things this mode requires:
+
+1. **A per-sample phased VCF, not the multi-sample callset.** A region read of a
+   multi-sample file pays for all 12,261 samples' genotypes to obtain one, which
+   is why the pre-split (`SubsetAndSplitVcf`, 22 passes) is on the critical path
+   and not an optimisation. Streaming does not avoid it.
+2. **Disk sized from the BAM.** Whole-genome mode writes two full BAM-sized
+   copies locally — the HP/PS-stripped `reads.bam` and whatshap's `tagged.bam` —
+   so `disk_gb` defaults to `ceil(2.8 * size(bam, "GB")) + 80` in that mode and
+   stays at 100 for a windowed run. The task also checks free disk against the
+   BAM size before the first copy and exits immediately if it is short, because
+   `ENOSPC` an hour in costs the whole task. Measured: the haplotagged BAM for
+   1000234 is **19.79 GiB**, so the formula gives 136 GB — two copies, the
+   reference and the spanning BAM fit with room to spare. (An earlier estimate in
+   this project put the haplotagged BAMs near 90 GB; that was wrong, and the cost
+   model for the cohort run should use ~20 GiB per sample.)
 
 **Submit the first run with `allele_tag` empty.** The spanning BAM's
 read-to-allele tag is TRGT-version-dependent, so it is never defaulted: an

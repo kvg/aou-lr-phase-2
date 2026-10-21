@@ -40,7 +40,7 @@ version 1.0
 workflow TrgtHaplotypePhase {
   input {
     String sample_id
-    String region
+    String region = ""
 
     File bam
     File bam_index
@@ -65,7 +65,12 @@ workflow TrgtHaplotypePhase {
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase@sha256:4a6d36d095aa7021431ce65bdea84780be5de58e23683869c01d2b58f890ac88"
     Int cpu = 4
     Int memory_gb = 32
-    Int disk_gb = 100
+    # Whole-genome mode writes two full copies of the BAM to local disk -- the
+    # HP/PS-stripped reads.bam and whatshap's tagged.bam -- plus the spanning
+    # BAM and a 3.1 GB reference, so the default is derived from the input
+    # rather than guessed. A windowed run reads only its slice and needs none of
+    # that headroom.
+    Int disk_gb = if region == "" then ceil(2.8 * size(bam, "GB")) + 80 else 100
     Int preemptible = 1
   }
 
@@ -117,7 +122,7 @@ workflow TrgtHaplotypePhase {
 task HaplotagAndGenotype {
   input {
     String sample_id
-    String region
+    String region = ""
     File bam
     File bam_index
     File phased_vcf
@@ -142,9 +147,9 @@ task HaplotagAndGenotype {
   }
 
   parameter_meta {
-    bam: { description: "Haplotagged BAM; only the window is read, through the index.", localization_optional: true }
+    bam: { description: "Haplotagged BAM; streamed through the index -- only the window is read, or the whole file when region is empty.", localization_optional: true }
     bam_index: { description: "BAI/CSI sibling of bam.", localization_optional: true }
-    phased_vcf: { description: "Ligated phased callset for the chromosome; read by region.", localization_optional: true }
+    phased_vcf: { description: "Phased callset carrying this sample. Streamed by region. For the cohort run give the PER-SAMPLE split, not the multi-sample callset: a region read of a multi-sample file pays for all 12,261 samples' genotypes to obtain one.", localization_optional: true }
     phased_vcf_index: { description: "Tabix or CSI sibling of phased_vcf.", localization_optional: true }
   }
 
@@ -192,20 +197,62 @@ PY
     # shellcheck disable=SC1091
     source gcs.env
 
-    CHROM=$(echo "~{region}" | cut -d: -f1)
-    START=$(echo "~{region}" | cut -d: -f2 | cut -d- -f1)
-    END=$(echo "~{region}" | cut -d: -f2 | cut -d- -f2)
-    PAD_START=$(( START > ~{variant_flank} ? START - ~{variant_flank} : 1 ))
-    PAD_END=$(( END + ~{variant_flank} ))
-    PADDED="${CHROM}:${PAD_START}-${PAD_END}"
-    echo "window ~{region}; variant window ${PADDED}" >&2
+    # An empty region means the whole genome: no windowing anywhere below. The
+    # cohort run uses that mode, because TR loci sit one per ~698 bp and so a
+    # "only the loci we need" read IS a whole-genome read -- there is nothing to
+    # be saved by cutting it into pieces, and one task per sample streams the
+    # BAM once rather than once per shard.
+    REGION="~{region}"
+    if [[ -z "${REGION}" ]]; then
+      WHOLE_GENOME=1
+      echo "no region given: whole-genome mode" >&2
+      # Fail now, not an hour in. Whole-genome mode writes reads.bam and
+      # tagged.bam, each about the size of the source BAM, so ENOSPC midway
+      # through costs the entire task rather than a few seconds here.
+      BAM_GB=$(python3 -c "
+import subprocess, sys
+try:
+    out = subprocess.check_output(['gsutil','du','-s','~{bam}'], text=True)
+    print(int(out.split()[0]) // (1024**3))
+except Exception:
+    print(0)" 2>/dev/null || echo 0)
+      FREE_GB=$(df -BG --output=avail . 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)
+      echo "bam ${BAM_GB} GiB; free disk ${FREE_GB} GiB" >&2
+      if [[ "${BAM_GB}" -gt 0 && "${FREE_GB}" -gt 0 ]]; then
+        NEED_GB=$(( BAM_GB * 2 + 20 ))
+        if [[ "${FREE_GB}" -lt "${NEED_GB}" ]]; then
+          echo "error: whole-genome mode needs about ${NEED_GB} GiB of local disk" >&2
+          echo "       (two BAM-sized copies plus the reference) and only" >&2
+          echo "       ${FREE_GB} GiB is free. Raise disk_gb." >&2
+          exit 1
+        fi
+      fi
+    else
+      WHOLE_GENOME=0
+      case "${REGION}" in
+        *:*-*) ;;
+        *)
+          echo "error: region must be 'chrom:start-end' or empty for whole genome." >&2
+          echo "       Got '${REGION}'. A bare contig is rejected rather than" >&2
+          echo "       silently parsed as start=end='', which would window to nothing." >&2
+          exit 1 ;;
+      esac
+      CHROM=$(echo "${REGION}" | cut -d: -f1)
+      START=$(echo "${REGION}" | cut -d: -f2 | cut -d- -f1)
+      END=$(echo "${REGION}" | cut -d: -f2 | cut -d- -f2)
+      PAD_START=$(( START > ~{variant_flank} ? START - ~{variant_flank} : 1 ))
+      PAD_END=$(( END + ~{variant_flank} ))
+      PADDED="${CHROM}:${PAD_START}-${PAD_END}"
+      echo "window ${REGION}; variant window ${PADDED}" >&2
+    fi
 
     # 1. One sample out of the phased callset. This is the haplotype frame:
     #    slot 0 here is the haplotype AN1 describes. No --force-samples: a
     #    sample that is absent must fail here, not silently phase nothing.
+    if [[ "${WHOLE_GENOME}" == "1" ]]; then REGION_ARGS=(); else REGION_ARGS=(-r "${PADDED}"); fi
     bcftools view \
       -s "~{sample_id}" \
-      -r "${PADDED}" \
+      "${REGION_ARGS[@]}" \
       -Oz -o sample.phased.vcf.gz \
       "~{phased_vcf}##idx##~{phased_vcf_index}"
     bcftools index -t sample.phased.vcf.gz
@@ -214,8 +261,9 @@ PY
 
     # 2. Reads for the window, with HiPhase's HP/PS removed. Those tags are in
     #    HiPhase's block frame; whatshap writes the frame we want in step 3.
-    samtools view -b -h -x HP,PS \
-      "~{bam}##idx##~{bam_index}" "~{region}" > reads.bam
+    if [[ "${WHOLE_GENOME}" == "1" ]]; then READ_REGION=(); else READ_REGION=("${REGION}"); fi
+    samtools view -b -h -x HP,PS -@ ~{cpu} \
+      "~{bam}##idx##~{bam_index}" "${READ_REGION[@]}" > reads.bam
     samtools index reads.bam
     samtools view -c reads.bam > n_reads.txt
 
@@ -257,13 +305,17 @@ PY
       exit 1
     fi
 
-    ${DECOMP} "~{trgt_repeats_bed}" \
-      | awk -v c="${CHROM}" -v s="${START}" -v e="${END}" \
-          'BEGIN{FS=OFS="\t"} /^#/ {next} $1==c && $2>=s-1 && $2<=e' > repeats.window.bed
+    if [[ "${WHOLE_GENOME}" == "1" ]]; then
+      ${DECOMP} "~{trgt_repeats_bed}" | grep -v '^#' > repeats.window.bed
+    else
+      ${DECOMP} "~{trgt_repeats_bed}" \
+        | awk -v c="${CHROM}" -v s="${START}" -v e="${END}" \
+            'BEGIN{FS=OFS="\t"} /^#/ {next} $1==c && $2>=s-1 && $2<=e' > repeats.window.bed
+    fi
     wc -l < repeats.window.bed > n_catalog.txt
-    echo "repeat definitions in window: $(cat n_catalog.txt)" >&2
+    echo "repeat definitions used: $(cat n_catalog.txt)" >&2
     if [[ ! -s repeats.window.bed ]]; then
-      echo "error: no repeat definition starts inside ~{region}" >&2
+      echo "error: no repeat definition selected for '${REGION:-<whole genome>}'" >&2
       exit 1
     fi
 
