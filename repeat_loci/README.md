@@ -154,6 +154,112 @@ for read-to-allele assignments in the spanning BAM), `whatshap` 2.3 and
 samtools/bcftools 1.21. After any rebuild, re-pin with the digest
 `build_docker.sh` prints on exit.
 
+### The `trgt_phase` table
+
+The workflow needs four per-sample paths, and they live in two places: the
+haplotagged BAM and its index in the `aou2_v1_phased_bams` Terra table, the TRGT
+VCF in `tractor_mix/resources/trgt_table.txt`. Neither is a superset of the
+other, so `trgt_phase` is a purpose-built table holding one row per sample that
+has **both**:
+
+    entity:trgt_phase_id  sample  bam  bam_index  trgt_vcf  trgt_vcf_index
+
+Build it with:
+
+    python3 scripts/make_trgt_phase_table.py \
+      --bams-table aou2_v1_phased_bams.tsv \
+      --trgt-table tractor_mix/resources/trgt_table.txt \
+      --out trgt_phase.tsv
+
+Nothing else the workflow takes belongs in the table. The phased per-chromosome
+callsets are multi-sample files, identical for every row; the reference,
+catalog, thresholds and image are run-level. A column that is the same in 12,000
+rows is a column that can disagree with itself, so those stay in the config:
+
+| Workflow input | Source |
+|---|---|
+| `sample_id` | `${this.sample}` |
+| `bam` / `bam_index` | `${this.bam}` / `${this.bam_index}` |
+| `production_trgt_vcf` / `_index` | `${this.trgt_vcf}` / `${this.trgt_vcf_index}` |
+| `phased_vcf` / `_index`, `region`, everything else | literal in the config |
+
+`phased_vcf` is per-chromosome and `region` must lie on that chromosome. Nothing
+checks this: a chr20 window against a chr21 phased VCF fails at the first
+`bcftools view`, so change the two together.
+
+#### Two repeat catalogs, and they are not interchangeable
+
+This trips you once. There are two files describing TR_Explorer 1.01 loci:
+
+| File | Shape | Used by |
+|---|---|---|
+| TRGT repeat definitions | 4 fields: `chrom start end ID=<trid>;MOTIFS=<m>;STRUC=<s>` | `trgt --repeats`, i.e. `TrgtHaplotypePhase.trgt_repeats_bed` |
+| `refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz` | 5 fields: `chrom start end TRID motifs` | `aggregate_repeat_loci.py`, `trgt_allele_counts.py`, `trgt_plvi.py`, i.e. every other workflow here |
+
+The 5-field file is **derived from** a TRGT VCF by `trgt_plvi.py catalog`, and in
+deriving it `STRUC` was dropped. `STRUC` cannot be reconstructed from a motif
+list at a compound locus — chr20:10,013,431 in the prototype window carries two
+TRIDs and two motifs — so the derived catalog cannot be converted back. Feeding
+it to `trgt --repeats` produces one `Locus Processing: Error` per locus
+("Expected 4 fields ... found 5") and no genotypes.
+
+`TrgtHaplotypePhase` therefore takes the TRGT-format definitions, and refuses a
+file whose first row is not 4 fields containing `ID=`, naming the derived
+catalog as the likely confusion.
+
+Rebuild the definitions from any production TRGT **output** VCF — TRGT echoes
+the definition it was given into INFO, so `TRID`, `MOTIFS` and `STRUC` are all
+there (`STRUC=<TR22>` for a simple locus, `STRUC=<VC2>` for a compound one):
+
+    CATALOG=gs://.../refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz
+    N=$(gsutil cat "$CATALOG" | gunzip | wc -l)
+
+    python3 scripts/trgt_defs_from_vcf.py \
+      --vcf gs://.../TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz \
+      --expect-loci "$N" \
+      --out trexplorer_v1.0.1.trgt_definitions.bed.gz
+
+    gsutil cp trexplorer_v1.0.1.trgt_definitions.bed.gz \
+      gs://.../refs/repeat_loci/
+
+This is by construction the definition set those calls were genotyped against,
+which is what keeps a re-genotyped call locus-for-locus comparable with the
+delivered one — the notebook's re-genotyping check depends on it.
+
+`--expect-loci` is the guard that matters: **one sample's VCF holds only the
+loci TRGT emitted for that sample**, so a short file is possible. If the count
+comes up short, either take the union over several samples or find the original
+TRExplorer release BED; do not quietly genotype against a subset.
+
+Two things the generator reports rather than hides:
+
+- **The three populations.** Rows are written only for the intersection; samples
+  with a BAM but no TRGT call, and TRGT calls with no usable BAM, are counted
+  separately. Neither is an error — a sample with no TRGT call cannot be phased,
+  and a TRGT call with no reads has nothing to phase it from — but both are a
+  number you want up front rather than as a failed shard. Samples outside the
+  intersection are absent from the table by construction and so cannot be
+  submitted by accident.
+- **Duplicate TRGT calls.** `trgt_table.txt` has **12,421 rows but 12,393
+  distinct person ids**: 28 samples were genotyped under two different Terra
+  submissions and both copies are listed (`trgt_ids.txt` and `trgt_files.txt`
+  carry the same duplication; the rows split 10,023 / 1,234 / 762 / 402 across
+  `terra-d45cc5ca`, `terra-f6a059a8`, `terra-e7fd2863`, `terra-f6671367`). One
+  column holds one URI, so `--on-duplicate` makes the choice explicit: the
+  default refuses and names them, `first` or `last` resolves. A duplicate
+  outside the intersection never blocks the build.
+
+Count TRGT samples as 12,393, not 12,421. Coverage still exceeds the 12,261
+releasable participants, but by 132 rather than 160.
+
+**Scaling past one window.** The workflow is single-sample, single-window by
+construction, and `region` must carry explicit coordinates — a bare contig like
+`chr20` leaves the task's `START` parsing with the contig name. Running a cohort
+genome-wide therefore means either one submission per chromosome with explicit
+coordinates, or a WDL change to scatter over a chromosome list and take
+`Array[File] phased_vcfs`. Either way it is a new method snapshot, so decide it
+before the next upload rather than after.
+
 **Submit the first run with `allele_tag` empty.** The spanning BAM's
 read-to-allele tag is TRGT-version-dependent, so it is never defaulted: an
 empty `allele_tag` runs the join in `--census-only` mode, which writes the SAM

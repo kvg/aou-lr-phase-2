@@ -14,7 +14,8 @@
 
   "TrgtHaplotypePhase.reference_fasta": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa",
   "TrgtHaplotypePhase.reference_fasta_index": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa.fai",
-  "TrgtHaplotypePhase.catalog_bed": "gs://YOUR_WORKSPACE_BUCKET/refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz",
+  "_comment_repeats": "TRGT's OWN definition format: 4 tab fields, chrom start end ID=<trid>;MOTIFS=<m>;STRUC=<s>. NOT refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz, which is the 5-column file (chrom start end TRID motifs) trgt_plvi.py derives for aggregate_repeat_loci.py; it has dropped STRUC and cannot be converted. Rebuild it from any production TRGT output VCF with scripts/trgt_defs_from_vcf.py, which round-trips TRID/MOTIFS/STRUC out of INFO; that is by construction the definition set those calls were genotyped against.",
+  "TrgtHaplotypePhase.trgt_repeats_bed": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/refs/repeat_loci/trexplorer_v1.0.1.trgt_definitions.bed.gz",
 
   "_comment_production": "Optional: the as-delivered TRGT call for this sample, sliced to the window so the notebook can compare re-genotyped against delivered calls. Path from tractor_mix/resources/trgt_table.txt.",
   "TrgtHaplotypePhase.production_trgt_vcf": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/CCS/terra-d45cc5ca/outputs/GRCh38/TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz",

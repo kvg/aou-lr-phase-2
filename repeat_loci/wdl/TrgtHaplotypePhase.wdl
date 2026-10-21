@@ -48,7 +48,7 @@ workflow TrgtHaplotypePhase {
     File phased_vcf_index
     File reference_fasta
     File reference_fasta_index
-    File catalog_bed
+    File trgt_repeats_bed
 
     String production_trgt_vcf = ""
     String production_trgt_vcf_index = ""
@@ -79,7 +79,7 @@ workflow TrgtHaplotypePhase {
       phased_vcf_index = phased_vcf_index,
       reference_fasta = reference_fasta,
       reference_fasta_index = reference_fasta_index,
-      catalog_bed = catalog_bed,
+      trgt_repeats_bed = trgt_repeats_bed,
       production_trgt_vcf = production_trgt_vcf,
       production_trgt_vcf_index = production_trgt_vcf_index,
       allele_tag = allele_tag,
@@ -124,7 +124,7 @@ task HaplotagAndGenotype {
     File phased_vcf_index
     File reference_fasta
     File reference_fasta_index
-    File catalog_bed
+    File trgt_repeats_bed
     String production_trgt_vcf
     String production_trgt_vcf_index
     String allele_tag
@@ -230,16 +230,40 @@ PY
       reads.bam
     samtools index tagged.bam
 
-    # 4. Catalog rows whose locus starts inside the window. TRGT would accept
-    #    the whole catalog, but only the window has reads.
-    if [[ "~{catalog_bed}" == *.gz ]]; then DECOMP=zcat; else DECOMP=cat; fi
-    ${DECOMP} "~{catalog_bed}" \
+    # 4. Repeat definitions whose locus starts inside the window. TRGT would
+    #    accept the whole file, but only the window has reads.
+    #
+    #    This must be TRGT's OWN definition format -- 'chrom start end info',
+    #    four tab-separated fields, info being 'ID=...;MOTIFS=...;STRUC=...'.
+    #    It is NOT refs/repeat_loci/trexplorer_v1.0.1.catalog.bed.gz, which is a
+    #    FIVE-column file ('chrom start end TRID motifs') that trgt_plvi.py
+    #    derived from a TRGT VCF for aggregate_repeat_loci.py and
+    #    trgt_allele_counts.py. That file has dropped STRUC, which cannot be
+    #    reconstructed from a motif list at a compound locus, so it cannot be
+    #    converted here. Use the definitions the production TRGT run genotyped
+    #    against: that is also what makes these calls locus-for-locus
+    #    comparable with the delivered ones.
+    if [[ "~{trgt_repeats_bed}" == *.gz ]]; then DECOMP=zcat; else DECOMP=cat; fi
+    ${DECOMP} "~{trgt_repeats_bed}" | grep -v '^#' | head -1 > first_def.bed || true
+    NF_DEF=$(awk -F'\t' '{print NF; exit}' first_def.bed)
+    if [[ "${NF_DEF}" != "4" ]] || ! grep -q 'ID=' first_def.bed; then
+      echo "error: --repeats needs TRGT's definition format: 4 tab-separated fields," >&2
+      echo "       'chrom start end ID=<trid>;MOTIFS=<m>;STRUC=<s>'." >&2
+      echo "       Got ${NF_DEF} field(s) on the first row:" >&2
+      sed 's/^/         /' first_def.bed >&2
+      echo "       A 5-field row means this is the derived catalog" >&2
+      echo "       (chrom start end TRID motifs) that trgt_plvi.py writes for" >&2
+      echo "       aggregate_repeat_loci.py. It has no STRUC and cannot be used here." >&2
+      exit 1
+    fi
+
+    ${DECOMP} "~{trgt_repeats_bed}" \
       | awk -v c="${CHROM}" -v s="${START}" -v e="${END}" \
-          'BEGIN{FS=OFS="\t"} $1==c && $2>=s-1 && $2<=e' > catalog.window.bed
-    wc -l < catalog.window.bed > n_catalog.txt
-    echo "catalog loci in window: $(cat n_catalog.txt)" >&2
-    if [[ ! -s catalog.window.bed ]]; then
-      echo "error: no catalog locus starts inside ~{region}" >&2
+          'BEGIN{FS=OFS="\t"} /^#/ {next} $1==c && $2>=s-1 && $2<=e' > repeats.window.bed
+    wc -l < repeats.window.bed > n_catalog.txt
+    echo "repeat definitions in window: $(cat n_catalog.txt)" >&2
+    if [[ ! -s repeats.window.bed ]]; then
+      echo "error: no repeat definition starts inside ~{region}" >&2
       exit 1
     fi
 
@@ -248,7 +272,7 @@ PY
     if trgt --help 2>&1 | grep -qw genotype; then SUB=(genotype); else SUB=(); fi
     trgt "${SUB[@]}" \
       --genome "~{reference_fasta}" \
-      --repeats catalog.window.bed \
+      --repeats repeats.window.bed \
       --reads tagged.bam \
       --threads ~{cpu} \
       --output-prefix trgt_out
@@ -263,7 +287,7 @@ PY
       echo -e "metric\tvalue"
       echo -e "reads_in_window\t$(cat n_reads.txt)"
       echo -e "phased_sites_in_variant_window\t$(cat n_phased_sites.txt)"
-      echo -e "catalog_loci_in_window\t$(cat n_catalog.txt)"
+      echo -e "repeat_definitions_in_window\t$(cat n_catalog.txt)"
       echo -e "haplotag_rows\t$(( $(wc -l < haplotag.tsv) - 1 ))"
       echo -e "spanning_reads\t$(samtools view -c "~{sample_id}.spanning.bam")"
     } > "~{sample_id}.read_accounting.tsv"
