@@ -115,14 +115,29 @@ def definition(chrom: str, pos: str, end: str, trid: str, motifs: str, struc: st
 
 
 def trid_coords(trid: str) -> Optional[tuple[int, int]]:
-    """(start, end) encoded in a TRID like ``20-10000636-10000646-A``, if present."""
-    m = TRID_COORDS.match(trid.split(",")[0])
-    return (int(m.group(1)), int(m.group(2))) if m else None
+    """Span encoded in a TRID, as (start of the first part, end of the last).
+
+    A compound locus carries one ``chrom-start-end-motif`` part per component,
+    comma-joined, so the locus span runs from the FIRST part's start to the
+    LAST part's end -- not the first part's end.
+
+    This is a weak check by design. The span is not an exact invariant of the
+    TRExplorer catalog: some loci begin tens of bp before their first component
+    and some single-component loci end after their TRID says. It is here only
+    to catch a SYSTEMATIC shift, which drives agreement to ~0 while those
+    idiosyncrasies leave it high -- hence the rate threshold in main() rather
+    than a per-row assertion.
+    """
+    parts = trid.split(",")
+    first, last = TRID_COORDS.match(parts[0]), TRID_COORDS.match(parts[-1])
+    if first is None or last is None:
+        return None
+    return int(first.group(1)), int(last.group(2))
 
 
 def run(args: argparse.Namespace) -> dict:
     counts = {"records": 0, "written": 0, "skipped_missing_field": 0,
-              "trid_coords_checked": 0, "trid_coords_mismatch": 0}
+              "trid_checked": 0, "trid_start_agree": 0, "trid_span_agree": 0}
     skipped: list[str] = []
     mismatches: list[str] = []
     scratch = tempfile.mkdtemp(prefix="trgt_defs_")
@@ -152,14 +167,17 @@ def run(args: argparse.Namespace) -> dict:
                 row = definition(chrom, pos, end, trid, motifs, struc)
                 coords = trid_coords(trid)
                 if coords is not None:
-                    counts["trid_coords_checked"] += 1
+                    counts["trid_checked"] += 1
                     fields = row.split("\t")
-                    if (int(fields[1]), int(fields[2])) != coords:
-                        counts["trid_coords_mismatch"] += 1
-                        if len(mismatches) < 5:
-                            mismatches.append(
-                                f"{trid}: wrote {fields[1]}-{fields[2]}, "
-                                f"TRID says {coords[0]}-{coords[1]}")
+                    got = (int(fields[1]), int(fields[2]))
+                    if got[0] == coords[0]:
+                        counts["trid_start_agree"] += 1
+                    elif len(mismatches) < 5:
+                        mismatches.append(
+                            f"{trid.split(',')[0]}...: wrote start {got[0]}, "
+                            f"TRID says {coords[0]}")
+                    if got == coords:
+                        counts["trid_span_agree"] += 1
                 fh.write(row + "\n")
                 counts["written"] += 1
     except BaseException:
@@ -171,14 +189,21 @@ def run(args: argparse.Namespace) -> dict:
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
-    if counts["trid_coords_mismatch"]:
-        os.unlink(tmp)
-        raise SystemExit(
-            f"error: {counts['trid_coords_mismatch']:,} of "
-            f"{counts['trid_coords_checked']:,} rows disagree with the coordinates "
-            f"encoded in their own TRID:\n  " + "\n  ".join(mismatches) +
-            "\nA definitions file that disagrees with its own locus ids would shift "
-            "the repeat framing at every locus.")
+    checked = counts["trid_checked"]
+    if checked:
+        rate = counts["trid_start_agree"] / checked
+        counts["trid_start_agree_frac"] = round(rate, 6)
+        counts["trid_span_agree_frac"] = round(counts["trid_span_agree"] / checked, 6)
+        if rate < args.min_trid_agreement:
+            os.unlink(tmp)
+            raise SystemExit(
+                f"error: the start agrees with the locus id on only {rate:.1%} of "
+                f"{checked:,} rows, below the --min-trid-agreement floor of "
+                f"{args.min_trid_agreement:.0%}. A systematic coordinate shift drives "
+                f"this to ~0; catalog idiosyncrasies leave it high. If the rate "
+                f"above is high but under the floor, that is catalog structure -- "
+                f"re-run with --min-trid-agreement 0 to write anyway. Examples:\n  "
+                + "\n  ".join(mismatches))
     if counts["written"] == 0:
         os.unlink(tmp)
         raise SystemExit(
@@ -202,6 +227,12 @@ def build_parser() -> argparse.ArgumentParser:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--vcf", required=True, help="A TRGT output VCF (local path or gs:// URI)")
     p.add_argument("--out", required=True, help="Output BED; .gz is compressed")
+    p.add_argument(
+        "--min-trid-agreement", type=float, default=0.90,
+        help="Floor on the fraction of rows whose start matches the coordinate "
+             "encoded in their own TRID. Catches a systematic coordinate shift "
+             "(which drives it to ~0) without tripping on the few per cent of "
+             "TRExplorer loci whose TRID span is idiosyncratic. Default 0.90.")
     p.add_argument("--expect-loci", type=int, default=None,
                    help="Fail unless exactly this many definitions are written, e.g. the "
                         "catalog's line count")

@@ -257,9 +257,22 @@ of `REPEAT_DOSAGE.md` exists to prevent. Note the derived 5-field catalog *does*
 carry `POS − 1`; the two conventions genuinely differ, which is how this went
 wrong.
 
-The script now cross-checks every row against the coordinates encoded in its own
-TRID (`20-10000636-10000646-A`) and refuses to write the file on any mismatch,
-which catches a shift of this kind before it reaches the bucket.
+The script cross-checks each row's start against the coordinate encoded in its
+own TRID (`20-10000636-10000646-A`) and refuses to write the file if agreement
+falls below `--min-trid-agreement` (default 0.90). It is a **rate** threshold,
+not a per-row assertion, because the TRID span is not an exact invariant of this
+catalog: a compound locus carries one `chrom-start-end-motif` part per component,
+so its span runs from the first part's start to the **last** part's end, and even
+then some loci begin tens of bp before their first component while some
+single-component loci end after their TRID says. An exact per-row match rejected
+273,112 of 4,439,813 rows that were perfectly fine. What the threshold has to
+separate is a systematic shift, which drives agreement to ~0, from those few per
+cent — so if it trips with a *high* rate, that is catalog structure and
+`--min-trid-agreement 0` is the right response.
+
+The guard is a cheap tripwire, not the acceptance test. The real check is
+end-to-end: regenerate, re-genotype one window, and confirm the re-genotyped
+`POS` matches the production call at every locus.
 
 Two things the generator reports rather than hides:
 

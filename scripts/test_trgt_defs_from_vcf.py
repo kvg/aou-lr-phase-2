@@ -202,27 +202,53 @@ def test_successful_run_replaces_an_existing_output(vcf: Path, tmp_path: Path):
     assert len(out.read_text().splitlines()) == 2
 
 
-def test_trid_coordinate_mismatch_refuses_to_write(tmp_path: Path):
-    """The self-check that would have caught the POS-1 shift immediately."""
+def _rec(pos: str, info: str) -> str:
+    return "\t".join(("chr1", pos, ".", "AAAA", "<TR>", ".", ".", info, "GT", "0/1")) + "\n"
+
+
+def test_systematic_shift_refuses_to_write(tmp_path: Path):
+    """The guard that would have caught the POS-1 shift: every start disagrees."""
     p = tmp_path / "shifted.vcf"
-    p.write_text(HEADER + "\t".join((
-        "chr1", "100", ".", "AAAA", "<TR>", ".", ".",
-        # TRID says 101-110 while POS/END say 100-110
-        "TRID=1-101-110-A;END=110;MOTIFS=A;STRUC=<TR1>", "GT", "0/1")) + "\n")
+    p.write_text(HEADER + "".join(
+        _rec(str(100 + i), f"TRID=1-{101 + i}-{110 + i}-A;END={110 + i};MOTIFS=A;STRUC=<TR1>")
+        for i in range(20)))
     out = tmp_path / "defs.bed"
     proc = run_script(p, out)
     assert proc.returncode != 0
-    assert "disagree with the coordinates" in proc.stderr
-    assert "TRID says 101-110" in proc.stderr
+    assert "below the --min-trid-agreement floor" in proc.stderr
     assert not out.exists(), "a shifted definitions file must never be written"
+
+
+def test_idiosyncratic_minority_still_writes(tmp_path: Path):
+    """A few per cent of TRExplorer loci start before their first component.
+
+    Measured on the real catalog: an exact per-row match rejected 273,112 of
+    4,439,813 rows. Those are catalog structure, not a shift, so the floor is a
+    rate and the file must still be written.
+    """
+    recs = [_rec(str(1000 + 10 * i),
+                 f"TRID=1-{1000 + 10 * i}-{1008 + 10 * i}-A;END={1008 + 10 * i};"
+                 f"MOTIFS=A;STRUC=<TR1>")
+            for i in range(19)]
+    recs.append(_rec("5000", "TRID=1-5078-5090-A;END=5090;MOTIFS=A;STRUC=<TR1>"))
+    p = tmp_path / "quirky.vcf"
+    p.write_text(HEADER + "".join(recs))
+    out = tmp_path / "defs.bed"
+    assert run_script(p, out).returncode == 0
+    assert len(out.read_text().splitlines()) == 20
+
+
+def test_compound_span_runs_to_the_last_component():
+    """The bug in the first guard: it compared against the FIRST part's end."""
+    trid = "1-66160-66175-TA,1-66192-66201-TA,1-66400-66415-ATATA"
+    assert tdv.trid_coords(trid) == (66160, 66415)
 
 
 def test_trid_without_coordinates_is_not_checked(tmp_path: Path):
     p = tmp_path / "plain.vcf"
-    p.write_text(HEADER + "\t".join((
-        "chr1", "100", ".", "AAAA", "<TR>", ".", ".",
-        "TRID=some_locus;END=110;MOTIFS=A;STRUC=<TR1>", "GT", "0/1")) + "\n")
+    p.write_text(HEADER + _rec("100", "TRID=some_locus;END=110;MOTIFS=A;STRUC=<TR1>"))
     out = tmp_path / "defs.bed"
+    assert tdv.trid_coords("some_locus") is None
     assert run_script(p, out).returncode == 0
     assert out.read_text().split("\t")[1] == "100"
 
