@@ -35,7 +35,7 @@ HEADER = """##fileformat=VCFv4.2
 # one record with STRUC missing.
 ROWS = [
     (66431, "TRID=1-66431-66446-TATAT;END=66446;MOTIFS=TATAT;STRUC=<TR22>"),
-    (66160, "TRID=1-66160-66175-TA,1-66192-66201-TA;END=66415;MOTIFS=ATATA,TATAT,TA;STRUC=<VC2>"),
+    (66160, "TRID=1-66160-66415-TA,1-66192-66201-TA;END=66415;MOTIFS=ATATA,TATAT,TA;STRUC=<VC2>"),
     (70351, "TRID=1-70351-70360-A;END=70360;MOTIFS=A;STRUC=."),
 ]
 
@@ -58,10 +58,16 @@ def run_script(vcf: Path, out: Path, *extra: str) -> subprocess.CompletedProcess
 
 
 def test_definition_round_trips_pos_to_bed_start():
-    out = tdv.definition("chr20", "10000930", "10000950", "20-10000930-10000950-A", "A", "<TR1>")
+    """TRGT writes the BED start into POS verbatim, so they must be equal.
+
+    Building definitions with POS-1 shifted every locus 1 bp left: measured as
+    a POS delta of +1 at all 14,618 loci in a chr20 window, END unchanged, and
+    AL differing at 14,613 of them.
+    """
+    out = tdv.definition("chr20", "10000636", "10000646", "20-10000636-10000646-A", "A", "<TR1>")
     fields = out.split("\t")
-    assert fields[:3] == ["chr20", "10000929", "10000950"], "BED start is POS-1, end is INFO END"
-    assert fields[3] == "ID=20-10000930-10000950-A;MOTIFS=A;STRUC=<TR1>"
+    assert fields[:3] == ["chr20", "10000636", "10000646"], "BED start is POS, unshifted"
+    assert fields[3] == "ID=20-10000636-10000646-A;MOTIFS=A;STRUC=<TR1>"
     assert len(fields) == 4, "trgt --repeats accepts exactly four fields"
 
 
@@ -78,8 +84,8 @@ def test_compound_locus_keeps_its_comma_joined_trid_and_motifs(vcf: Path, tmp_pa
     out = tmp_path / "defs.bed"
     assert run_script(vcf, out).returncode == 0
     rows = {l.split("\t")[1]: l.split("\t")[3] for l in out.read_text().splitlines()}
-    compound = rows["66159"]
-    assert compound == ("ID=1-66160-66175-TA,1-66192-66201-TA;"
+    compound = rows["66160"]
+    assert compound == ("ID=1-66160-66415-TA,1-66192-66201-TA;"
                         "MOTIFS=ATATA,TATAT,TA;STRUC=<VC2>")
 
 
@@ -194,4 +200,29 @@ def test_successful_run_replaces_an_existing_output(vcf: Path, tmp_path: Path):
     assert run_script(vcf, out).returncode == 0
     assert "stale" not in out.read_text()
     assert len(out.read_text().splitlines()) == 2
+
+
+def test_trid_coordinate_mismatch_refuses_to_write(tmp_path: Path):
+    """The self-check that would have caught the POS-1 shift immediately."""
+    p = tmp_path / "shifted.vcf"
+    p.write_text(HEADER + "\t".join((
+        "chr1", "100", ".", "AAAA", "<TR>", ".", ".",
+        # TRID says 101-110 while POS/END say 100-110
+        "TRID=1-101-110-A;END=110;MOTIFS=A;STRUC=<TR1>", "GT", "0/1")) + "\n")
+    out = tmp_path / "defs.bed"
+    proc = run_script(p, out)
+    assert proc.returncode != 0
+    assert "disagree with the coordinates" in proc.stderr
+    assert "TRID says 101-110" in proc.stderr
+    assert not out.exists(), "a shifted definitions file must never be written"
+
+
+def test_trid_without_coordinates_is_not_checked(tmp_path: Path):
+    p = tmp_path / "plain.vcf"
+    p.write_text(HEADER + "\t".join((
+        "chr1", "100", ".", "AAAA", "<TR>", ".", ".",
+        "TRID=some_locus;END=110;MOTIFS=A;STRUC=<TR1>", "GT", "0/1")) + "\n")
+    out = tmp_path / "defs.bed"
+    assert run_script(p, out).returncode == 0
+    assert out.read_text().split("\t")[1] == "100"
 

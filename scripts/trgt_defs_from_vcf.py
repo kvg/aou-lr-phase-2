@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -93,13 +94,37 @@ def localize(uri: str, into: str) -> str:
     return dest
 
 
+TRID_COORDS = re.compile(r"^[^-]+-(\d+)-(\d+)-")
+
+
 def definition(chrom: str, pos: str, end: str, trid: str, motifs: str, struc: str) -> str:
-    return f"{chrom}\t{int(pos) - 1}\t{int(end)}\tID={trid};MOTIFS={motifs};STRUC={struc}"
+    """One TRGT repeat-definition row.
+
+    The start is POS unchanged, NOT POS - 1. TRGT writes the BED start into
+    the VCF POS verbatim, so a round trip is only the identity when the two
+    are equal. This was measured, not read off a spec: feeding definitions
+    built with POS - 1 shifted every locus 1 bp left, which showed up as a
+    POS delta of +1 at all 14,618 loci in a chr20 window against the
+    production call, with END unchanged and AL differing at 14,613 of them.
+    The repeat framing moves with the anchor, so the error is not confined
+    to the reference span -- and under REF-relative coding a uniform shift
+    adds c * ANC{k} to every per-ancestry dosage, the defect REPEAT_DOSAGE.md
+    section 2.1 exists to prevent.
+    """
+    return f"{chrom}\t{int(pos)}\t{int(end)}\tID={trid};MOTIFS={motifs};STRUC={struc}"
+
+
+def trid_coords(trid: str) -> Optional[tuple[int, int]]:
+    """(start, end) encoded in a TRID like ``20-10000636-10000646-A``, if present."""
+    m = TRID_COORDS.match(trid.split(",")[0])
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def run(args: argparse.Namespace) -> dict:
-    counts = {"records": 0, "written": 0, "skipped_missing_field": 0}
+    counts = {"records": 0, "written": 0, "skipped_missing_field": 0,
+              "trid_coords_checked": 0, "trid_coords_mismatch": 0}
     skipped: list[str] = []
+    mismatches: list[str] = []
     scratch = tempfile.mkdtemp(prefix="trgt_defs_")
     try:
         vcf = localize(args.vcf, scratch) if args.vcf.startswith("gs://") else args.vcf
@@ -124,7 +149,18 @@ def run(args: argparse.Namespace) -> dict:
                     if len(skipped) < 5:
                         skipped.append(f"{chrom}:{pos} TRID={trid} MOTIFS={motifs} STRUC={struc}")
                     continue
-                fh.write(definition(chrom, pos, end, trid, motifs, struc) + "\n")
+                row = definition(chrom, pos, end, trid, motifs, struc)
+                coords = trid_coords(trid)
+                if coords is not None:
+                    counts["trid_coords_checked"] += 1
+                    fields = row.split("\t")
+                    if (int(fields[1]), int(fields[2])) != coords:
+                        counts["trid_coords_mismatch"] += 1
+                        if len(mismatches) < 5:
+                            mismatches.append(
+                                f"{trid}: wrote {fields[1]}-{fields[2]}, "
+                                f"TRID says {coords[0]}-{coords[1]}")
+                fh.write(row + "\n")
                 counts["written"] += 1
     except BaseException:
         # Leave nothing behind. A partial file at args.out is worse than none:
@@ -135,6 +171,14 @@ def run(args: argparse.Namespace) -> dict:
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
+    if counts["trid_coords_mismatch"]:
+        os.unlink(tmp)
+        raise SystemExit(
+            f"error: {counts['trid_coords_mismatch']:,} of "
+            f"{counts['trid_coords_checked']:,} rows disagree with the coordinates "
+            f"encoded in their own TRID:\n  " + "\n  ".join(mismatches) +
+            "\nA definitions file that disagrees with its own locus ids would shift "
+            "the repeat framing at every locus.")
     if counts["written"] == 0:
         os.unlink(tmp)
         raise SystemExit(

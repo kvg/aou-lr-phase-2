@@ -244,6 +244,23 @@ loci TRGT emitted for that sample**, so a short file is possible. If the count
 comes up short, either take the union over several samples or find the original
 TRExplorer release BED; do not quietly genotype against a subset.
 
+**The BED start is `POS`, not `POS − 1`.** TRGT writes the definition's start
+into the VCF `POS` verbatim, so the round trip is the identity only when the two
+are equal — which makes the file look 1-based rather than a conventional
+half-open BED. This was measured: definitions built with `POS − 1` shifted every
+locus 1 bp left, showing up against the production call as a `POS` delta of +1 at
+all 14,618 loci in the chr20 window, `END` unchanged, and `AL` differing at
+14,613 of them. The repeat framing moves with the anchor, so the damage is not
+confined to the reference span — and under REF-relative coding a uniform shift
+adds `c · ANC{k}` to every per-ancestry dosage, which is exactly the defect §2.1
+of `REPEAT_DOSAGE.md` exists to prevent. Note the derived 5-field catalog *does*
+carry `POS − 1`; the two conventions genuinely differ, which is how this went
+wrong.
+
+The script now cross-checks every row against the coordinates encoded in its own
+TRID (`20-10000636-10000646-A`) and refuses to write the file on any mismatch,
+which catches a shift of this kind before it reaches the bucket.
+
 Two things the generator reports rather than hides:
 
 - **The three populations.** Rows are written only for the intersection; samples
