@@ -1,0 +1,81 @@
+AoU-LR patch to FELIX v0.1 (lhu1/felix@sha256:63c1e1d63aa029bc00403547b05554448c71d3b64164a16b93acb66a0ebeab88).
+
+Stop an extreme p-value from killing a whole step-2 chunk. In
+SPA_ER_kernel_related_Phiadj_fast_new_cpp the upper-tail chi-square quantile
+is inverted twice -- once per ancestry, once for the burden/hom p-value --
+with no guard on p. boost::math::quantile dispatches to gamma_q_inv, which
+throws "Overflow Error" rather than returning an infinite quantile when p is
+0, and the exception leaves Rcpp as an R error that halts step 2.
+
+p reaches 0 by a parse failure, not by a modelling failure:
+convertStringtoDoublePval catches std::stod's std::out_of_range and returns 0
+for any p-value string that underflows double (below ~1e-308), i.e. for the
+most strongly associated markers in a scan. Observed on the AoU-LR repeat
+dosage arm: FelixGenome RuStep2 for phenotype BI_177_4 died on chr3, chr17
+and chr20 with "Error in function boost::math::gamma_q_inv<double>(double,
+double): Overflow Error", immediately preceded by two "Argument is out of
+range for a double" lines from convertStringtoDoublePval.
+
+Both call sites now go through aou_chisq_upper_quantile, which returns
++infinity at p <= 0, 0 at p >= 1, NaN at NaN, and otherwise hands p to boost
+unchanged -- so no marker that currently succeeds changes value. An infinite
+qval is what the surrounding code was written for: it zeroes the entries
+where VarS becomes infinite and guards VarQ_2 == 0 with r = 1.0.
+
+Apply from /app with: patch -p1 < 0002-chisq-quantile-overflow.patch
+
+--- a/src/SKAT_funcs.cpp	2026-10-20 17:56:14
++++ b/src/SKAT_funcs.cpp	2026-10-20 17:56:30
+@@ -1,5 +1,6 @@
+ #include <RcppArmadillo.h>
+ #include <cmath>
++#include <limits>
+ #include <vector>
+ #include <string>
+ #include <iostream>
+@@ -1663,6 +1664,27 @@
+     p_value_str = buffAsStdStr;
+   
+     return p_value_str;
++}
++
++// AoU-LR patch (chi-square quantile overflow). boost::math::quantile on a
++// chi_squared distribution calls gamma_q_inv, which THROWS "Overflow Error"
++// instead of returning an infinite quantile when the upper-tail probability
++// is 0. p == 0 reaches the two call sites below legitimately:
++// convertStringtoDoublePval (Main.cpp) returns 0 when std::stod cannot parse
++// a p-value string that underflows double, which happens for the most
++// extreme markers in a scan. The throw propagates out of Rcpp as an R error
++// and kills the whole step-2 chunk, losing ~10,000 markers' results.
++//
++// The code below already anticipates an infinite qval -- it zeroes entries
++// where VarS is inf, and guards VarQ_2 == 0 with r = 1.0 -- so returning the
++// limit is what the surrounding logic was written for. Finite p is handed to
++// boost unchanged, so no currently-succeeding marker changes value.
++static inline double aou_chisq_upper_quantile(const boost::math::chi_squared& dist,
++                                              double p) {
++  if (std::isnan(p)) return std::numeric_limits<double>::quiet_NaN();
++  if (p <= 0.0) return std::numeric_limits<double>::infinity();
++  if (p >= 1.0) return 0.0;
++  return boost::math::quantile(boost::math::complement(dist, p));
+ }
+ 
+ // [[Rcpp::export]]
+@@ -1695,7 +1717,7 @@
+ 		unsigned int idx_p0_i = idx_p0(i);
+ 		double p_new_i = p_new(idx_p0_i);
+ 		double zscore = zscore_all_0(idx_p0_i);
+-		double qval = boost::math::quantile(boost::math::complement(dist,p_new_i));
++		double qval = aou_chisq_upper_quantile(dist, p_new_i);
+ 		VarS(idx_p0_i) = std::pow(zscore,2) / qval;
+     	}
+     }
+@@ -1731,7 +1753,7 @@
+     double VarQ = arma::accu(G2_adj_n);
+     double Q_b = std::pow(arma::accu(zscore_all_1), 2);
+ 
+-    double qval_Q_b = boost::math::quantile(boost::math::complement(dist,p_value_burden));
++    double qval_Q_b = aou_chisq_upper_quantile(dist, p_value_burden);
+     double VarQ_2 = Q_b / qval_Q_b;
+     double r = (VarQ_2 == 0) ? 1.0 : VarQ / VarQ_2;
+     r = std::min(r, 1.0);

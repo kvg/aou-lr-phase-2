@@ -57,11 +57,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # AoU-LR FELIX patches (felix/patches/*.patch) applied to the in-image source,
 # then the FELIX R package (named SAIGE) is reinstalled with FELIX's own
 # toolchain. 0001: opt-in carrier-count QC for admixed dosage VCFs
-# (FELIX_DOSAGE_QC=carrier); see felix/SV_SCORER_DESIGN.md.
+# (FELIX_DOSAGE_QC=carrier); see felix/SV_SCORER_DESIGN.md. 0002: guard the
+# chi-square quantile in SPA_ER_kernel_related_Phiadj_fast_new_cpp so a
+# p-value that underflows double (parsed as 0) cannot make gamma_q_inv throw
+# and halt step 2. One grep per patch, so the build fails if one silently
+# stops applying.
 COPY felix/patches/ /tmp/felix_patches/
 RUN cd /app \
     && for p in /tmp/felix_patches/*.patch; do patch -p1 --forward < "$p"; done \
     && grep -q FELIX_DOSAGE_QC /app/src/Main.cpp \
+    && grep -q aou_chisq_upper_quantile /app/src/SKAT_funcs.cpp \
     && pixi run R CMD INSTALL . \
     && Rscript -e 'library(SAIGE)' \
     && rm -rf /tmp/felix_patches
@@ -90,8 +95,21 @@ RUN /app/.pixi/envs/default/bin/python3 -m ensurepip \
     && /app/.pixi/envs/default/bin/python3 -m pip install --no-cache-dir \
         pandas numpy matplotlib seaborn
 
-# Staged by felix/build_docker.sh into felix/.docker_scripts/
-COPY felix/.docker_scripts/ /opt/felix_scripts/
+# Helper scripts, copied from their tracked locations rather than from a
+# staging directory. felix/build_docker.sh used to merge felix/scripts/ and the
+# four shared scripts/ helpers into felix/.docker_scripts/ and COPY that, but
+# .gitignore excludes felix/.docker_scripts/, and `gcloud builds submit` with no
+# .gcloudignore in the repo auto-generates one that honours .gitignore -- so the
+# staged directory was silently absent from the Cloud Build context and this
+# COPY failed at step 22/29 ("file not found in build context"). A --local
+# docker build did not notice, because there is no .dockerignore. Copying the
+# tracked paths works for both.
+COPY felix/scripts/ /opt/felix_scripts/
+COPY scripts/build_saige_plink_and_grm.sh \
+     scripts/make_plink_keep.py \
+     scripts/annotate_repeat_units.py \
+     scripts/sv_site_utils.py \
+     /opt/felix_scripts/
 COPY --from=rust-builder /src/extract/target/release/extract-tracts-flare /usr/local/bin/extract-tracts-flare
 COPY --from=rust-builder /src/score/target/release/tractor-mix-score /usr/local/bin/tractor-mix-score
 RUN chmod 0755 /usr/local/bin/extract-tracts-flare /usr/local/bin/tractor-mix-score \

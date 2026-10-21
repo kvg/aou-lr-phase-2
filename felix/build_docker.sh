@@ -20,7 +20,7 @@ CONTEXT_DIR="${REPO_ROOT}"
 DEFAULT_PROJECT="broad-dsp-lrma"
 DEFAULT_REGION="us-central1"
 DEFAULT_IMAGE="us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot"
-DEFAULT_TAG="0.2.0"
+DEFAULT_TAG="0.2.1"
 
 IMAGE="${IMAGE:-${DEFAULT_IMAGE}}"
 TAG="${TAG:-${DEFAULT_TAG}}"
@@ -94,16 +94,12 @@ if [[ ! -f "${DOCKERFILE}" ]]; then
   exit 1
 fi
 
-STAGE="${SCRIPT_DIR}/.docker_scripts"
-SHARED_SCRIPTS="${REPO_ROOT}/scripts"
-FELIX_SCRIPTS="${SCRIPT_DIR}/scripts"
-rm -rf "${STAGE}"
-mkdir -p "${STAGE}"
-cp -a "${FELIX_SCRIPTS}/." "${STAGE}/"
-for name in build_saige_plink_and_grm.sh make_plink_keep.py annotate_repeat_units.py sv_site_utils.py; do
-  cp "${SHARED_SCRIPTS}/${name}" "${STAGE}/"
-done
-echo "Staged docker scripts: ${FELIX_SCRIPTS} + shared helpers -> ${STAGE}"
+# No staging directory. The Dockerfile COPYs felix/scripts/ and the four shared
+# scripts/ helpers straight from their tracked paths; the old felix/.docker_scripts/
+# stage was git-ignored and therefore invisible to `gcloud builds submit`, which
+# falls back to .gitignore when the repo has no .gcloudignore. Remove any stage
+# left behind by an older checkout so nobody debugs a stale copy.
+rm -rf "${SCRIPT_DIR}/.docker_scripts"
 
 echo "Mode:        ${MODE}"
 echo "Project:     ${PROJECT}"

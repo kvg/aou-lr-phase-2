@@ -1375,6 +1375,22 @@ workflow FelixGenome {
     Int score_disk_gb = 200
 
     String docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot:0.2.0"
+
+    # MIXED IMAGE, deliberately. 0.2.1 adds felix/patches/0002 (chi-square
+    # quantile overflow: an extreme p-value parsed as 0 made gamma_q_inv throw
+    # and killed the chunk). Only the two repeat-arm step-2 calls are rebound,
+    # because only they need it and only they have already lost call caching to
+    # the stderr change in RunFelixStep2RuVcf. Everything else -- Pack, Null,
+    # RuLoci, RuVcf, BaVcf, MakeGRM, the concat/summarize tail, and the FELIXla
+    # `Step2` call whose shards run ~82 min -- stays on 0.2.0 and stays
+    # cache-eligible. `Step2` reaches the same unguarded code and is left on the
+    # old image knowingly: its shards have completed for every phenotype in the
+    # scan, so nothing in the rescue re-runs it.
+    # Pinned by digest, not by the 0.2.1 tag: a tag can be overwritten by the
+    # next build, and `gcloud builds submit` does not print the digest.
+    # Resolve with: gcloud artifacts docker images describe <image>:<tag>
+    #   --format='value(image_summary.digest)'
+    String repeat_step2_docker = "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/felix-pilot@sha256:9eb68de723d7df7ab3481c69c91aad3fe213e4041d9047c799c420e95bb55dc4"
   }
 
   Array[String] phenotypes = read_lines(selected_phenotypes)
@@ -1518,7 +1534,7 @@ workflow FelixGenome {
             num_ancs = num_ancs,
             min_carriers = ru_min_carriers,
             pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
-            docker = docker
+            docker = repeat_step2_docker
         }
       }
 
@@ -1553,7 +1569,7 @@ workflow FelixGenome {
               num_ancs = num_ancs,
               min_carriers = ru_min_carriers,
               pvalcutoff_of_haplotype = pvalcutoff_of_haplotype,
-              docker = docker
+              docker = repeat_step2_docker
           }
         }
       }
