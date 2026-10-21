@@ -327,3 +327,30 @@ def test_a_tagged_locus_absent_from_the_vcf_is_counted(fixture_dir: Path):
     assert summary["reads"]["read_locus_not_in_vcf"] == 4, "the four L_swap reads"
     assert "L_swap" not in allele_rows(fixture_dir).get(("L_swap", "1"), {})
 
+
+def test_stopping_early_does_not_report_a_samtools_failure(fixture_dir: Path):
+    """The census takes the first N records; SIGPIPE is not a failure.
+
+    Closing the generator early made samtools exit non-zero, which the finally
+    block raised as 'samtools view failed' with an empty stderr -- printed as
+    'Exception ignored in: <generator object iter_bam>' after an otherwise
+    successful run.
+    """
+    gen = ptb.iter_bam(str(fixture_dir / "spanning.sam"))
+    first = next(gen)
+    assert first[0].startswith("r_")
+    gen.close()          # must not raise
+
+
+def test_a_truncated_census_is_still_reported_honestly(fixture_dir: Path):
+    summary = run_script(fixture_dir, "--census-records", "3")
+    assert summary["tag_census_records"] == 3
+    assert summary["status"] == "ok", "an early census must not abort the join"
+    assert summary["reads"]["spanning_reads"] == len(READS), "the join still reads every record"
+
+
+def test_census_defaults_to_the_whole_file(fixture_dir: Path):
+    summary = run_script(fixture_dir)
+    assert summary["tag_census_records"] == len(READS)
+    assert summary["tag_census"]["TR"] == len(READS)
+

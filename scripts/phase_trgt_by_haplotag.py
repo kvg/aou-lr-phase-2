@@ -201,11 +201,17 @@ def iter_bam(bam: str, region: str = "") -> Iterator[tuple[str, str, int, int, d
 
     stderr is captured and surfaced: a missing index, a permissions failure and
     an empty region otherwise all look like zero reads.
+
+    A caller that stops early (the tag census takes only the first N records)
+    closes this generator, samtools then takes SIGPIPE, and its non-zero exit
+    says nothing about whether the records read were sound. So the exit status
+    is only checked when the stream was consumed to the end.
     """
     cmd = ["samtools", "view", bam] + ([region] if region else [])
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             bufsize=1 << 20)
     assert proc.stdout is not None and proc.stderr is not None
+    completed = False
     try:
         for line in proc.stdout:
             f = line.rstrip("\n").split("\t")
@@ -218,11 +224,15 @@ def iter_bam(bam: str, region: str = "") -> Iterator[tuple[str, str, int, int, d
                     tags[m.group(1)] = m.group(3)
             start = int(f[3]) - 1
             yield f[0], f[2], start, start + len(f[9]), tags
+        completed = True
     finally:
+        if not completed:
+            proc.kill()
         proc.stdout.close()
         err = proc.stderr.read()
         proc.stderr.close()
-        if proc.wait() != 0:
+        rc = proc.wait()
+        if completed and rc != 0:
             raise SystemExit(f"samtools view failed on {bam}:\n{err.strip()}")
 
 
@@ -471,8 +481,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Haplotagged spanning reads required per allele to claim phase")
     p.add_argument("--min-purity", type=float, default=0.8,
                    help="Fraction of an allele's reads that must agree on one haplotype")
-    p.add_argument("--census-records", type=int, default=5000,
-                   help="Alignments to scan for the tag census (0 = all)")
+    p.add_argument("--census-records", type=int, default=0,
+                   help="Alignments to scan for the tag census (0 = all, the default: a "
+                        "truncated census misreports tag coverage, since the tags are not "
+                        "uniformly distributed along the contig)")
     p.add_argument("--census-only", action="store_true",
                    help="Write the tag census and stop, without joining")
     p.add_argument("--out-alleles", default=None)
