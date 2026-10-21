@@ -9,6 +9,7 @@ other. This joins them and emits one row per sample that has **both**.
 
     make_trgt_phase_table.py --bams-table aou2_v1_phased_bams.tsv \\
         --trgt-table tractor_mix/resources/trgt_table.txt \\
+        --sample-list sample-hifi-hg38-all-cohorts_set_membership.tsv \\
         --out trgt_phase.tsv
 
 Everything else the workflow takes is the same for every sample — the phased
@@ -22,34 +23,31 @@ reported separately: a sample with a BAM but no TRGT call cannot be phased, and
 a TRGT call with no BAM has no reads to phase it from. Neither is an error, but
 both are a count you want to see rather than discover as a failed shard.
 
-One row is one SAMPLE, not one person. ``trgt_table.txt`` holds 12,421 rows
-over 12,393 distinct person ids, and the 28 repeats are not resubmissions: they
-are people with a genuine sample from each of two sequencing sites, genotyped
-once per sample. TRGT was submitted one batch per site, which is why the
-submission id in each URI identifies the site:
+One row is one PERSON, because there is one haplotagged BAM per person. The
+``aou2_v1_phased_bams`` export carries 12,261 numeric participant ids (exactly
+the releasable cohort) plus 293 non-numeric 1000 Genomes and GIAB control ids,
+one row each, and all 28 cross-site people appear once. The choice of which
+sample represents a person was therefore already made upstream, when the
+haplotagged BAMs were produced; this script does not get to revisit it.
+
+``trgt_table.txt`` nonetheless holds 12,421 rows over 12,393 people. The 28
+repeats are not resubmissions: they are people with a genuine sample from each
+of two sequencing sites, genotyped once per sample. TRGT was submitted one batch
+per site, so the submission id in each URI identifies the site:
 
     terra-d45cc5ca  BI (10,023)      terra-e7fd2863  BCM (762)
     terra-f6a059a8  HA (1,234)       terra-f6671367  UW (402)
 
-That mapping is derived from ``--sample-list`` by majority vote, not hardcoded,
-so adding a batch does not require editing this file. Keying by sample makes
-each of those 28 pairs two rows rather than a collision to resolve, which is the
-point: deduplication to one genome per person is an analysis decision and stays
-in FELIX's ``analysis_samples.txt``, and the pairs then serve as replicate
-controls on repeat-call reproducibility.
+That mapping is derived from ``--sample-list`` by majority vote rather than
+hardcoded, and is used only to break those 28 ties in a stated order
+(``--prefer-site``) instead of by file position. The 28 pairs are BI+UW 19,
+BI+HA 3, BI+BCM 3 and HA+UW 3, so a BI-first order resolves all of them.
 
-Two different ids therefore appear in the output. The **entity id** is
-``<person>_<SITE>``, matching the ``sample-hifi-hg38-all-cohorts`` convention.
-The **sample column** is the bare person id, because that is the name
-``bcftools view -s`` has to find in the joint phased callset — which carries one
-column per person, not per sample. For a cross-site pair both rows therefore
-subset the same phased genotypes, so the comparison between them isolates read
-and genotyping variation with the phase frame held fixed.
-
-Two TRGT URIs landing on the same ``<person>_<SITE>`` key is a hard error
-rather than a policy choice: the site mapping is meant to make that impossible,
-so it happening means an assumption here is wrong and picking one silently would
-hide it.
+The stakes on that tie-break are low and worth being explicit about: the
+workflow RE-GENOTYPES from the BAM, and the TRGT VCF is used only to emit a
+comparison slice of the production call. So the choice affects what the run is
+compared against, not what it computes. It is made deterministic because an
+arbitrary one would be invisible, not because it changes a result.
 
 Nothing here checks that the objects exist. It is a join over path strings.
 """
@@ -157,64 +155,53 @@ def submission_sites(rows: list[tuple[str, str]],
     return mapping, notes
 
 
-def key_by_sample(rows: list[tuple[str, str]],
-                  sites: dict[str, list[str]],
-                  mapping: dict[str, str]) -> tuple[dict[str, tuple[str, str]], dict[str, int]]:
-    """``<person>_<SITE>`` -> (person_id, URI), plus a tally of what could not be keyed.
+def choose_uri(rows: list[tuple[str, str]],
+               sites: dict[str, list[str]],
+               mapping: dict[str, str],
+               prefer: list[str]) -> tuple[dict[str, str], dict[str, str], dict[str, int]]:
+    """person_id -> one VCF URI, plus the site chosen for each resolved tie.
 
-    Resolved per person, not per row, so a row whose submission has no site can
-    still be placed by elimination: if a person's other rows account for all but
-    one of their sites, the remaining row takes the remaining site. That matters
-    because ``submission_sites`` votes only with unambiguous people, so a batch
-    consisting solely of cross-site people would otherwise map to nothing.
-
-    A person with one site and one row takes it outright; the submission is only
-    consulted when there is something to disambiguate.
+    A person with one URI keeps it. A person with several is resolved by site
+    preference: the URI whose submission maps to the earliest site in ``prefer``
+    wins. Anything unresolvable is tallied and dropped rather than guessed.
     """
     by_person: dict[str, list[str]] = collections.defaultdict(list)
     for person, uri in rows:
         by_person[person].append(uri)
 
-    out: dict[str, tuple[str, str]] = {}
+    chosen: dict[str, str] = {}
+    chosen_site: dict[str, str] = {}
     tally: collections.Counter = collections.Counter()
+    rank = {s: i for i, s in enumerate(prefer)}
     for person, uris in by_person.items():
-        person_sites = sites.get(person)
-        if not person_sites:
-            tally["person_not_in_sample_list"] += len(uris)
+        if len(uris) == 1:
+            chosen[person] = uris[0]
             continue
-        if len(uris) == 1 and len(person_sites) == 1:
-            out[f"{person}_{person_sites[0]}"] = (person, uris[0])
-            continue
-
-        assigned: dict[str, str] = {}
-        leftover: list[str] = []
-        taken: set[str] = set()
+        cands = []
         for uri in uris:
             m = SUBMISSION_RE.search(uri)
             site = mapping.get(m.group(1)) if m else None
-            if site is not None and site not in person_sites:
-                tally["submission_site_not_a_site_of_person"] += 1
+            if site is None:
                 continue
-            if site is not None and site not in taken:
-                assigned[uri] = site
-                taken.add(site)
-            else:
-                leftover.append(uri)
-
-        remaining = [s for s in person_sites if s not in taken]
-        if len(leftover) == len(remaining):
-            for uri, site in zip(leftover, remaining):
-                assigned[uri] = site
-        elif leftover:
-            tally["could_not_disambiguate"] += len(leftover)
-
-        for uri, site in assigned.items():
-            key = f"{person}_{site}"
-            if key in out:
-                tally["key_collision"] += 1
-                continue
-            out[key] = (person, uri)
-    return out, tally
+            cands.append((rank.get(site, len(rank)), site, uri))
+        if not cands:
+            # No site for any candidate. Dropping the person would be
+            # disproportionate -- they have a BAM and a usable TRGT call, and the
+            # tie only decides which production call the run is compared against.
+            # So fall back to a deterministic order over the URIs themselves,
+            # which is reproducible rather than dependent on file position, and
+            # say so loudly in the tally.
+            chosen[person] = sorted(uris)[0]
+            tally["tie_resolved_by_uri_order"] += 1
+            continue
+        cands.sort()
+        if len(cands) < len(uris):
+            tally["tie_partially_sited"] += 1
+        _, site, uri = cands[0]
+        chosen[person] = uri
+        chosen_site[person] = site
+        tally["tie_resolved_by_site"] += 1
+    return chosen, chosen_site, tally
 
 
 def read_bams_table(path: str, bam_column: str, bai_column: str) -> dict[str, dict[str, str]]:
@@ -258,68 +245,76 @@ def read_bams_table(path: str, bam_column: str, bai_column: str) -> dict[str, di
 def run(args: argparse.Namespace) -> int:
     bams = read_bams_table(args.bams_table, args.bam_column, args.bai_column)
     rows = read_trgt_table(args.trgt_table)
-    sites = read_sample_list(args.sample_list)
-    mapping, notes = submission_sites(rows, sites, args.min_site_purity)
-    trgt, tally = key_by_sample(rows, sites, mapping)
 
-    if tally.get("key_collision"):
+    by_person: dict[str, list[str]] = collections.defaultdict(list)
+    for person, uri in rows:
+        by_person[person].append(uri)
+    ties = sorted(p_ for p_, u in by_person.items() if len(u) > 1)
+
+    prefer = [s.strip() for s in args.prefer_site.split(",") if s.strip()]
+    notes: list[str] = []
+    if args.sample_list:
+        sites = read_sample_list(args.sample_list)
+        mapping, notes = submission_sites(rows, sites, args.min_site_purity)
+    elif ties:
         raise SystemExit(
-            f"{tally['key_collision']} TRGT rows collided on a <person>_<SITE> key. "
-            "The site mapping is supposed to make that impossible, so this means an "
-            "assumption in this script is wrong; it is not resolved silently.")
+            f"{len(ties)} people have more than one TRGT VCF (e.g. {', '.join(ties[:3])}) "
+            "and --sample-list was not given, so the site of each cannot be determined. "
+            "Pass --sample-list so the tie is broken by a stated site order rather than "
+            "by file position.")
+    else:
+        sites, mapping = {}, {}
+    trgt, chosen_site, tally = choose_uri(rows, sites, mapping, prefer)
 
-    incomplete = sorted(s for s, r in bams.items() if not r["bam"] or not r["bam_index"])
-    usable_bams = {s: r for s, r in bams.items() if r["bam"] and r["bam_index"]}
+    participants = {s for s in bams if s.isdigit()}
+    controls = sorted(set(bams) - participants)
+    usable = {s: r for s, r in bams.items()
+              if s in participants and r["bam"] and r["bam_index"]}
+    incomplete = sorted(s for s in participants if not bams[s]["bam"] or not bams[s]["bam_index"])
 
-    both = set(usable_bams) & set(trgt)
-    bam_only = sorted(set(usable_bams) - set(trgt))
-    trgt_only = sorted(set(trgt) - set(usable_bams))
+    both = set(usable) & set(trgt)
+    bam_only = sorted(set(usable) - set(trgt))
+    trgt_only = sorted(set(trgt) - set(usable))
 
-    # Emit in the BAM table's order so the new table lines up with the old one.
     order = [s for s in bams if s in both]
     with open(args.out, "wt") as fh:
         fh.write(f"entity:{args.entity_type}_id\t" + "\t".join(OUT_COLUMNS) + "\n")
-        for key in order:
-            person, uri = trgt[key]
+        for person in order:
             fh.write("\t".join((
-                key, person, usable_bams[key]["bam"], usable_bams[key]["bam_index"],
-                uri, uri + args.index_suffix)) + "\n")
+                person, person, usable[person]["bam"], usable[person]["bam_index"],
+                trgt[person], trgt[person] + args.index_suffix)) + "\n")
 
-    print("TRGT submission -> sequencing site (majority vote, not hardcoded):")
-    print("\n".join(notes))
-    print(f"\nsample list:                    {len(sites):,} people,"
-          f" {sum(len(v) for v in sites.values()):,} samples")
-    multi = {p_: v for p_, v in sites.items() if len(v) > 1}
-    print(f"  people at more than one site:  {len(multi):,}"
-          + (f"  (e.g. {', '.join(sorted(multi)[:3])})" if multi else ""))
-    print(f"TRGT rows:                      {len(rows):,}")
-    print(f"  keyed to a sample:            {len(trgt):,}")
-    for reason, n in sorted(tally.items()):
-        print(f"  dropped, {reason}: {n:,}")
+    if notes:
+        print("TRGT submission -> sequencing site (majority vote, not hardcoded):")
+        print("\n".join(notes))
+        print()
     print(f"BAM table rows:                 {len(bams):,}")
-    print(f"  with both BAM and index:      {len(usable_bams):,}")
+    print(f"  participant ids (numeric):    {len(participants):,}")
+    print(f"  control ids (1000G/GIAB):     {len(controls):,}"
+          + (f"  (e.g. {', '.join(controls[:3])})" if controls else ""))
     print(f"  missing a BAM or index cell:  {len(incomplete):,}"
           + (f"  (e.g. {', '.join(incomplete[:5])})" if incomplete else ""))
+    print(f"TRGT rows:                      {len(rows):,}")
+    print(f"  distinct people:              {len(by_person):,}")
+    print(f"  people with >1 TRGT VCF:      {len(ties):,}")
+    for reason, n in sorted(tally.items()):
+        print(f"    {reason}: {n:,}")
+    if chosen_site:
+        picked = collections.Counter(chosen_site.values())
+        print(f"    site chosen for ties:       "
+              f"{', '.join(f'{s} {n}' for s, n in picked.most_common())}"
+              f"   (preference {' > '.join(prefer)})")
     print()
     print(f"ROWS WRITTEN (both sources):    {len(order):,}")
     print(f"  BAM but no TRGT call:         {len(bam_only):,}"
           + (f"  (e.g. {', '.join(bam_only[:5])})" if bam_only else ""))
-    print(f"  TRGT call but no usable BAM:  {len(trgt_only):,}"
+    print(f"  TRGT call but no BAM:         {len(trgt_only):,}"
           + (f"  (e.g. {', '.join(trgt_only[:5])})" if trgt_only else ""))
-
-    written_people = {trgt[k][0] for k in order}
-    pairs = sorted(p_ for p_ in multi
-                   if sum(1 for k in order if trgt[k][0] == p_) > 1)
-    print(f"\npeople represented:             {len(written_people):,}")
-    print(f"  with both site samples kept:  {len(pairs):,}"
-          + (f"  (e.g. {', '.join(pairs[:3])})" if pairs else ""))
-    if pairs:
-        print("  -> these are replicate pairs, not duplicates; one genome per person is "
-              "FELIX's analysis_samples.txt to enforce, not this table's.", file=sys.stderr)
     print(f"\nwrote {args.out}")
-    if bam_only or trgt_only:
-        print("Samples outside the intersection are absent from this table by construction, so "
-              "they cannot be submitted by accident.", file=sys.stderr)
+    if trgt_only:
+        print("A TRGT call with no haplotagged BAM has no reads to phase from, so those "
+              "people are absent by construction and cannot be submitted by accident.",
+              file=sys.stderr)
     return 0
 
 
@@ -336,10 +331,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bai-column", default="gcs_bai_path")
     p.add_argument("--index-suffix", default=".tbi")
     p.add_argument(
-        "--sample-list", required=True,
+        "--sample-list", default=None,
         help="List of '<person>_<SITE>' sample ids -- a Terra set-membership export "
              "(e.g. sample-hifi-hg38-all-cohorts) or one id per line. Supplies the "
-             "site for each person and the submission->site vote.")
+             "site for each person and the submission->site vote. Required only "
+             "when some person has more than one TRGT VCF.")
+    p.add_argument(
+        "--prefer-site", default="BI,HA,BCM,UW",
+        help="Order in which sites win a tie when a person has a TRGT call from "
+             "more than one (default BI,HA,BCM,UW). Affects only which production "
+             "call the run is compared against, since re-genotyping is done from "
+             "the BAM.")
     p.add_argument(
         "--min-site-purity", type=float, default=0.95,
         help="Floor on the fraction of a TRGT submission's unambiguous people that "
