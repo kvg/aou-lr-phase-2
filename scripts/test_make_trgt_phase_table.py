@@ -254,3 +254,55 @@ def test_person_id_containing_an_underscore_parses(tmp_path: Path):
     """The site is a suffix, so the split must come from the right."""
     p = write(tmp_path / "ids.txt", "odd_name_BI\n")
     assert mtpt.read_sample_list(str(p)) == {"odd_name": ["BI"]}
+
+
+# --- split array columns ----------------------------------------------------
+
+def test_split_paths_match_the_workflow_naming():
+    """SubsetAndSplitVcf writes <sample>.<prefix>.<chrom>.vcf.gz into <base>/<chrom>/."""
+    import json
+    vcfs, idxs = mtpt.split_paths("1001", "gs://out/split/", "phased", ("chr1", "chr2"))
+    assert json.loads(vcfs) == [
+        "gs://out/split/chr1/1001.phased.chr1.vcf.gz",
+        "gs://out/split/chr2/1001.phased.chr2.vcf.gz"]
+    assert json.loads(idxs) == [v + ".tbi" for v in json.loads(vcfs)]
+
+
+def test_split_columns_absent_until_requested(tmp_path: Path):
+    """Before the split has run, pointing at paths that do not exist is worse."""
+    trgt = write(tmp_path / "t.txt", f"1001\t{BI.format('1001')}\n")
+    samples = write(tmp_path / "s.txt", "1001_BI\n")
+    proc, out = run_script(tmp_path, bams_table(tmp_path, ["1001"]), trgt, samples)
+    assert proc.returncode == 0, proc.stderr
+    assert "phased_vcfs" not in out.read_text().splitlines()[0]
+
+
+def test_split_columns_emitted_as_json_arrays(tmp_path: Path):
+    import json
+    trgt = write(tmp_path / "t.txt", f"1001\t{BI.format('1001')}\n")
+    samples = write(tmp_path / "s.txt", "1001_BI\n")
+    proc, out = run_script(tmp_path, bams_table(tmp_path, ["1001"]), trgt, samples,
+                           "--split-base", "gs://out/split",
+                           "--split-chroms", "chr1,chr2,chr3")
+    assert proc.returncode == 0, proc.stderr
+    lines = out.read_text().splitlines()
+    hdr = lines[0].split("\t")
+    assert hdr[-2:] == ["phased_vcfs", "phased_vcf_indexes"]
+    row = dict(zip(hdr, lines[1].split("\t")))
+    vcfs = json.loads(row["phased_vcfs"])
+    assert len(vcfs) == 3
+    assert vcfs[0] == "gs://out/split/chr1/1001.phased.chr1.vcf.gz"
+    assert len(json.loads(row["phased_vcf_indexes"])) == 3
+
+
+def test_split_defaults_to_22_autosomes(tmp_path: Path):
+    import json
+    trgt = write(tmp_path / "t.txt", f"1001\t{BI.format('1001')}\n")
+    samples = write(tmp_path / "s.txt", "1001_BI\n")
+    proc, out = run_script(tmp_path, bams_table(tmp_path, ["1001"]), trgt, samples,
+                           "--split-base", "gs://out/split")
+    assert proc.returncode == 0, proc.stderr
+    row = dict(zip(out.read_text().splitlines()[0].split("\t"),
+                   out.read_text().splitlines()[1].split("\t")))
+    assert len(json.loads(row["phased_vcfs"])) == 22
+

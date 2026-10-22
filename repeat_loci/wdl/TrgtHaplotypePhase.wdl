@@ -44,8 +44,8 @@ workflow TrgtHaplotypePhase {
 
     File bam
     File bam_index
-    File phased_vcf
-    File phased_vcf_index
+    Array[File] phased_vcfs
+    Array[File] phased_vcf_indexes
     File reference_fasta
     File reference_fasta_index
     File trgt_repeats_bed
@@ -83,8 +83,8 @@ workflow TrgtHaplotypePhase {
       region = region,
       bam = bam,
       bam_index = bam_index,
-      phased_vcf = phased_vcf,
-      phased_vcf_index = phased_vcf_index,
+      phased_vcfs = phased_vcfs,
+      phased_vcf_indexes = phased_vcf_indexes,
       reference_fasta = reference_fasta,
       reference_fasta_index = reference_fasta_index,
       trgt_repeats_bed = trgt_repeats_bed,
@@ -130,8 +130,8 @@ task HaplotagAndGenotype {
     String region = ""
     File bam
     File bam_index
-    File phased_vcf
-    File phased_vcf_index
+    Array[File] phased_vcfs
+    Array[File] phased_vcf_indexes
     File reference_fasta
     File reference_fasta_index
     File trgt_repeats_bed
@@ -156,8 +156,8 @@ task HaplotagAndGenotype {
   parameter_meta {
     bam: { description: "Haplotagged BAM; streamed through the index -- only the window is read, or the whole file when region is empty.", localization_optional: true }
     bam_index: { description: "BAI/CSI sibling of bam.", localization_optional: true }
-    phased_vcf: { description: "Phased callset carrying this sample. Streamed by region. For the cohort run give the PER-SAMPLE split, not the multi-sample callset: a region read of a multi-sample file pays for all 12,261 samples' genotypes to obtain one.", localization_optional: true }
-    phased_vcf_index: { description: "Tabix or CSI sibling of phased_vcf.", localization_optional: true }
+    phased_vcfs: { description: "Phased callset(s) carrying this sample, one per chromosome from the per-sample split, concatenated in the task. A single multi-sample callset also works -- the task subsets it -- but at cohort scale that is a full pass over every sample's genotypes to obtain one, which is what the split exists to avoid. Localized, not streamed: per-sample files are a few MB." }
+    phased_vcf_indexes: { description: "Tabix siblings of phased_vcfs." }
   }
 
   command <<<
@@ -209,7 +209,7 @@ Path("gcs.env").write_text(("\n".join(parts) + "\n") if parts else "")
 PY
 
     refresh_gcs() {
-      python3 mint_gcs_env.py "~{bam}" "~{phased_vcf}" "~{production_trgt_vcf}" "~{gcs_project}"
+      python3 mint_gcs_env.py "~{bam}" "~{production_trgt_vcf}" "~{gcs_project}"
       # shellcheck disable=SC1091
       source gcs.env
     }
@@ -267,13 +267,58 @@ PY
     #    slot 0 here is the haplotype AN1 describes. No --force-samples: a
     #    sample that is absent must fail here, not silently phase nothing.
     if [[ "${WHOLE_GENOME}" == "1" ]]; then REGION_ARGS=(); else REGION_ARGS=(-r "${PADDED}"); fi
-    refresh_gcs
-    bcftools view \
-      -s "~{sample_id}" \
-      "${REGION_ARGS[@]}" \
-      -Oz -o sample.phased.vcf.gz \
-      "~{phased_vcf}##idx##~{phased_vcf_index}"
-    bcftools index -t sample.phased.vcf.gz
+
+    cp "~{write_lines(phased_vcfs)}" vcf_list.txt
+    N_VCF=$(wc -l < vcf_list.txt)
+    echo "phased callset: ${N_VCF} file(s)" >&2
+    if [[ "${N_VCF}" -eq 0 ]]; then
+      echo "error: phased_vcfs is empty; there is no haplotype frame to phase against." >&2
+      exit 1
+    fi
+
+    # Index anything that arrived without a usable sibling. bcftools concat -a
+    # and every region read below need one, and a missing index fails later and
+    # less legibly than it does here.
+    while read -r v; do
+      if [[ ! -s "${v}.tbi" && ! -s "${v}.csi" ]]; then bcftools index -t -f "${v}"; fi
+    done < vcf_list.txt
+
+    if [[ "${N_VCF}" -eq 1 ]]; then
+      JOINED=$(head -1 vcf_list.txt)
+    else
+      # -a rather than a plain concat: it merges through the indexes, so the
+      # array need not be in chromosome order for the result to be sorted.
+      bcftools concat -a -f vcf_list.txt -Oz -o joined.vcf.gz
+      bcftools index -t joined.vcf.gz
+      JOINED=joined.vcf.gz
+    fi
+
+    # One sample. The per-sample split already yields single-sample files, so
+    # the subset is skipped when it would be a no-op -- that pass over a
+    # multi-sample callset was 28% of the first whole-genome run's wall clock.
+    # A single-sample file that is the WRONG sample is caught rather than used.
+    bcftools query -l "${JOINED}" > vcf_samples.txt
+    N_SAMP=$(wc -l < vcf_samples.txt)
+    if [[ "${N_SAMP}" -eq 1 ]]; then
+      GOT=$(head -1 vcf_samples.txt)
+      if [[ "${GOT}" != "~{sample_id}" ]]; then
+        echo "error: phased_vcfs hold sample '${GOT}', not '~{sample_id}'." >&2
+        echo "       Phasing against another participant's haplotypes would" >&2
+        echo "       produce plausible output that is entirely wrong." >&2
+        exit 1
+      fi
+      echo "already single-sample; skipping the subset" >&2
+      if [[ "${WHOLE_GENOME}" == "1" ]]; then
+        cp "${JOINED}" sample.phased.vcf.gz
+      else
+        bcftools view "${REGION_ARGS[@]}" -Oz -o sample.phased.vcf.gz "${JOINED}"
+      fi
+    else
+      echo "${N_SAMP} samples; subsetting to ~{sample_id}" >&2
+      bcftools view -s "~{sample_id}" "${REGION_ARGS[@]}" \
+        -Oz -o sample.phased.vcf.gz "${JOINED}"
+    fi
+    bcftools index -t -f sample.phased.vcf.gz
     bcftools index -n sample.phased.vcf.gz > n_phased_sites.txt
     echo "phased sites in window: $(cat n_phased_sites.txt)" >&2
 
@@ -332,8 +377,8 @@ PY
     N_TAG=$(wc -l < tag_contigs.txt)
     if [[ "${N_TAG}" -eq 0 ]]; then
       echo "error: no contig is present in both the BAM and the phased VCF." >&2
-      echo "       Nothing could be haplotagged. Check that phased_vcf is the" >&2
-      echo "       callset for this sample and this reference." >&2
+      echo "       Nothing could be haplotagged. Check that phased_vcfs are" >&2
+      echo "       the callset for this sample and this reference." >&2
       exit 1
     fi
     PAR=~{haplotag_jobs}

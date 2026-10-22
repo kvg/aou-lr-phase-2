@@ -57,12 +57,15 @@ from __future__ import annotations
 import argparse
 import collections
 import gzip
+import json
 import re
 import sys
 from pathlib import Path
 from typing import Optional, TextIO
 
 OUT_COLUMNS = ("sample", "bam", "bam_index", "trgt_vcf", "trgt_vcf_index")
+SPLIT_COLUMNS = ("phased_vcfs", "phased_vcf_indexes")
+AUTOSOMES = tuple(f"chr{i}" for i in range(1, 23))
 SUBMISSION_RE = re.compile(r"/(terra-[0-9a-f]+)/")
 
 
@@ -242,6 +245,19 @@ def read_bams_table(path: str, bam_column: str, bai_column: str) -> dict[str, di
     return rows
 
 
+def split_paths(sample: str, base: str, prefix: str, chroms: tuple[str, ...]
+                ) -> tuple[str, str]:
+    """The sample's per-chromosome phased VCFs, as Terra array cells.
+
+    SubsetAndSplitVcf names outputs <sample>.<output_tag>.vcf.gz with
+    output_tag = <prefix>.<chrom>, so the path is fixed by construction and no
+    bucket listing is needed. Terra reads an array cell as JSON.
+    """
+    base = base.rstrip("/")
+    vcfs = [f"{base}/{c}/{sample}.{prefix}.{c}.vcf.gz" for c in chroms]
+    return json.dumps(vcfs), json.dumps([v + ".tbi" for v in vcfs])
+
+
 def run(args: argparse.Namespace) -> int:
     bams = read_bams_table(args.bams_table, args.bam_column, args.bai_column)
     rows = read_trgt_table(args.trgt_table)
@@ -277,12 +293,16 @@ def run(args: argparse.Namespace) -> int:
     trgt_only = sorted(set(trgt) - set(usable))
 
     order = [s for s in bams if s in both]
+    chroms = tuple(c.strip() for c in args.split_chroms.split(",") if c.strip())
+    cols = OUT_COLUMNS + (SPLIT_COLUMNS if args.split_base else ())
     with open(args.out, "wt") as fh:
-        fh.write(f"entity:{args.entity_type}_id\t" + "\t".join(OUT_COLUMNS) + "\n")
+        fh.write(f"entity:{args.entity_type}_id\t" + "\t".join(cols) + "\n")
         for person in order:
-            fh.write("\t".join((
-                person, person, usable[person]["bam"], usable[person]["bam_index"],
-                trgt[person], trgt[person] + args.index_suffix)) + "\n")
+            row = [person, person, usable[person]["bam"], usable[person]["bam_index"],
+                   trgt[person], trgt[person] + args.index_suffix]
+            if args.split_base:
+                row.extend(split_paths(person, args.split_base, args.split_prefix, chroms))
+            fh.write("\t".join(row) + "\n")
 
     if notes:
         print("TRGT submission -> sequencing site (majority vote, not hardcoded):")
@@ -310,6 +330,11 @@ def run(args: argparse.Namespace) -> int:
           + (f"  (e.g. {', '.join(bam_only[:5])})" if bam_only else ""))
     print(f"  TRGT call but no BAM:         {len(trgt_only):,}"
           + (f"  (e.g. {', '.join(trgt_only[:5])})" if trgt_only else ""))
+    if args.split_base:
+        print(f"\nsplit array columns: {len(chroms)} per sample, e.g.")
+        ex = json.loads(split_paths(order[0], args.split_base, args.split_prefix, chroms)[0])
+        print(f"  {ex[0]}")
+        print(f"  ... {len(ex)} entries")
     print(f"\nwrote {args.out}")
     if trgt_only:
         print("A TRGT call with no haplotagged BAM has no reads to phase from, so those "
@@ -325,6 +350,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Terra export of the haplotagged-BAM table (aou2_v1_phased_bams)")
     p.add_argument("--trgt-table", required=True,
                    help="person_id<TAB>TRGT VCF URI, no header")
+    p.add_argument(
+        "--split-base", default=None,
+        help="gs:// prefix the per-sample split wrote to (the --out-base given to "
+             "make_trgt_split_table.py). When set, phased_vcfs and "
+             "phased_vcf_indexes array columns are emitted; the paths are "
+             "deterministic, so no bucket listing is needed. Omit before the split "
+             "has run.")
+    p.add_argument("--split-prefix", default="phased",
+                   help="The --output-prefix used for the split (default phased)")
+    p.add_argument("--split-chroms", default=",".join(AUTOSOMES),
+                   help="Comma-separated contigs the split covers (default chr1..chr22)")
     p.add_argument("--entity-type", default="trgt_phase",
                    help="Entity type for the new table, used in the 'entity:<type>_id' header")
     p.add_argument("--bam-column", default="gcs_bam_path")

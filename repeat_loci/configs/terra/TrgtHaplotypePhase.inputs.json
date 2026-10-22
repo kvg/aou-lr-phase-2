@@ -1,29 +1,27 @@
 {
   "TrgtHaplotypePhase.sample_id": "${this.sample}",
   "TrgtHaplotypePhase.region": "chr20:10000000-20000000",
-
   "TrgtHaplotypePhase.bam": "${this.bam}",
   "TrgtHaplotypePhase.bam_index": "${this.bam_index}",
-
-  "TrgtHaplotypePhase.phased_vcf": "REPLACE_WITH_flare_lai_prod_chr20_gt_vcf",
-  "TrgtHaplotypePhase.phased_vcf_index": "REPLACE_WITH_flare_lai_prod_chr20_gt_vcf_index",
-
+  "//phased_vcfs": "An ARRAY now. One entry per chromosome from the per-sample split; the task concatenates them and skips the sample subset, because the files are already single-sample. A one-element array holding the multi-sample callset still works -- the task detects it and subsets -- but that pass was 28% of the first whole-genome run.",
+  "TrgtHaplotypePhase.phased_vcfs": [
+    "REPLACE_WITH_flare_lai_prod_chr20_gt_vcf"
+  ],
+  "TrgtHaplotypePhase.phased_vcf_indexes": [
+    "REPLACE_WITH_flare_lai_prod_chr20_gt_vcf_index"
+  ],
   "TrgtHaplotypePhase.reference_fasta": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa",
   "TrgtHaplotypePhase.reference_fasta_index": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa.fai",
   "TrgtHaplotypePhase.trgt_repeats_bed": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/refs/repeat_loci/trexplorer_v1.0.1.trgt_definitions.bed.gz",
-
   "TrgtHaplotypePhase.production_trgt_vcf": "${this.trgt_vcf}",
   "TrgtHaplotypePhase.production_trgt_vcf_index": "${this.trgt_vcf_index}",
-
   "TrgtHaplotypePhase.allele_tag": "",
   "TrgtHaplotypePhase.variant_flank": 20000,
   "TrgtHaplotypePhase.min_reads": 2,
   "TrgtHaplotypePhase.min_purity": 0.8,
   "TrgtHaplotypePhase.ignore_read_groups": false,
   "TrgtHaplotypePhase.gcs_project": "",
-
   "TrgtHaplotypePhase.phase_trgt_by_haplotag_py": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/phase_trgt_by_haplotag.py",
-
   "TrgtHaplotypePhase.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase@sha256:4a6d36d095aa7021431ce65bdea84780be5de58e23683869c01d2b58f890ac88",
   "TrgtHaplotypePhase.cpu": 4,
   "TrgtHaplotypePhase.memory_gb": 32,
