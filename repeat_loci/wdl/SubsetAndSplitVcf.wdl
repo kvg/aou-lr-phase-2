@@ -107,7 +107,7 @@ task SubsetAndSplit {
         N_PHASED=$(grep -c '|' gt_sample.txt || true)
         echo "phase check: ${N_PHASED} of ${N_GT} sampled genotypes carry '|'" >&2
         if [[ "${N_GT}" -eq 0 ]]; then
-            echo "phased_fraction 0" > phased_fraction.txt
+            echo "0" > phased_fraction.txt
             echo "error: no genotypes read from the intermediate; refusing to split." >&2
             exit 1
         fi
