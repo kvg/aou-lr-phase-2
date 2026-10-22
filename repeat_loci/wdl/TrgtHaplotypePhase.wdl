@@ -160,7 +160,13 @@ task HaplotagAndGenotype {
     export HTS_RETRY_MAX="${HTS_RETRY_MAX:-8}"
     export HTS_RETRY_DELAY="${HTS_RETRY_DELAY:-500}"
 
-    python3 - "~{bam}" "~{phased_vcf}" "~{production_trgt_vcf}" "~{gcs_project}" <<'PY'
+    # GCS access tokens last about an hour. Whole-genome mode runs far longer
+    # than that, and the production-slice step at the very end reads gs://
+    # through htslib -- which failed with "Operation not permitted" once the
+    # startup token went stale. So the minting runs from a script that can be
+    # re-invoked, and every gs:// read refreshes immediately beforehand rather
+    # than trusting a token minted at task start.
+    cat > mint_gcs_env.py <<'PY'
 import json, os, subprocess, sys, urllib.request
 from pathlib import Path
 
@@ -196,8 +202,13 @@ if any(a.startswith("gs://") for a in sys.argv[1:-1]):
     parts.append(f"export GCS_OAUTH_TOKEN='{token}'")
 Path("gcs.env").write_text(("\n".join(parts) + "\n") if parts else "")
 PY
-    # shellcheck disable=SC1091
-    source gcs.env
+
+    refresh_gcs() {
+      python3 mint_gcs_env.py "~{bam}" "~{phased_vcf}" "~{production_trgt_vcf}" "~{gcs_project}"
+      # shellcheck disable=SC1091
+      source gcs.env
+    }
+    refresh_gcs
 
     # An empty region means the whole genome: no windowing anywhere below. The
     # cohort run uses that mode, because TR loci sit one per ~698 bp and so a
@@ -251,6 +262,7 @@ PY
     #    slot 0 here is the haplotype AN1 describes. No --force-samples: a
     #    sample that is absent must fail here, not silently phase nothing.
     if [[ "${WHOLE_GENOME}" == "1" ]]; then REGION_ARGS=(); else REGION_ARGS=(-r "${PADDED}"); fi
+    refresh_gcs
     bcftools view \
       -s "~{sample_id}" \
       "${REGION_ARGS[@]}" \
@@ -263,6 +275,7 @@ PY
     # 2. Reads for the window, with HiPhase's HP/PS removed. Those tags are in
     #    HiPhase's block frame; whatshap writes the frame we want in step 3.
     if [[ "${WHOLE_GENOME}" == "1" ]]; then READ_REGION=(); else READ_REGION=("${REGION}"); fi
+    refresh_gcs
     samtools view -b -h -x HP,PS -@ ~{cpu} \
       "~{bam}##idx##~{bam_index}" "${READ_REGION[@]}" > reads.bam
     samtools index reads.bam
@@ -282,7 +295,7 @@ PY
     #    the accounting file. A whole-genome run against a chr20-only callset then
     #    shows ~98% of reads on absent contigs instead of quietly phasing 2%.
     bcftools view -h sample.phased.vcf.gz \
-      | awk -F'[=,]' '/^##contig/ {for (i=1;i<=NF;i++) if ($i ~ /ID$/) print $(i+1)}' \
+      | sed -n 's/^##contig=<ID=\([^,>]*\).*/\1/p' \
       | sort -u > vcf_contigs.txt
     samtools idxstats reads.bam | awk -F'\t' '$1 != "*" && $3 + $4 > 0 {print $1}' \
       | sort -u > bam_contigs.txt
@@ -406,10 +419,13 @@ PY
 
     gzip -f haplotag.tsv
 
-    # The production call for the same window, for the notebook's comparison of
-    # re-genotyped against as-delivered calls.
+    # The production call over the same span, for the notebook's comparison of
+    # re-genotyped against as-delivered calls. Last step in the task, so by now
+    # the startup token is long dead -- refresh before reading, and pass no -r
+    # at all in whole-genome mode (an empty -r "" selects nothing).
     if [[ -n "~{production_trgt_vcf}" ]]; then
-      bcftools view -r "~{region}" -Oz -o "~{sample_id}.production_trgt.vcf.gz" \
+      refresh_gcs
+      bcftools view "${REGION_ARGS[@]}" -Oz -o "~{sample_id}.production_trgt.vcf.gz" \
         "~{production_trgt_vcf}##idx##~{production_trgt_vcf_index}"
       bcftools index -t "~{sample_id}.production_trgt.vcf.gz"
     fi
