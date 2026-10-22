@@ -90,39 +90,39 @@ task SubsetAndSplit {
             ~{"--regions " + region} \
             --regions-overlap 0 \
             --verbosity ~{view_verbosity} \
-            -Ob -o ~{output_tag}.bcf
+            -Ob | \
+        bcftools norm --rm-dup all -Ob -o ~{output_tag}.bcf
 
         # check number of sites to guard against streaming errors
         bcftools view -H ~{output_tag}.bcf | wc -l > number_of_sites.txt
 
-        # The SHAPEIT4 phase is the entire point of this file: TrgtHaplotypePhase
-        # reads haplotype order out of it. A split that silently dropped the '|'
-        # separators would produce files that look perfectly valid and quietly
-        # destroy every downstream orientation. So measure it, on the
-        # intermediate, before writing 12,000 files from it.
+        # The SHAPEIT4 phase is the entire point of these files: TrgtHaplotypePhase
+        # reads haplotype order out of them. A split that dropped the '|'
+        # separators would yield files that look valid while silently destroying
+        # every orientation downstream. Measured on the intermediate, before
+        # 12,000 files are written from it.
         bcftools query -f '[%GT]\n' ~{output_tag}.bcf \
             | head -n ~{phase_check_sites} > gt_sample.txt
-        N_GT=$(wc -l < gt_sample.txt)
+        N_GT=$(wc -l < gt_sample.txt | tr -d ' ')
         N_PHASED=$(grep -c '|' gt_sample.txt || true)
         echo "phase check: ${N_PHASED} of ${N_GT} sampled genotypes carry '|'" >&2
-        if [[ "${N_GT}" -gt 0 ]]; then
-            FRAC=$(awk -v a="${N_PHASED}" -v b="${N_GT}" 'BEGIN{printf "%.4f", a/b}')
-            echo "phased_fraction ${FRAC}" > phased_fraction.txt
-            if awk -v f="${FRAC}" -v m=~{min_phased_fraction} 'BEGIN{exit !(f < m)}'; then
-                echo "error: only ${FRAC} of sampled genotypes are phased, below" >&2
-                echo "       --min-phased-fraction ~{min_phased_fraction}. These files feed" >&2
-                echo "       haplotype-resolved analysis; unphased input would be used as" >&2
-                echo "       though it were phased." >&2
-                exit 1
-            fi
-        else
+        if [[ "${N_GT}" -eq 0 ]]; then
             echo "phased_fraction 0" > phased_fraction.txt
             echo "error: no genotypes read from the intermediate; refusing to split." >&2
             exit 1
         fi
+        FRAC=$(awk -v a="${N_PHASED}" -v b="${N_GT}" 'BEGIN{printf "%.4f", a/b}')
+        echo "${FRAC}" > phased_fraction.txt
+        if awk -v f="${FRAC}" -v m=~{min_phased_fraction} 'BEGIN{exit !(f < m)}'; then
+            echo "error: only ${FRAC} of sampled genotypes are phased, below" >&2
+            echo "       min_phased_fraction ~{min_phased_fraction}. These files feed" >&2
+            echo "       haplotype-resolved analysis; unphased input would be used as" >&2
+            echo "       though it were phased." >&2
+            exit 1
+        fi
 
-        # bgzipped VCF, not BCF: whatshap reads these and VCF is the format it
-        # documents, and .tbi pairs with the ##idx## syntax used downstream.
+        # bgzipped VCF, not BCF: whatshap reads these directly and VCF is the
+        # format it documents, and .tbi pairs with the ##idx## syntax downstream.
         bcftools +split ~{output_tag}.bcf ~{"--samples-file " + sample_batches_tsv} -Oz -o output
 
         for f in output/*.vcf.gz; do
@@ -130,18 +130,17 @@ task SubsetAndSplit {
             mv "$f" "output/${base}.~{output_tag}.vcf.gz"
         done
 
-        # Index every output. Without this a region read downstream fails, and
-        # whatshap --regions needs random access. Parallel because at cohort
-        # scale this is 12,261 index calls.
+        # Index every output: a region read downstream and whatshap --regions
+        # both need random access, and a missing index fails inside whatshap
+        # rather than here. Parallel -- at cohort scale this is 12,261 calls.
         find output -name '*.vcf.gz' -print0 \
             | xargs -0 -P ~{index_jobs} -I@@ bcftools index -t -f @@
 
-        N_OUT=$(find output -name '*.vcf.gz' | wc -l)
-        N_IDX=$(find output -name '*.vcf.gz.tbi' | wc -l)
+        N_OUT=$(find output -name '*.vcf.gz' | wc -l | tr -d ' ')
+        N_IDX=$(find output -name '*.vcf.gz.tbi' | wc -l | tr -d ' ')
         echo "wrote ${N_OUT} per-sample VCFs and ${N_IDX} indexes" >&2
         if [[ "${N_OUT}" -ne "${N_IDX}" ]]; then
-            echo "error: ${N_OUT} VCFs but ${N_IDX} indexes; an unindexed file would" >&2
-            echo "       fail only later, inside whatshap." >&2
+            echo "error: ${N_OUT} VCFs but ${N_IDX} indexes." >&2
             exit 1
         fi
 
