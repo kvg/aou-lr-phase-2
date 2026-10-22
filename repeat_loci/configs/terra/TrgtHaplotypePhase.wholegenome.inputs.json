@@ -20,9 +20,13 @@
   "TrgtHaplotypePhase.gcs_project": "",
   "TrgtHaplotypePhase.phase_trgt_by_haplotag_py": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/phase_trgt_by_haplotag.py",
   "TrgtHaplotypePhase.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase@sha256:4a6d36d095aa7021431ce65bdea84780be5de58e23683869c01d2b58f890ac88",
+  "//cpu": "8 parallel haplotag workers. whatshap is single-threaded and sat at 1.01 of 6 cores for the whole of the first run, so this is the lever. The floor is the largest contig (~8% of reads), not total/N, so past about 12 there is nothing left to win.",
   "TrgtHaplotypePhase.cpu": 8,
-  "TrgtHaplotypePhase.memory_gb": 32,
+  "//memory_gb": "16, not 32. Measured peak was 1.02 GiB; eight concurrent whatshap workers want roughly 8. 16 also keeps the request under GCE's 6.5 GB-per-vCPU cap at 8 vCPU, so cpu=8 is honoured exactly -- 32 GiB with cpu=4 silently billed 6 vCPU on the first run.",
+  "TrgtHaplotypePhase.memory_gb": 16,
+  "//haplotag_jobs": "0 means use cpu. Set it lower only to debug a worker.",
+  "TrgtHaplotypePhase.haplotag_jobs": 0,
   "//disk_gb": "Deliberately ABSENT so the WDL default applies: ceil(2.8 * size(bam,'GB')) + 80, which is 136 GB at 19.79 GiB. Setting it here would re-freeze the guess this replaced.",
-  "//preemptible": "0 for this run. The task is expected to take hours, and a preemption at 2h50m would cost the measurement we are here to take. Revisit for the cohort run, where retrying is cheaper than paying non-preemptible 12,261 times.",
+  "//preemptible": "0 while the runtime is still being measured. Once parallel haplotag brings the task under an hour, preemptible becomes worth revisiting for the cohort run.",
   "TrgtHaplotypePhase.preemptible": 0
 }

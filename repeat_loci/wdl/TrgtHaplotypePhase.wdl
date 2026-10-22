@@ -70,6 +70,9 @@ workflow TrgtHaplotypePhase {
     # BAM and a 3.1 GB reference, so the default is derived from the input
     # rather than guessed. A windowed run reads only its slice and needs none of
     # that headroom.
+    # Parallel haplotag workers. 0 means use `cpu`. The ceiling is the largest
+    # contig's share of the reads, so more than ~12 buys little.
+    Int haplotag_jobs = 0
     Int disk_gb = if region == "" then ceil(2.8 * size(bam, "GB")) + 80 else 100
     Int preemptible = 1
   }
@@ -97,6 +100,7 @@ workflow TrgtHaplotypePhase {
       docker = docker,
       cpu = cpu,
       memory_gb = memory_gb,
+      haplotag_jobs = haplotag_jobs,
       bam_size_gb = size(bam, "GB"),
       disk_gb = disk_gb,
       preemptible = preemptible
@@ -143,6 +147,7 @@ task HaplotagAndGenotype {
     String docker
     Int cpu
     Int memory_gb
+    Int haplotag_jobs = 0
     Float bam_size_gb = 0.0
     Int disk_gb
     Int preemptible
@@ -311,15 +316,74 @@ PY
       sed 's/^/        /' contigs_missing_from_vcf.txt | head -5 >&2
     fi
 
-    whatshap haplotag \
-      --reference "~{reference_fasta}" \
-      --sample "~{sample_id}" \
-      --skip-missing-contigs \
-      ~{true="--ignore-read-groups" false="" ignore_read_groups} \
-      --output-haplotag-list haplotag.tsv \
-      --output tagged.bam \
-      sample.phased.vcf.gz \
-      reads.bam
+    # whatshap haplotag is single-threaded: the first whole-genome run sat at
+    # 1.01 of 6 cores for its entire duration. Genome-wide that extrapolates to
+    # hours, so it is run as one process PER CONTIG under xargs -P.
+    #
+    # Inside the task, deliberately, rather than as a Cromwell scatter. The
+    # binding quota here counts managed instance groups -- one per task call --
+    # not cores, so a 22-way scatter would multiply the scarce resource by 22
+    # while leaving most of each VM's cores idle. This converts cores we are
+    # already paying for into wall-clock and costs no extra MIG.
+    #
+    # The floor is the largest contig, not total/N: chr1 is ~8% of the reads, so
+    # beyond about 12 workers there is nothing left to win.
+    comm -12 bam_contigs.txt vcf_contigs.txt > tag_contigs.txt
+    N_TAG=$(wc -l < tag_contigs.txt)
+    if [[ "${N_TAG}" -eq 0 ]]; then
+      echo "error: no contig is present in both the BAM and the phased VCF." >&2
+      echo "       Nothing could be haplotagged. Check that phased_vcf is the" >&2
+      echo "       callset for this sample and this reference." >&2
+      exit 1
+    fi
+    PAR=~{haplotag_jobs}
+    if [[ "${PAR}" -le 0 ]]; then PAR=~{cpu}; fi
+    echo "haplotagging ${N_TAG} contig(s) with ${PAR} parallel worker(s)" >&2
+
+    mkdir -p tagged
+    export WH_REF="~{reference_fasta}" WH_SAMPLE="~{sample_id}"
+    export WH_IGNORE="~{true='--ignore-read-groups' false='' ignore_read_groups}"
+    # shellcheck disable=SC2016
+    xargs -P "${PAR}" -I@@ -- bash -c '
+      set -euo pipefail
+      c="$1"
+      whatshap haplotag \
+        --reference "${WH_REF}" \
+        --sample "${WH_SAMPLE}" \
+        --regions "${c}" \
+        ${WH_IGNORE} \
+        --output-haplotag-list "tagged/${c}.haplotag.tsv" \
+        --output "tagged/${c}.bam" \
+        sample.phased.vcf.gz reads.bam > "tagged/${c}.log" 2>&1
+    ' _ @@ < tag_contigs.txt
+    echo "haplotag workers finished" >&2
+    cat tagged/*.log >&2
+
+    # One haplotag list: header from the first, rows from all.
+    FIRST=$(head -1 tag_contigs.txt)
+    head -1 "tagged/${FIRST}.haplotag.tsv" > haplotag.tsv
+    for f in tagged/*.haplotag.tsv; do tail -n +2 "$f" >> haplotag.tsv; done
+
+    # Reads on contigs the VCF does not cover are untaggable but must still reach
+    # TRGT, or loci there would silently lose their reads. --regions also drops
+    # unmapped reads, which TRGT does not need.
+    MERGE_IN=(tagged/*.bam)
+    if [[ -s contigs_missing_from_vcf.txt ]]; then
+      # shellcheck disable=SC2046
+      samtools view -b -@ ~{cpu} reads.bam $(tr '\n' ' ' < contigs_missing_from_vcf.txt) \
+        > untagged_contigs.bam
+      MERGE_IN+=(untagged_contigs.bam)
+    fi
+
+    # reads.bam is not needed past this point; drop it before the merge so peak
+    # disk is one BAM-sized set plus the merge target, not two plus the merge.
+    rm -f reads.bam reads.bam.bai
+    if [[ "${#MERGE_IN[@]}" -eq 1 ]]; then
+      mv "${MERGE_IN[0]}" tagged.bam
+    else
+      samtools merge -f -@ ~{cpu} tagged.bam "${MERGE_IN[@]}"
+    fi
+    rm -f tagged/*.bam untagged_contigs.bam
     samtools index tagged.bam
 
     # 4. Repeat definitions whose locus starts inside the window. TRGT would
