@@ -97,6 +97,7 @@ workflow TrgtHaplotypePhase {
       docker = docker,
       cpu = cpu,
       memory_gb = memory_gb,
+      bam_size_gb = size(bam, "GB"),
       disk_gb = disk_gb,
       preemptible = preemptible
   }
@@ -142,6 +143,7 @@ task HaplotagAndGenotype {
     String docker
     Int cpu
     Int memory_gb
+    Float bam_size_gb = 0.0
     Int disk_gb
     Int preemptible
   }
@@ -209,15 +211,14 @@ PY
       # Fail now, not an hour in. Whole-genome mode writes reads.bam and
       # tagged.bam, each about the size of the source BAM, so ENOSPC midway
       # through costs the entire task rather than a few seconds here.
-      BAM_GB=$(python3 -c "
-import subprocess, sys
-try:
-    out = subprocess.check_output(['gsutil','du','-s','~{bam}'], text=True)
-    print(int(out.split()[0]) // (1024**3))
-except Exception:
-    print(0)" 2>/dev/null || echo 0)
+      BAM_GB=$(printf "%.0f" "~{bam_size_gb}")
       FREE_GB=$(df -BG --output=avail . 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)
       echo "bam ${BAM_GB} GiB; free disk ${FREE_GB} GiB" >&2
+      if [[ "${BAM_GB}" -le 0 ]]; then
+        echo "warning: BAM size came back 0, so the disk precheck is skipped." >&2
+        echo "         size() on a localization_optional input can do this; if the" >&2
+        echo "         task later dies on ENOSPC, set disk_gb explicitly." >&2
+      fi
       if [[ "${BAM_GB}" -gt 0 && "${FREE_GB}" -gt 0 ]]; then
         NEED_GB=$(( BAM_GB * 2 + 20 ))
         if [[ "${FREE_GB}" -lt "${NEED_GB}" ]]; then
@@ -268,9 +269,39 @@ except Exception:
     samtools view -c reads.bam > n_reads.txt
 
     # 3. Haplotag against the phased callset.
+    #
+    #    whatshap REFUSES outright when the BAM carries reads on a contig the VCF
+    #    header does not declare -- it is not a warning and the untagged reads are
+    #    not simply skipped. That bites whenever the phased VCF covers fewer
+    #    contigs than the BAM: a single-chromosome callset against a whole-genome
+    #    BAM, or a per-sample split with no variants on some contig.
+    #
+    #    --skip-missing-contigs is whatshap's own bypass and gives the semantics
+    #    we want (those reads stay untagged). But it would also mask handing over
+    #    the wrong VCF entirely, so the mismatch is MEASURED first and written to
+    #    the accounting file. A whole-genome run against a chr20-only callset then
+    #    shows ~98% of reads on absent contigs instead of quietly phasing 2%.
+    bcftools view -h sample.phased.vcf.gz \
+      | awk -F'[=,]' '/^##contig/ {for (i=1;i<=NF;i++) if ($i ~ /ID$/) print $(i+1)}' \
+      | sort -u > vcf_contigs.txt
+    samtools idxstats reads.bam | awk -F'\t' '$1 != "*" && $3 + $4 > 0 {print $1}' \
+      | sort -u > bam_contigs.txt
+    comm -23 bam_contigs.txt vcf_contigs.txt > contigs_missing_from_vcf.txt
+    N_MISSING=$(wc -l < contigs_missing_from_vcf.txt)
+    READS_MISSING=$(samtools idxstats reads.bam \
+      | awk -F'\t' 'NR==FNR {miss[$1]=1; next} $1 != "*" && ($1 in miss) {n += $3 + $4}
+                     END {print n + 0}' contigs_missing_from_vcf.txt -)
+    echo "contigs with reads: $(wc -l < bam_contigs.txt); in VCF header: $(wc -l < vcf_contigs.txt);" \
+         "absent from VCF: ${N_MISSING} carrying ${READS_MISSING} reads" >&2
+    if [[ "${N_MISSING}" -gt 0 ]]; then
+      echo "note: those reads cannot be haplotagged and will be left untagged:" >&2
+      sed 's/^/        /' contigs_missing_from_vcf.txt | head -5 >&2
+    fi
+
     whatshap haplotag \
       --reference "~{reference_fasta}" \
       --sample "~{sample_id}" \
+      --skip-missing-contigs \
       ~{true="--ignore-read-groups" false="" ignore_read_groups} \
       --output-haplotag-list haplotag.tsv \
       --output tagged.bam \
@@ -342,6 +373,10 @@ except Exception:
       echo -e "repeat_definitions_in_window\t$(cat n_catalog.txt)"
       echo -e "haplotag_rows\t$(( $(wc -l < haplotag.tsv) - 1 ))"
       echo -e "spanning_reads\t$(samtools view -c "~{sample_id}.spanning.bam")"
+      echo -e "contigs_with_reads\t$(wc -l < bam_contigs.txt)"
+      echo -e "contigs_in_vcf_header\t$(wc -l < vcf_contigs.txt)"
+      echo -e "contigs_absent_from_vcf\t${N_MISSING}"
+      echo -e "reads_on_absent_contigs\t${READS_MISSING}"
     } > "~{sample_id}.read_accounting.tsv"
 
     # 6. Join. With no allele_tag this writes the tag census and stops, which
