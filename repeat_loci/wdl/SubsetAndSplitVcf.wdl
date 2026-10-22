@@ -62,7 +62,7 @@ task SubsetAndSplit {
         String output_tag
         File? sample_batches_tsv
         Int? wait_for_me    # dummy input to gate scatter until initial split is done
-        Int view_verbosity = 8
+        Int view_verbosity = 3
         Int index_jobs = 8
         Int phase_check_sites = 10000
         Float min_phased_fraction = 0.5
@@ -101,8 +101,14 @@ task SubsetAndSplit {
         # separators would yield files that look valid while silently destroying
         # every orientation downstream. Measured on the intermediate, before
         # 12,000 files are written from it.
-        bcftools query -f '[%GT]\n' ~{output_tag}.bcf \
-            | head -n ~{phase_check_sites} > gt_sample.txt
+        # The subshell disables pipefail for this one pipeline, deliberately.
+        # `head` closes the pipe after N lines, bcftools takes SIGPIPE and exits
+        # 141, and under `set -o pipefail` that fails the whole task -- which is
+        # exactly how the first chr20 submission died. Reading all 3M records
+        # just to sample 10k would be the alternative.
+        ( set +o pipefail
+          bcftools query -f '[%GT]\n' ~{output_tag}.bcf \
+            | head -n ~{phase_check_sites} > gt_sample.txt )
         N_GT=$(wc -l < gt_sample.txt | tr -d ' ')
         N_PHASED=$(grep -c '|' gt_sample.txt || true)
         echo "phase check: ${N_PHASED} of ${N_GT} sampled genotypes carry '|'" >&2
