@@ -36,8 +36,18 @@ workflow SubsetAndSplitVcf {
 
     output {
         Int number_of_sites = SubsetAndSplit.number_of_sites
-        Array[String] split_vcf_paths = select_first([flatten(select_first([SubsetAndSplitBatch.split_vcf_paths])), 
-                                                      SubsetAndSplit.split_vcf_paths])
+        String phased_fraction = SubsetAndSplit.phased_fraction
+
+        # Deliberately a COUNT, not the paths. Terra saves every workflow output
+        # as an entity attribute and caps the count at 20,000; returning one
+        # string per sample per chromosome exceeded that and failed the workflow
+        # after every task had succeeded. The paths are reconstructible anyway --
+        # <gcs_output_dir>/<sample>.<output_tag>.vcf.gz is fixed by construction,
+        # which is what make_trgt_phase_table.py --split-base relies on, so the
+        # list was never load-bearing. The per-task manifests remain as files.
+        Int number_of_split_files = length(select_first([flatten(select_first([SubsetAndSplitBatch.split_vcf_paths])),
+                                                         SubsetAndSplit.split_vcf_paths]))
+        Array[File]? split_vcf_manifests = SubsetAndSplitBatch.split_vcf_paths_file
     }
 }
 
@@ -151,11 +161,21 @@ task SubsetAndSplit {
         fi
 
         gcloud storage cp output/*.vcf.gz output/*.vcf.gz.tbi ~{gcs_output_dir}/
-        gsutil ls ~{gcs_output_dir}/*.vcf.gz > output_vcf_paths.txt
+
+        # List THIS task's own outputs, from the local directory. `gsutil ls` on
+        # the destination returns everything any batch has written so far, so
+        # each of the 25 batch tasks reported a growing share of all 12,261
+        # files -- which is how the workflow came to claim 225,092 paths.
+        ( cd output && ls -1 ./*.vcf.gz ) \
+            | sed "s|^\./|~{gcs_output_dir}/|" > output_vcf_paths.txt
+        wc -l < output_vcf_paths.txt | tr -d ' ' > n_split_files.txt
+        echo "this task contributed $(cat n_split_files.txt) per-sample VCFs" >&2
     >>>
 
     output {
         Array[String] split_vcf_paths = read_lines("output_vcf_paths.txt")
+        Int n_split_files = read_int("n_split_files.txt")
+        File split_vcf_paths_file = "output_vcf_paths.txt"
         Int number_of_sites = read_int("number_of_sites.txt")
         String phased_fraction = read_string("phased_fraction.txt")
     }
