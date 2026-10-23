@@ -108,12 +108,19 @@ def read_samples(path: str) -> list[str]:
 
 
 def batch_rows(samples: list[str], batch_size: int) -> list[tuple[str, str]]:
-    """(batch name, comma-joined samples) in blocks of ``batch_size``."""
-    width = len(str(max((len(samples) - 1) // batch_size, 0)))
+    """(batch name, comma-joined samples) in blocks of ``batch_size``.
+
+    Names are ``batch-<i>`` with NO zero padding, because SubsetAndSplitVcf's
+    scatter reconstructs each path as ``"batch-" + i`` from a plain Int. Padding
+    them to ``batch-00`` broke exactly the first ten: 10..24 happen to agree,
+    0..9 do not, and the workflow failed with FileNotFoundException on precisely
+    those. The lexical-sort tidiness padding buys is worth nothing here -- the
+    workflow indexes by integer and never sorts the names.
+    """
     out = []
     for i in range(0, len(samples), batch_size):
         block = samples[i:i + batch_size]
-        out.append((f"batch-{i // batch_size:0{width}d}", ",".join(block)))
+        out.append((f"batch-{i // batch_size}", ",".join(block)))
     return out
 
 

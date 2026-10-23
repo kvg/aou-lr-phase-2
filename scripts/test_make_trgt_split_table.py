@@ -56,12 +56,16 @@ def test_batches_cover_every_sample_exactly_once():
     assert [len(j.split(",")) for _, j in rows] == [500, 500, 50]
 
 
-def test_batch_names_are_zero_padded_consistently():
-    """batch-0 and batch-10 sorting apart would scramble the scatter's file order."""
-    rows = mtst.batch_rows([f"s{i}" for i in range(2500)], 500)
+def test_batch_names_match_the_workflow_path_construction():
+    """SubsetAndSplitVcf builds each path as "batch-" + i from a plain Int, so the
+    names must NOT be zero-padded. Padding them failed exactly batch-0..batch-9,
+    since 10..24 agree either way."""
+    rows = mtst.batch_rows([f"s{i}" for i in range(12261)], 500)
     names = [n for n, _ in rows]
-    assert names == sorted(names), "lexical order must match numeric order"
-    assert names[0] == "batch-0"
+    assert names[:3] == ["batch-0", "batch-1", "batch-2"]
+    assert names[10] == "batch-10"
+    assert names == [f"batch-{i}" for i in range(len(rows))], \
+        "must equal the workflow's own construction for every index"
 
 
 def test_single_batch_when_cohort_fits():
