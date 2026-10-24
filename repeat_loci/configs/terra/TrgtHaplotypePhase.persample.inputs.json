@@ -1,0 +1,37 @@
+{
+  "TrgtHaplotypePhase.sample_id": "1000234",
+  "//region": "EMPTY = whole genome. This is the mode the cohort run uses.",
+  "TrgtHaplotypePhase.region": "",
+  "TrgtHaplotypePhase.bam": "gs://prod-drc-broad/v9/lrWGS/haplotagged_bams/1000234.bam",
+  "TrgtHaplotypePhase.bam_index": "gs://prod-drc-broad/v9/lrWGS/haplotagged_bams/1000234.bam.bai",
+  "//phased_vcfs": "The chr20 PER-SAMPLE file from the split, as a one-element array. This is the first run on genuinely single-sample input, so the task should report 'already single-sample; skipping the subset' -- the 22.2 min phase, 28% of the previous run, disappearing rather than shrinking. Still chr20 only, so loci elsewhere remain insufficient_reads; swap in all 22 once the split finishes and make_trgt_phase_table.py --split-base has filled the columns.",
+  "TrgtHaplotypePhase.phased_vcfs": [
+    "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/refs/phased_split/chr20/1000234.phased.chr20.vcf.gz"
+  ],
+  "TrgtHaplotypePhase.phased_vcf_indexes": [
+    "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/refs/phased_split/chr20/1000234.phased.chr20.vcf.gz.tbi"
+  ],
+  "//phased_vcf": "Still the chr20 MULTI-SAMPLE callset, because the per-sample split does not exist yet. Consequence: only chr20 reads get haplotagged, so loci on other chromosomes resolve as insufficient_reads. That is expected for this run and is not a failure.",
+  "TrgtHaplotypePhase.reference_fasta": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa",
+  "TrgtHaplotypePhase.reference_fasta_index": "gs://prod-drc-broad/longreads/references/GRCh38_noalt/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa.fai",
+  "TrgtHaplotypePhase.trgt_repeats_bed": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/refs/repeat_loci/trexplorer_v1.0.1.trgt_definitions.bed.gz",
+  "TrgtHaplotypePhase.production_trgt_vcf": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/CCS/terra-d45cc5ca/outputs/GRCh38/TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz",
+  "TrgtHaplotypePhase.production_trgt_vcf_index": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/CCS/terra-d45cc5ca/outputs/GRCh38/TRGT/TR_Explorer_1.01/1000234_trgt.TR_Explorer_1.01.vcf.gz.tbi",
+  "TrgtHaplotypePhase.allele_tag": "AL",
+  "TrgtHaplotypePhase.variant_flank": 20000,
+  "TrgtHaplotypePhase.min_reads": 2,
+  "TrgtHaplotypePhase.min_purity": 0.8,
+  "TrgtHaplotypePhase.ignore_read_groups": false,
+  "TrgtHaplotypePhase.gcs_project": "",
+  "TrgtHaplotypePhase.phase_trgt_by_haplotag_py": "gs://fc-secure-8f7d6a20-04ce-40d7-8c88-aececeac3e09/scripts/phase_trgt_by_haplotag.py",
+  "TrgtHaplotypePhase.docker": "us-central1-docker.pkg.dev/broad-dsp-lrma/aou-lr/aou-trgt-phase@sha256:4a6d36d095aa7021431ce65bdea84780be5de58e23683869c01d2b58f890ac88",
+  "//cpu": "8 parallel haplotag workers. whatshap is single-threaded and sat at 1.01 of 6 cores for the whole of the first run, so this is the lever. The floor is the largest contig (~8% of reads), not total/N, so past about 12 there is nothing left to win.",
+  "TrgtHaplotypePhase.cpu": 8,
+  "//memory_gb": "16, not 32. Measured peak was 1.02 GiB; eight concurrent whatshap workers want roughly 8. 16 also keeps the request under GCE's 6.5 GB-per-vCPU cap at 8 vCPU, so cpu=8 is honoured exactly -- 32 GiB with cpu=4 silently billed 6 vCPU on the first run.",
+  "TrgtHaplotypePhase.memory_gb": 16,
+  "//haplotag_jobs": "0 means use cpu. Set it lower only to debug a worker.",
+  "TrgtHaplotypePhase.haplotag_jobs": 0,
+  "//disk_gb": "Deliberately ABSENT so the WDL default applies: ceil(2.8 * size(bam,'GB')) + 80, which is 136 GB at 19.79 GiB. Setting it here would re-freeze the guess this replaced.",
+  "//preemptible": "0 while the runtime is still being measured. Once parallel haplotag brings the task under an hour, preemptible becomes worth revisiting for the cohort run.",
+  "TrgtHaplotypePhase.preemptible": 0
+}
