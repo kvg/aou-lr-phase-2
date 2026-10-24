@@ -80,8 +80,20 @@ task SubsetAndSplit {
     }
 
     parameter_meta {
+        # NOT localization_optional any more. Streaming through htslib broke on
+        # chr14 with "Libcurl reported error 92 (Stream error in the HTTP/2
+        # framing layer)" after 649,510 of its records -- the GOAWAY/libcurl
+        # flakiness this task's own comment already warns about, which is why it
+        # writes an intermediate rather than piping into +split.
+        #
+        # localization_optional was there to avoid copying a huge joint callset,
+        # but these per-chromosome files are about 1.6-2 GiB (chr20 measured at
+        # 1,696,914,957 bytes), so Cromwell's own localization -- which retries
+        # and verifies -- costs roughly a minute and removes the failure mode
+        # entirely. Restore the attribute if a future input is large enough that
+        # copying it is the problem again.
         vcf: {
-            localization_optional: true
+            description: "Localized, not streamed; see above."
         }
     }
 
@@ -187,7 +199,7 @@ task SubsetAndSplit {
         boot_disk_gb:       10,
         use_ssd:            true,
         preemptible_tries:  5,
-        max_retries:        0,
+        max_retries:        2,
         docker:             "us.gcr.io/broad-dsde-methods/slee/lr-bcftools-patched-gcloud/lr-bcftools-patched-gcloud:1.23"      # see https://github.com/broadinstitute/bcftools-patched
     }
     RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
