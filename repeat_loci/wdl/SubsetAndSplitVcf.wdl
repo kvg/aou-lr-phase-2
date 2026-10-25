@@ -16,12 +16,16 @@ workflow SubsetAndSplitVcf {
         # input-derived formula; chr10 (5,643,811) did not, and all 24 shards
         # were killed three times each inside +split.
         #
-        # Measured, not assumed: 12,261 chr20 per-sample VCFs (plus indexes)
-        # occupy 481,538,692,085 B, i.e. 14.56 B per site per sample. chr20 at
-        # 491 samples/batch therefore wrote ~18 GiB into the 24 GiB disk it got
-        # -- fitting with ~20% to spare, which is why it looked fine -- and
-        # chr10 at 2.09x the sites needed ~38 GiB of the same 24.
-        Int bytes_per_site_per_sample = 15
+        # Measured, not assumed, and validated against all 22 chromosomes: a
+        # chr20 per-sample VCF is 38,861,694 B over 2,696,486 sites = 14.41 B
+        # per site per sample. Every batch shard got the same 24 GiB, because
+        # the batch file is ~0.1 GB and ceil() floors the formula at 20 + 4.
+        # Predicted output then separates the census exactly: chr17 at 23.6 GiB
+        # fits and completed all 12,261, chr16 at 25.6 GiB does not and produced
+        # 261 -- which is batch-24, the only batch under 500 samples.
+        #
+        # 9, not 14.41, because strip_annotations is on by default (see task).
+        Int bytes_per_site_per_sample = 9
         Int samples_per_batch = 500   # must match how sample_batches_tsv was generated
         Int batch_disk_headroom_gb = 20
 
@@ -100,6 +104,16 @@ task SubsetAndSplit {
         File? sample_batches_tsv
         Int? wait_for_me    # dummy input to gate scatter until initial split is done
         Int view_verbosity = 3
+
+        # `bcftools annotate -x` expression, or "" to keep everything. Measured
+        # on a real chr20 per-sample VCF: dropping INFO and every FORMAT field
+        # but GT takes it from 38,861,694 B to 23,187,948 B, a 40.3% cut, and
+        # 14.41 -> 8.60 B per site per sample. That is both the storage and the
+        # stage-2 disk. Nothing downstream reads those fields: `whatshap
+        # haplotag` uses GT, and phase here lives entirely in the `|` separator
+        # -- PS is not declared in this callset's header at all.
+        String strip_annotations = "INFO,^FORMAT/GT"
+
         Int index_jobs = 8
         Int phase_check_sites = 10000
         Float min_phased_fraction = 0.5
@@ -125,6 +139,7 @@ task SubsetAndSplit {
     }
 
     String view_input_arg = if defined(vcf_idx) then "\"~{vcf}##idx##~{vcf_idx}\"" else "~{vcf}"
+    String strip_arg = if strip_annotations == "" then "" else "-x '" + strip_annotations + "'"
 
     command <<<
         set -euxo pipefail
@@ -140,7 +155,8 @@ task SubsetAndSplit {
             --regions-overlap 0 \
             --verbosity ~{view_verbosity} \
             -Ob | \
-        bcftools norm --rm-dup all -Ob -o ~{output_tag}.bcf
+        bcftools norm --rm-dup all -Ob | \
+        bcftools annotate --no-version ~{strip_arg} -Ob -o ~{output_tag}.bcf
 
         # check number of sites to guard against streaming errors
         bcftools view -H ~{output_tag}.bcf | wc -l > number_of_sites.txt
