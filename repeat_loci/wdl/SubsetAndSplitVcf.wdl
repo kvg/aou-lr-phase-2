@@ -15,7 +15,15 @@ workflow SubsetAndSplitVcf {
         # itself barely grows. chr20 (2,696,486 sites) just fit under the
         # input-derived formula; chr10 (5,643,811) did not, and all 24 shards
         # were killed three times each inside +split.
-        Int batch_disk_gb = 375
+        #
+        # Measured, not assumed: 12,261 chr20 per-sample VCFs (plus indexes)
+        # occupy 481,538,692,085 B, i.e. 14.56 B per site per sample. chr20 at
+        # 491 samples/batch therefore wrote ~18 GiB into the 24 GiB disk it got
+        # -- fitting with ~20% to spare, which is why it looked fine -- and
+        # chr10 at 2.09x the sites needed ~38 GiB of the same 24.
+        Int bytes_per_site_per_sample = 15
+        Int samples_per_batch = 500   # must match how sample_batches_tsv was generated
+        Int batch_disk_headroom_gb = 20
 
         # optional hierarchical split
         File? sample_batches_tsv      # see bcftools +split --help; e.g., contains rows: {sample_name_1},{sample_name_2},...\t-\tbatch-0
@@ -32,6 +40,16 @@ workflow SubsetAndSplitVcf {
     
     if (defined(sample_batches_tsv)) {
         Int num_batches = length(read_lines(select_first([sample_batches_tsv])))
+
+        # Stage 1 counts the sites, which is exactly the quantity that predicts
+        # how much the per-sample stage writes, so derive the disk rather than
+        # carrying a hand-set constant that has to be revisited per chromosome.
+        # 1.3x covers the localized batch VCF, the intermediate BCF and
+        # compression variation between chromosomes.
+        Int batch_disk_gb = batch_disk_headroom_gb +
+            ceil(1.3 * bytes_per_site_per_sample * samples_per_batch *
+                 SubsetAndSplit.number_of_sites / 1000000000.0)
+
         scatter (i in range(num_batches)) {
             call SubsetAndSplit as SubsetAndSplitBatch { input:
                 runtime_attr_override = object { disk_gb: batch_disk_gb },
