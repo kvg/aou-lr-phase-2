@@ -9,6 +9,14 @@ workflow SubsetAndSplitVcf {
         String gcs_output_dir
         String output_tag           # per-sample VCFs land at gcs_output_dir/{sample}.{output_tag}.vcf.gz
 
+        # Disk for the per-sample stage, which the input size does not predict:
+        # `bcftools +split` copies the SITE columns into every output, so the
+        # bytes written scale with sites x samples-in-batch while the batch file
+        # itself barely grows. chr20 (2,696,486 sites) just fit under the
+        # input-derived formula; chr10 (5,643,811) did not, and all 24 shards
+        # were killed three times each inside +split.
+        Int batch_disk_gb = 375
+
         # optional hierarchical split
         File? sample_batches_tsv      # see bcftools +split --help; e.g., contains rows: {sample_name_1},{sample_name_2},...\t-\tbatch-0
     }
@@ -26,6 +34,7 @@ workflow SubsetAndSplitVcf {
         Int num_batches = length(read_lines(select_first([sample_batches_tsv])))
         scatter (i in range(num_batches)) {
             call SubsetAndSplit as SubsetAndSplitBatch { input:
+                runtime_attr_override = object { disk_gb: batch_disk_gb },
                 vcf = gcs_output_dir + "/batches/batch-" + i + "." + output_tag + ".vcf.gz",
                 gcs_output_dir = gcs_output_dir,
                 wait_for_me = SubsetAndSplit.number_of_sites,
