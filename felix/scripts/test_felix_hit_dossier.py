@@ -308,6 +308,47 @@ def test_lambda_context_is_unavailable_for_an_unscanned_run():
     assert fhd.lambda_context(None, "r0", "main")["available"] is False
 
 
+def thin_lead(eas_case_carriers=2):
+    """Two strata with ample carriers agreeing, plus an EAS stratum resting on a handful and pointing the other way."""
+    d = {"P_het_admixed_c": 1e-8}
+    for s, beta, se, cc in (("anc1", -0.81, 0.386, eas_case_carriers), ("anc3", 1.49, 0.282, 24),
+                            ("anc4", 1.41, 0.300, 31)):
+        d[f"BETA_c_{s}"], d[f"SE_c_{s}"] = beta, se
+        d[f"N_case_het_{s}"], d[f"N_case_hom_{s}"] = cc, 0
+        d[f"N_ctrl_het_{s}"], d[f"N_ctrl_hom_{s}"] = 200, 5
+    return d
+
+
+def test_ancestry_block_marks_a_stratum_resting_on_too_few_carriers():
+    b = fhd.ancestry_block(thin_lead()).set_index("stratum")
+    assert bool(b.loc["anc1", "thin"]) and not bool(b.loc["anc3", "thin"])
+    assert not bool(b.loc["ancALL", "thin"]), "the pooled stratum is never marked thin"
+
+
+def test_the_carrier_floor_is_the_projects_locus_level_convention():
+    assert fhd.MIN_STRATUM_CARRIERS == fhd.MIN_CASE_CARRIERS == 10
+
+
+def test_effect_consistency_excludes_thin_strata_from_the_heterogeneity_test():
+    ec = fhd.effect_consistency(thin_lead())
+    assert ec["n_thin"] == 1 and ec["n_estimable"] == 3 and ec["n_strata"] == 2
+    assert ec["same_sign"] == 1.0, "the two believable strata agree, so Q must not see the thin one"
+    assert ec["p"] > 0.05
+
+
+def test_a_thin_stratum_would_otherwise_manufacture_heterogeneity():
+    """The same lead with the EAS stratum above the floor: Q then sees it and the strata stop agreeing."""
+    ec = fhd.effect_consistency(thin_lead(eas_case_carriers=40))
+    assert ec["n_thin"] == 0 and ec["n_strata"] == 3
+    assert ec["p"] < 0.01 and ec["same_sign"] < 1.0
+
+
+def test_the_effect_consistency_chip_says_how_many_strata_were_set_aside():
+    locus = dict(pos=1000, p=4.2e-8, ctrl_F=0.01, ctrl_het_frac=0.05, run="r0", lead_arm="main")
+    chip = next(f for f in fhd.checks(locus, thin_lead(), None) if f["check"] == "Effect consistency")
+    assert "1 stratum set aside under 10 case carriers" in chip["detail"]
+
+
 def calib_locus(lam, arm="main", run="r0"):
     return dict(pos=1000, p=4.2e-8, ctrl_F=0.01, ctrl_het_frac=0.05, run=run, lead_arm=arm,
                 **{f"lambda_gc_{arm}": lam})
@@ -375,6 +416,33 @@ def test_allelic_series_does_not_apply_to_a_biallelic_record():
     out = fhd.allelic_series(series([-4], [4.2e-8]), 1000)
     assert out["n_tests"] == 1 and out["n_within_orders"] == 0
     assert math.isnan(out["second_p"])
+
+
+def test_repeat_tract_window_is_the_tract_length():
+    assert fhd.repeat_tract_window(dict(in_tandem_repeat=True, repeat_period=3.0, repeat_copies=20.7)) == pytest.approx(62.1)
+    assert fhd.repeat_tract_window(dict(in_tandem_repeat=False, repeat_period=3.0, repeat_copies=20.7)) == 0.0
+    assert fhd.repeat_tract_window(dict(in_tandem_repeat=True)) == 0.0
+    assert fhd.repeat_tract_window(None) == 0.0
+
+
+def test_allelic_series_groups_a_tract_split_across_adjacent_positions():
+    """MS_723's +24 bp allele sits one base from the +20 bp lead and was missed by exact-POS grouping."""
+    df = pd.concat([series([20], [2.05e-8], pos=134785621), series([24], [0.032], pos=134785622),
+                    series([6], [0.4], pos=134785640)])
+    assert fhd.allelic_series(df, 134785621)["n_tests"] == 1, "exact POS still sees one record"
+    out = fhd.allelic_series(df, 134785621, window=62.1)
+    assert out["n_tests"] == 3 and out["lead_delta_bp"] == 20 and out["second_p"] == 0.032
+
+
+def test_the_tract_window_keeps_only_length_changing_alleles():
+    """A tract window is generous, so SNVs sharing it must not be counted as alternative lengths."""
+    snvs = pd.DataFrame({"POS": [134785625, 134785630], "MarkerID": ["chr1_1_A_G", "chr1_1_C_T"],
+                         fhd.P_COL: [1e-5, 1e-6]})
+    df = pd.concat([series([20], [2.05e-8], pos=134785621), series([24], [0.032], pos=134785622),
+                    series([28], [0.21], pos=134785635), snvs])
+    out = fhd.allelic_series(df, 134785621, window=62.1)
+    assert out["n_tests"] == 3, "the three lengths count, the two SNVs do not"
+    assert out["second_p"] == 0.032, "the SNV at p 1e-6 must not become the runner-up allele"
 
 
 def test_allelic_series_ignores_rows_at_other_positions():

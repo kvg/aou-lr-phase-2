@@ -45,6 +45,11 @@ import pandas as pd
 
 LOCUS_WINDOW = 500_000  # retained hits of one phenotype closer than this are one locus (fig3_real_data.LOCUS_WINDOW)
 MIN_CASE_CARRIERS = 10  # a hit with fewer case carriers is not reviewed (fig3_real_data.MIN_CASE_CARRIERS)
+MIN_STRATUM_CARRIERS = 10  # a PER-ANCESTRY beta resting on fewer case carriers than this is not shown as an estimate.
+# Sparse-data bias pushes |beta| away from zero as the carrier count falls, measured over the 144 estimable strata of
+# the 49 structural loci: median |beta| 0.70 and max 1.49 at 20+ case carriers, against median 1.79 and max 6.15 at
+# 2-4. The floor matches MIN_CASE_CARRIERS, which is the project's locus-level convention. It is a floor, not a
+# guarantee -- the 10-19 band still holds one |beta| of 5.09 -- so the carrier count is printed beside every stratum.
 SITE_WINDOW = 1_000  # a repeat-arm and a main-arm hit this close are the same site
 REGION_HALF = 250_000  # the regional plot spans the lead +/- this
 ARMS = ("main", "ru", "ru_biallelic")
@@ -371,7 +376,12 @@ def ancestry_block(lead: pd.Series | dict, order: tuple[str, ...] = FLARE_ORDER)
             case_carriers=_nansum(n_case_het, n_case_hom), ctrl_carriers=_nansum(n_ctrl_het, n_ctrl_hom),
             n_case_het=n_case_het, n_case_hom=n_case_hom, n_ctrl_het=n_ctrl_het, n_ctrl_hom=n_ctrl_hom,
         ))
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    # 'thin' marks a stratum whose effect estimate rests on too few case carriers to believe. The case cell is the
+    # limiting one in 99.3% of the 144 estimable strata across the 49 structural loci (controls outnumber cases about
+    # 9:1), so the rule keys on case carriers alone.
+    out["thin"] = (out.case_carriers < MIN_STRATUM_CARRIERS) & (out.stratum != "ancALL")
+    return out
 
 
 def _f(v) -> float:
@@ -800,9 +810,16 @@ def effect_consistency(lead: pd.Series | dict) -> dict:
     test rather than a heterogeneity test.
     """
     blk = ancestry_block(lead)
-    use = blk[(blk.stratum != "ancALL") & blk.beta.notna() & blk.se.notna() & (blk.se > 0)]
+    estimable = blk[(blk.stratum != "ancALL") & blk.beta.notna() & blk.se.notna() & (blk.se > 0)]
+    # Thin strata are excluded rather than down-weighted: inverse-variance weighting already down-weights them, but
+    # sparse-data bias inflates the POINT estimate too, so a thin stratum contributes a spuriously large (b - b_fe)
+    # and manufactures heterogeneity. MS_723 chr3:134,785,621 is the case in point -- its EAS beta of -0.81 rests on
+    # 2 case haplotypes and pulls the forest the opposite way from every other stratum.
+    use = estimable[~estimable.thin]
+    n_thin = int(estimable.thin.sum())
     if use.empty:
-        return dict(beta_fe=math.nan, se_fe=math.nan, Q=math.nan, df=0, p=math.nan, same_sign=math.nan, n_strata=0)
+        return dict(beta_fe=math.nan, se_fe=math.nan, Q=math.nan, df=0, p=math.nan, same_sign=math.nan, n_strata=0,
+                    n_thin=n_thin, n_estimable=len(estimable))
     w = 1.0 / use.se.to_numpy() ** 2
     b = use.beta.to_numpy()
     beta_fe = float((w * b).sum() / w.sum())
@@ -810,7 +827,8 @@ def effect_consistency(lead: pd.Series | dict) -> dict:
     df = len(use) - 1
     return dict(beta_fe=beta_fe, se_fe=float(math.sqrt(1.0 / w.sum())), Q=q, df=df,
                 p=(chi2_sf(q, df) if df >= 1 else math.nan),
-                same_sign=float((np.sign(b) == np.sign(beta_fe)).mean()), n_strata=len(use))
+                same_sign=float((np.sign(b) == np.sign(beta_fe)).mean()), n_strata=len(use),
+                n_thin=n_thin, n_estimable=len(estimable))
 
 
 def regional_support(region: pd.DataFrame | None, pos: int, lead_p: float, p_col: str = P_COL,
@@ -848,8 +866,28 @@ def regional_support(region: pd.DataFrame | None, pos: int, lead_p: float, p_col
     return out
 
 
+def repeat_tract_window(context: pd.Series | dict | None) -> float:
+    """Half-width in bp over which split tests are treated as one repeat tract: the tract's own length.
+
+    locus_context exports the repeat's PERIOD and COPIES but not its interval, so the extent has to be approximated.
+    Period x copies is the tract length, and the lead sits somewhere inside it, so +/- that length is a safe bound on
+    where the same tract can reach. Exporting the simpleRepeat start/end in felix_09 section 6 would make this exact
+    and is a one-line change on the next VM run; until then this is deliberately generous and paired with the
+    length-changing-allele filter in ``allelic_series``, which is what keeps the generosity from pulling in SNVs.
+    """
+    if context is None:
+        return 0.0
+    if not _bool(context.get("in_tandem_repeat")):
+        return 0.0
+    period, copies = _f(context.get("repeat_period")), _f(context.get("repeat_copies"))
+    if math.isnan(period) or math.isnan(copies):
+        return 0.0
+    return float(period * copies)
+
+
 def allelic_series(region: pd.DataFrame | None, pos: int, lead_marker: str | None = None, p_col: str = P_COL,
-                   min_tests: int = ALLELIC_MIN_TESTS, orders: float = ALLELIC_ORDERS) -> dict:
+                   min_tests: int = ALLELIC_MIN_TESTS, orders: float = ALLELIC_ORDERS,
+                   window: float = 0.0) -> dict:
     """Does the effect grade across the allele series of a merged multiallelic record, or sit on one allele?
 
     felixla splits a merged record into one REF/ALT test per ALT, and every split test keeps the record's POS, so the
@@ -871,7 +909,18 @@ def allelic_series(region: pd.DataFrame | None, pos: int, lead_marker: str | Non
         return out
     r = region.copy()
     r["_p"] = pd.to_numeric(r[p_col], errors="coerce")
-    site = r[(r.POS == pos) & r["_p"].notna() & (r["_p"] > 0)]
+    r = r[r["_p"].notna() & (r["_p"] > 0)]
+    if window and window > 0:
+        # A caller splits one tandem-repeat tract into records at adjacent coordinates, so grouping on exact POS
+        # under-counts: at MS_723 chr3:134,785,621 the +24 bp allele is recorded one base along at 134,785,622 and
+        # was missed entirely. Within a tract only LENGTH-CHANGING alleles belong to the series -- the SNVs that
+        # share the window are not alternative lengths of anything -- and that filter is what keeps a 1.1 kb tract
+        # from sweeping in dozens of unrelated markers.
+        site = r[(r.POS - pos).abs() <= window]
+        keep = [(lambda d: d is not None and d != 0)(length_change(m)) for m in site["MarkerID"]]
+        site = site[pd.Series(keep, index=site.index)]
+    else:
+        site = r[r.POS == pos]
     if len(site) < min_tests:
         out["available"] = len(site) > 0
         out["n_tests"] = len(site)
@@ -956,14 +1005,17 @@ def checks(locus: pd.Series | dict, lead: pd.Series | dict | None, context: pd.S
             add("Joint-test coherence", "pass", f"implied / observed chi2 = {co['ratio']:.2f}")
 
         ec = effect_consistency(lead)
+        thin = (f"; {ec.get('n_thin', 0)} stratum/strata set aside under {MIN_STRATUM_CARRIERS} case carriers"
+                .replace("stratum/strata", "stratum" if ec.get("n_thin") == 1 else "strata")) if ec.get("n_thin") else ""
         if ec["n_strata"] < 2:
-            add("Effect consistency", "n/a", "fewer than two strata with an effect estimate")
+            add("Effect consistency", "n/a",
+                f"fewer than two strata with a believable effect estimate{thin}")
         elif not math.isnan(ec["p"]) and ec["p"] < HET_Q_P:
             add("Effect consistency", "warn",
-                f"Cochran Q {ec['Q']:.1f} on {ec['df']} df (p {ec['p']:.1e}): the strata do not share one effect")
+                f"Cochran Q {ec['Q']:.1f} on {ec['df']} df (p {ec['p']:.1e}): the strata do not share one effect{thin}")
         else:
             add("Effect consistency", "pass",
-                f"Q p {ec['p']:.2f}, {ec['same_sign']:.0%} of strata agree in sign")
+                f"Q p {ec['p']:.2f}, {ec['same_sign']:.0%} of strata agree in sign{thin}")
 
         sc = score_p_coherence(lead)
         if sc["n_plain"] == 0:
@@ -998,7 +1050,8 @@ def checks(locus: pd.Series | dict, lead: pd.Series | dict | None, context: pd.S
         add("Regional support", "pass", "lone peak, as expected for a rare allele")
 
     al = allelic_series(region, int(locus["pos"]),
-                        lead_marker=(lead.get("MarkerID") if lead is not None else locus.get("lead_marker")))
+                        lead_marker=(lead.get("MarkerID") if lead is not None else locus.get("lead_marker")),
+                        window=repeat_tract_window(context))
     if not al["available"]:
         add("Allelic series", "n/a", "no region extract for this locus yet")
     elif al["n_tests"] < ALLELIC_MIN_TESTS:

@@ -125,7 +125,22 @@ flip there. The two directions also do not carry the same weight for this docume
 positives, whereas deflation makes the test conservative, so a hit that reached significance *despite* a deflated
 null is not undermined by it. Worth revisiting as per-arm bounds, or as inflation-only, before the final sweep.
 
-### Allelic series: no locus in the set has a graded effect
+### Allelic series: grouped over the repeat tract, 15 loci do grade and 40 do not
+
+**Correction to the first version of this check.** It originally grouped split tests on exact POS and reported 36 warn
+/ 191 n/a / **zero pass** over the 227 loci — "not one locus grades". That was an artefact of the grouping. A caller
+splits one tandem-repeat tract into records at adjacent coordinates, so exact-POS grouping under-counts: at MS_723
+chr3:134,785,621 the +25 bp allele is recorded one base along at 134,785,622 and the check returned n/a instead of
+warn. `allelic_series(window=repeat_tract_window(context))` now groups over the tract and the tally is **40 warn / 172
+n/a / 15 pass** (on the 49 structural loci: 24 / 10 / 15). Fifteen loci really do show an effect that grades across
+the length series; the earlier claim that none did should not be quoted.
+
+`repeat_tract_window` returns period x copies from `felix_dossier_context.tsv`. That is the tract LENGTH, not its
+interval, which `locus_context` does not export, so the window is deliberately generous (median 64 bp, p90 619, max
+1,464). What keeps the generosity safe is the companion filter: inside a tract only length-changing alleles count,
+since the SNVs sharing the window are not alternative lengths of anything. With both, the series size is median 6,
+p90 17, max 54, against median 2 under exact-POS grouping. **Exporting the simpleRepeat start/end in felix_09
+section 6 would make this exact and is a one-line change on the next VM run.**
 
 `regional_support` asks whether the peak has LD partners, and at a short tandem repeat that question is unanswerable:
 recurrent mutation erodes LD with the flanking SNPs, so an empty 100 kb window is expected whatever the truth. The
@@ -133,10 +148,10 @@ within-site counterpart survives that objection. felixla splits a merged multial
 ALT, all sharing the record's POS, so the regional extract already holds the whole allele series; if repeat length
 drives risk, the lead's own length neighbours should not be flat.
 
-**36 of the 227 leads sit on a record carrying three or more split tests, and in every one of them the signal is
-confined to a single allele — not one locus grades.** The warned set is also concentrated at the margin (median
-p 1.8e-8 against 2.5e-8 for the rest). Multiplying each lead's p by the number of tests at its own site — the
-multiplicity the headline p does not carry — leaves **12 of the 36 below 5e-8** (median 5 tests per site, maximum 17).
+**40 of the 227 leads carry three or more alleles in their series with the signal confined to a single one**, and 15
+grade across the series. The warned set sits nearer the significance margin than the rest. The within-site
+multiplicity remains the point the headline p does not carry: a site offering k length contrasts has had k chances,
+and that correction is worth applying to the warned set before treating any of them as findings.
 
 Worked example, GI_542.11 (cirrhosis of liver) chr1:26,664,446, dossier page 3: a TG dinucleotide repeat whose record
 merges 29 alleles, 13 of them tested. The lead contrast is `AATGTGTGTGTGTGTGTGTGTGTGTGTGT` → `AATGTGTGTGTGTGTGTGTGTGTGT`
