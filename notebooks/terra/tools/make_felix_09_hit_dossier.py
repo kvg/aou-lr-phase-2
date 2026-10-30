@@ -470,7 +470,7 @@ if len(cols) > 2:
     display(callrate[cols].head(12))
 """)
 
-md("## 8 · Export")
+md("## 9 · Export")
 
 code("""
 loci.to_csv(fhd.LOCI_FILE, sep="\\t", index=False)
@@ -501,7 +501,7 @@ for c in [c for c in review.columns if c not in ("locus_id", "phenotype", "p", "
 display(review[review.verdict.isin(["fail", "warn"])].head(20))
 """)
 
-md("## 9 · Bundle for download")
+md("## 10 · Bundle for download")
 
 code("""
 !rm -f felix_dossier.tar.gz felix_dossier.tar

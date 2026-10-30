@@ -66,6 +66,10 @@ LEAD_SCALAR_COLS = ("CHR", "POS", "MarkerID", "Allele1", "Allele2",
 LOCI_FILE = "felix_dossier_loci.tsv"
 LEADS_FILE = "felix_dossier_leads.tsv"
 REGION_FMT = "felix_dossier_region.{locus_id}.{arm}.tsv.gz"
+CALIB_FILE = "felix_dossier_calibration.tsv"  # run x arm lambda_gc for the WHOLE sweep, not just the dossier runs:
+# the chip reports this run against the others, so the comparison set has to be every run that was scanned.
+LAMBDA_MIN = 0.90  # genomic-control lambda below this is deflated, above LAMBDA_MAX inflated: either way the
+LAMBDA_MAX = 1.20  # phenotype's whole scan is suspect and no single locus from it can be read at face value.
 
 
 def region_path(directory, locus_id: str, arm: str) -> Path:
@@ -195,6 +199,92 @@ def split_alleles(marker: str | None) -> tuple[str, str] | None:
     if len(f) == 3 and _ALLELE.match(f[1]) and _ALLELE.match(f[2]):
         return f[1], f[2]
     return None
+
+
+SV_MIN = 50  # a length change of at least this many bp makes the record an SV (fig3_real_data.SV_MIN, aggregate_repeat_loci --split-bp)
+STRUCTURAL_CLASSES = ("SV", "repeat")  # the allele-based half of the structural rule; the other half is the repeat context
+
+
+def variant_class(marker: str | None, arm: str = "main") -> str | None:
+    """'SV', 'indel' or 'SNV' for a main-arm marker, 'repeat' for the repeat arms, None when the alleles cannot be read.
+
+    Mirrors fig3_real_data.variant_class, which the dossier cannot import: this module runs on Terra with only
+    felix/scripts bootstrapped. test_the_variant_classes_match_fig3 pins the two together.
+    """
+    if arm in ("ru", "ru_biallelic"):
+        return "repeat"
+    al = split_alleles(marker)
+    if not al:
+        return None
+    ref, alt = al
+    if ref.startswith("<") or alt.startswith("<"):
+        return "SV"
+    dlen = abs(len(alt) - len(ref))
+    if dlen >= SV_MIN or (dlen == 0 and len(ref) >= SV_MIN):
+        return "SV"
+    return "indel" if dlen >= 1 else "SNV"
+
+
+def length_change(marker: str | None, arm: str = "main") -> int | None:
+    """Signed len(ALT) - len(REF) of a main-arm marker; None for the repeat arms and for symbolic or unreadable alleles."""
+    if arm in ("ru", "ru_biallelic"):
+        return None
+    al = split_alleles(marker)
+    if not al or al[0].startswith("<") or al[1].startswith("<"):
+        return None
+    return len(al[1]) - len(al[0])
+
+
+def is_structural(loci: pd.DataFrame, context: pd.DataFrame | None = None) -> pd.Series:
+    """Which loci are the long-read-discoverable class: an SV or repeat-arm lead, or any lead inside a tandem repeat.
+
+    The allele string alone undercounts badly. On the 227-locus dossier only 8 leads are an SV or a repeat-arm hit,
+    yet 43 sit inside a UCSC simpleRepeat interval -- a 4 bp TG contraction at a dinucleotide repeat is a repeat-length
+    change by mechanism while its alleles read as an ordinary indel (GI_542.11 chr1:26,664,446 is exactly that). The
+    repeat context is therefore part of the rule, not a refinement of it.
+
+    ``context`` is the felix_dossier_context.tsv frame; without it only the allele-based half can be applied, so pass
+    it whenever it exists or the filter will silently keep too little.
+    """
+    cls = pd.Series([variant_class(m, a) for m, a in zip(loci["lead_marker"], loci["lead_arm"])], index=loci.index)
+    keep = cls.isin(STRUCTURAL_CLASSES)
+    if context is not None and len(context) and "in_tandem_repeat" in context.columns:
+        tr = context.set_index("locus_id")["in_tandem_repeat"] if "locus_id" in context.columns else context["in_tandem_repeat"]
+        keep = keep | loci["locus_id"].map(lambda i: bool(tr.get(i, False))).astype(bool)
+    return keep
+
+
+def _ordinal(n: float) -> str:
+    """'1st', '2nd', '3rd', '4th' ... '11th', '12th', '13th' -- the teens take 'th' whatever their last digit."""
+    i = int(round(n))
+    suffix = "th" if 11 <= i % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(i % 10, "th")
+    return f"{i}{suffix}"
+
+
+def lambda_context(calib: pd.DataFrame | None, run: str, arm: str = "main") -> dict:
+    """This run's genomic-control lambda for one arm, and where it sits among every run of the sweep.
+
+    A lambda is not interpretable on its own: it tracks case count, so a 99-case phenotype and a 5,000-case phenotype
+    have different expected lambdas under the same null. ``pct`` is the percentile of this run's lambda among the
+    other runs of the same arm, which is the comparison the page actually needs, and ``n_runs`` says how many that is.
+    """
+    out = dict(available=False, lam=math.nan, pct=math.nan, n_runs=0, median=math.nan,
+               n_variants=math.nan, n_gw_sig=math.nan, n_cases=math.nan)
+    if calib is None or len(calib) == 0 or "lambda_gc" not in calib.columns:
+        return out
+    same = calib[(calib["arm"] == arm)].copy()
+    same["lambda_gc"] = pd.to_numeric(same["lambda_gc"], errors="coerce")
+    same = same[same["lambda_gc"].notna()]
+    mine = same[same["run"] == run]
+    if same.empty or mine.empty:
+        return out
+    lam = float(mine["lambda_gc"].iloc[0])
+    out.update(available=True, lam=lam, n_runs=len(same), median=float(same["lambda_gc"].median()),
+               pct=float((same["lambda_gc"] <= lam).mean() * 100.0),
+               n_variants=_f(mine["n_variants"].iloc[0]) if "n_variants" in mine else math.nan,
+               n_gw_sig=_f(mine["n_gw_sig"].iloc[0]) if "n_gw_sig" in mine else math.nan,
+               n_cases=_f(mine["n_cases"].iloc[0]) if "n_cases" in mine else math.nan)
+    return out
 
 
 def lead_sites(loci: pd.DataFrame) -> pd.DataFrame:
@@ -805,7 +895,8 @@ def allelic_series(region: pd.DataFrame | None, pos: int, lead_marker: str | Non
 
 
 def checks(locus: pd.Series | dict, lead: pd.Series | dict | None, context: pd.Series | dict | None,
-           region: pd.DataFrame | None = None, callrate: pd.Series | dict | None = None) -> list[dict]:
+           region: pd.DataFrame | None = None, callrate: pd.Series | dict | None = None,
+           repeat_is_context: bool = False, calib: pd.DataFrame | None = None) -> list[dict]:
     """The flag chips for one locus: name, status ('pass', 'warn', 'fail' or 'n/a') and a one-line reading.
 
     'fail' is reserved for a record that cannot be a variant as reported (fixed heterozygosity, a joint p its own
@@ -816,6 +907,25 @@ def checks(locus: pd.Series | dict, lead: pd.Series | dict | None, context: pd.S
 
     def add(name, status, detail):
         out.append(dict(check=name, status=status, detail=detail))
+
+    # First, because it is about the scan rather than the variant: if the phenotype's own null is miscalibrated then
+    # no p-value it produced can be read at face value, however clean the locus looks. The lambda is the lead arm's,
+    # not the main arm's -- the repeat arms test ~1.6M markers against ~25M and their lambdas are not interchangeable.
+    arm = str(locus.get("lead_arm", "main"))
+    lam = _f(locus.get(f"lambda_gc_{arm}"))
+    lc = lambda_context(calib, str(locus.get("run", "")), arm)
+    where = f" ({_ordinal(lc['pct'])} percentile of {lc['n_runs']} {arm}-arm runs)" if lc["available"] else ""
+    if math.isnan(lam):
+        add("Phenotype calibration", "n/a", f"no lambda_gc_{arm} for this run")
+    elif lam < LAMBDA_MIN:
+        add("Phenotype calibration", "warn",
+            f"lambda {lam:.3f} is deflated below {LAMBDA_MIN:.2f}{where}: the test is conservative, so the p is not "
+            f"calibrated either")
+    elif lam > LAMBDA_MAX:
+        add("Phenotype calibration", "warn",
+            f"lambda {lam:.3f} is inflated above {LAMBDA_MAX:.2f}{where}: the whole scan is suspect, not this locus")
+    else:
+        add("Phenotype calibration", "pass", f"lambda {lam:.3f}{where}")
 
     ctrl_f = _f(locus.get("ctrl_F"))
     het_frac = _f(locus.get("ctrl_het_frac"))
@@ -908,16 +1018,22 @@ def checks(locus: pd.Series | dict, lead: pd.Series | dict | None, context: pd.S
     if context is None or str(context.get("cytoband", "")) == "":
         add("Genomic context", "n/a", "context not annotated")
     else:
-        bits = []
+        flagging, noted = [], []
         if context.get("pericentromeric"):
-            bits.append(f"{context.get('stain')} band")
+            flagging.append(f"{context.get('stain')} band")
         if context.get("in_segdup"):
-            bits.append("inside a segmental duplication")
+            flagging.append("inside a segmental duplication")
         elif _f(context.get("segdup_frac")) > 0:
-            bits.append(f"{_f(context.get('segdup_frac')):.0%} of the flank duplicated")
+            flagging.append(f"{_f(context.get('segdup_frac')):.0%} of the flank duplicated")
         if context.get("in_tandem_repeat"):
-            bits.append(f"in a {context.get('repeat_period')} bp tandem repeat")
-        add("Genomic context", "warn" if bits else "pass",
+            # In a document restricted to SVs and repeats the tandem repeat is the INCLUSION CRITERION, so warning on
+            # it says nothing the reviewer did not choose -- it fired on 44 of the 49 structural loci. The period is
+            # still worth printing, so it moves to the detail text and stops driving the status.
+            period = _f(context.get("repeat_period"))
+            (noted if repeat_is_context else flagging).append(
+                "in a tandem repeat" if math.isnan(period) else f"in a {period:.0f} bp tandem repeat")
+        bits = flagging + noted
+        add("Genomic context", "warn" if flagging else "pass",
             "; ".join(bits) if bits else f"unique sequence in {context.get('cytoband')}")
 
     return out

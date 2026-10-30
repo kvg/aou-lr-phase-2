@@ -238,6 +238,119 @@ def test_regional_support_is_unavailable_without_an_extract():
     assert fhd.regional_support(pd.DataFrame(), 1000, 1e-9)["available"] is False
 
 
+def test_variant_class_reads_the_allele_pair():
+    assert fhd.variant_class("chr1_100_A_G") == "SNV"
+    assert fhd.variant_class("chr1_100_AT_A") == "indel"
+    assert fhd.variant_class("chr1_100_A_" + "T" * 60) == "SV"  # 59 bp insertion
+    assert fhd.variant_class("chr1_100_A_<DUP>") == "SV"
+    assert fhd.variant_class("9-8991058-8991069-A", arm="ru") == "repeat"
+    assert fhd.variant_class("not a marker") is None
+
+
+def test_length_change_is_signed_and_absent_for_the_repeat_arms():
+    assert fhd.length_change("chr1_100_AATG_A") == -3
+    assert fhd.length_change("chr1_100_A_AATG") == 3
+    assert fhd.length_change("9-8991058-8991069-A", arm="ru") is None
+    assert fhd.length_change("chr1_100_A_<DUP>") is None
+
+
+def test_the_variant_classes_match_fig3():
+    """The dossier cannot import fig3_real_data on Terra, so the duplicate implementation is pinned here."""
+    R = pytest.importorskip("manuscript_figures.fig3_real_data")
+    markers = ["chr1_100_A_G", "chr1_100_AT_A", "chr1_100_A_" + "T" * 60, "chr1_100_A_<DUP>",
+               "chr1_26664446_AATGTGTGTGTGTGTGTGTGTGTGTGTGT_AATGTGTGTGTGTGTGTGTGTGTGT", "rubbish"]
+    assert fhd.SV_MIN == R.SV_MIN
+    for m in markers:
+        assert fhd.variant_class(m) == R.variant_class(m), m
+        assert fhd.length_change(m) == R.length_change(m), m
+    assert fhd.variant_class("9-8991058-8991069-A", "ru") == R.variant_class("9-8991058-8991069-A", "ru")
+
+
+def structural_frame():
+    return pd.DataFrame({
+        "locus_id": ["snv", "snv_in_tr", "indel", "indel_in_tr", "sv", "ru"],
+        "lead_marker": ["chr1_100_A_G", "chr1_100_A_G", "chr1_100_AT_A", "chr1_100_AATG_A",
+                        "chr1_100_A_" + "T" * 60, "9-8991058-8991069-A"],
+        "lead_arm": ["main", "main", "main", "main", "main", "ru"]})
+
+
+def test_is_structural_keeps_svs_and_repeat_arm_leads_without_context():
+    keep = fhd.is_structural(structural_frame())
+    assert list(structural_frame().locus_id[keep]) == ["sv", "ru"]
+
+
+def test_is_structural_adds_any_lead_inside_a_tandem_repeat():
+    ctx = pd.DataFrame({"locus_id": ["snv", "snv_in_tr", "indel", "indel_in_tr", "sv", "ru"],
+                        "in_tandem_repeat": [False, True, False, True, False, False]})
+    keep = fhd.is_structural(structural_frame(), ctx)
+    assert list(structural_frame().locus_id[keep]) == ["snv_in_tr", "indel_in_tr", "sv", "ru"]
+
+
+def calib_frame():
+    return pd.DataFrame({"run": [f"r{i}" for i in range(5)] + ["r0"],
+                         "arm": ["main"] * 5 + ["ru"],
+                         "lambda_gc": [0.95, 1.00, 1.05, 1.10, 1.20, 0.80],
+                         "n_variants": [10] * 6, "n_gw_sig": [1] * 6, "n_cases": [99] * 6})
+
+
+def test_lambda_context_places_the_run_among_the_sweep():
+    out = fhd.lambda_context(calib_frame(), "r2", "main")
+    assert out["available"] and out["lam"] == 1.05 and out["n_runs"] == 5
+    assert out["pct"] == pytest.approx(60.0) and out["median"] == 1.05
+
+
+def test_lambda_context_is_per_arm():
+    assert fhd.lambda_context(calib_frame(), "r0", "ru")["lam"] == 0.80
+
+
+def test_lambda_context_is_unavailable_for_an_unscanned_run():
+    assert fhd.lambda_context(calib_frame(), "nope", "main")["available"] is False
+    assert fhd.lambda_context(None, "r0", "main")["available"] is False
+
+
+def calib_locus(lam, arm="main", run="r0"):
+    return dict(pos=1000, p=4.2e-8, ctrl_F=0.01, ctrl_het_frac=0.05, run=run, lead_arm=arm,
+                **{f"lambda_gc_{arm}": lam})
+
+
+def calibration_chip(lam, arm="main", run="r0", calib=None):
+    flags = fhd.checks(calib_locus(lam, arm, run), None, None, calib=calib)
+    assert flags[0]["check"] == "Phenotype calibration", "calibration must be read before the per-variant checks"
+    return flags[0]
+
+
+def test_the_calibration_chip_passes_a_well_calibrated_phenotype():
+    assert calibration_chip(1.006)["status"] == "pass"
+    assert calibration_chip(fhd.LAMBDA_MIN)["status"] == "pass"
+    assert calibration_chip(fhd.LAMBDA_MAX)["status"] == "pass"
+
+
+def test_the_calibration_chip_warns_on_inflation_and_deflation():
+    hot = calibration_chip(1.35)
+    assert hot["status"] == "warn" and "inflated" in hot["detail"]
+    cold = calibration_chip(0.72)
+    assert cold["status"] == "warn" and "deflated" in cold["detail"]
+
+
+def test_the_calibration_chip_reads_the_lead_arms_lambda():
+    """The repeat arms test ~1.6M markers against the main arm's ~25M; their lambdas are not interchangeable."""
+    locus = dict(pos=1000, p=4.2e-8, ctrl_F=0.01, ctrl_het_frac=0.05, run="r0", lead_arm="ru",
+                 lambda_gc_main=1.05, lambda_gc_ru=1.44)
+    chip = fhd.checks(locus, None, None)[0]
+    assert chip["status"] == "warn" and "1.440" in chip["detail"]
+
+
+def test_the_calibration_chip_adds_the_sweep_percentile_when_the_table_is_there():
+    assert "percentile" not in calibration_chip(1.00, run="r1")["detail"]
+    assert "percentile" in calibration_chip(1.00, run="r1", calib=calib_frame())["detail"]
+
+
+def test_the_calibration_chip_is_not_applicable_without_a_lambda():
+    chip = fhd.checks(dict(pos=1000, p=4.2e-8, ctrl_F=0.01, ctrl_het_frac=0.05, run="r0", lead_arm="main"),
+                      None, None)[0]
+    assert chip["status"] == "n/a"
+
+
 def series(deltas, ps, pos=1000):
     """A merged repeat record split into one test per ALT: every split test keeps the record's POS."""
     ref = "A" + "TG" * 10
@@ -649,3 +762,8 @@ def test_the_notebook_bootstraps_every_module_it_imports():
         assert f"{mod}.py" in setup, f"{mod} is imported but not copied by the bootstrap"
         assert f'"{mod}"' in setup, f"{mod} is imported but not in the REQUIRED check"
     assert imported, "no local module imports found: the pattern needs updating"
+
+
+def test_ordinals_handle_the_teens():
+    assert [fhd._ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 100)] == \
+        ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "100th"]

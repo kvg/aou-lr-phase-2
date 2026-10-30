@@ -76,6 +76,55 @@ Verdicts: **138 incomplete, 85 warn, 4 fail**, identical between Terra's dry run
 | Allelic series | — | **36** | — | 191 |
 | Genomic context | 167 | 60 | — | — |
 
+### The document is now restricted to SVs and repeat expansions (49 of 227 loci)
+
+`render(structural_only=True)`, the default, keeps a locus when its lead is an SV (>= 50 bp) or a repeat-arm hit, **or
+when the lead falls inside a UCSC simpleRepeat interval**. The allele string alone is far too narrow: only 8 of the
+227 leads are an SV or a repeat-arm hit, while 43 sit in a tandem repeat. A 4 bp TG contraction at a dinucleotide
+repeat is a repeat-length change by mechanism even though its alleles read as an ordinary indel, so the repeat context
+is part of the rule rather than a refinement of it. The kept set is 49 loci over 46 phenotypes: 2 SV, 6 repeat-arm,
+26 indel and 15 SNV leads, the last two classes qualifying through the repeat context.
+
+One consequence had to be handled: **"in a tandem repeat" is now the inclusion criterion, so warning on it says nothing
+the reviewer did not choose** -- it fired on 44 of the 49. `checks(repeat_is_context=True)` moves the repeat period to
+the detail text and leaves only the pericentromeric band and segmental-duplication conditions driving that status.
+
+| check | pass | warn | fail | n/a |
+|---|---|---|---|---|
+| Phenotype calibration | 48 | 1 | — | — |
+| Hardy-Weinberg | 45 | 3 | — | 1 |
+| Joint-test coherence | 49 | — | — | — |
+| Effect consistency | 20 | 8 | — | 21 |
+| p vs score statistic | 49 | — | — | — |
+| Call rate | — | — | — | 49 |
+| Regional support | 43 | 6 | — | — |
+| Allelic series | — | 20 | — | 29 |
+| Genomic context | 44 | 5 | — | — |
+
+Verdicts over the 49: **17 incomplete, 32 warn, 0 fail** -- all four coherence failures were SNVs outside a repeat and
+are no longer in the document.
+
+### Phenotype calibration: lambda in 0.90-1.20, and why the band is arm-dependent
+
+The chip reads the **lead arm's** `lambda_gc` from the locus row and warns outside `LAMBDA_MIN`-`LAMBDA_MAX`
+(0.90-1.20), adding the run's percentile among every run of the same arm when a calibration table is present. It is
+the first chip because it is about the scan rather than the variant: a miscalibrated null invalidates every p it
+produced, however clean the locus looks.
+
+**The flat band is not equally meaningful across arms.** Measured over the 951-run sweep:
+
+| arm | median lambda | min | max | outside 0.90-1.20 |
+|---|---|---|---|---|
+| main | 1.002 | 0.395 | 1.152 | 15 of 951 |
+| ru | **0.900** | 0.424 | 1.024 | **476 of 951** |
+| ru_biallelic | 0.964 | 0.527 | 1.058 | 206 of 951 |
+
+No main-arm run is inflated above 1.20 at all, so on that arm the upper bound never fires and the chip only ever
+reports deflation. The repeat-dosage arm's median sits exactly on the lower bound, so the chip is close to a coin
+flip there. The two directions also do not carry the same weight for this document: inflation manufactures false
+positives, whereas deflation makes the test conservative, so a hit that reached significance *despite* a deflated
+null is not undermined by it. Worth revisiting as per-arm bounds, or as inflation-only, before the final sweep.
+
 ### Allelic series: no locus in the set has a graded effect
 
 `regional_support` asks whether the peak has LD partners, and at a short tandem repeat that question is unanswerable:
