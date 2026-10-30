@@ -418,6 +418,37 @@ def test_allelic_series_does_not_apply_to_a_biallelic_record():
     assert math.isnan(out["second_p"])
 
 
+def test_the_model_line_names_the_null_and_this_arms_coding():
+    for arm in fhd.ARMS:
+        line = fhd.model_line(arm)
+        assert "SAIGE binary mixed model" in line and "LOCO off" in line
+        assert fhd.ARM_CODING[arm] in line
+        assert "Cauchy-combined" in line
+    assert "additive ALT count" in fhd.model_line("main")
+    assert "repeat units" in fhd.model_line("ru")
+    assert "carrier" in fhd.model_line("ru_biallelic")
+    assert "unknown coding" in fhd.model_line("nope")
+
+
+def test_the_model_line_stays_inside_the_page_width():
+    """6 pt across the 6.6 in text block; the page render measured 6.67 in of ink for the longest arm."""
+    assert max(len(fhd.model_line(a)) for a in fhd.ARMS) < 200
+
+
+def test_series_frame_carries_what_the_panel_needs_to_draw():
+    """The chip and panel C read the same frame, so the two cannot disagree about what the series is."""
+    df = series([20, 24], [2.05e-8, 0.032], pos=1000)
+    df["N_case_het_ancALL"], df["N_case_hom_ancALL"] = [94, 39], [3, 2]
+    _, site = fhd.series_frame(df, 1000, window=62.1)
+    assert list(site.delta_bp) == [20, 24], "sorted by p, so the lead comes first"
+    assert list(site.case_carriers) == [97, 41]
+
+
+def test_series_frame_tolerates_an_extract_without_carrier_columns():
+    _, site = fhd.series_frame(series([20, 24], [2.05e-8, 0.032], pos=1000), 1000, window=62.1)
+    assert list(site.case_carriers) == [0.0, 0.0]
+
+
 def test_repeat_tract_window_is_the_tract_length():
     assert fhd.repeat_tract_window(dict(in_tandem_repeat=True, repeat_period=3.0, repeat_copies=20.7)) == pytest.approx(62.1)
     assert fhd.repeat_tract_window(dict(in_tandem_repeat=False, repeat_period=3.0, repeat_copies=20.7)) == 0.0

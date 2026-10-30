@@ -866,6 +866,34 @@ def regional_support(region: pd.DataFrame | None, pos: int, lead_p: float, p_col
     return out
 
 
+#: How each arm codes a genotype, quoted from the scripts that write it rather than from convention.
+#: main -- the ordinary per-record felixla test, additive count of the ALT allele over the two haplotypes.
+#: ru -- scripts/write_admixed_dosage_vcf.py: DS{k+1} = sum_{h: anc_h = k} x_h / s, x_h the REF-relative length in
+#:   repeat units and s the per-locus scale. Score tests are invariant to s, so BETA is per s units, not per unit.
+#: ru_biallelic -- the same file with --coding carrier: every non-zero x_h becomes 1, so DS{k} is the ancestry-k
+#:   count of non-reference haplotypes (0-2).
+ARM_CODING = {
+    "main": "additive ALT count",
+    "ru": "repeat units ÷ per-locus s (BETA is per s units)",
+    "ru_biallelic": "carrier, any non-REF haplotype = 1",
+}
+#: The null, from felix/scripts/fit_felix_null.R: SAIGE step 1 with --traitType=binary for a phecode,
+#: --useSparseGRMtoFitNULL=TRUE and --useSparseGRMforVarRatio=TRUE, --isCateVarianceRatio=FALSE, --LOCO=FALSE,
+#: --sampleIDColinphenoFile=ID. Covariates are read per run from the --covariates file, so they are NOT fixed here;
+#: the run's own list is written to <out_prefix>.null_meta.tsv, which the dossier does not currently export.
+NULL_MODEL = "SAIGE binary mixed model, sparse GRM, LOCO off, per-run covariates"
+
+
+def model_line(arm: str) -> str:
+    """One line naming the null, this arm's genotype coding and how the per-ancestry tests are combined.
+
+    Kept under about 130 characters: the dossier prints it at 6 pt across the 6.6 in text block, which is roughly
+    where it starts to run off the page.
+    """
+    return (f"{NULL_MODEL}  ·  genotype: {ARM_CODING.get(arm, 'unknown coding')}  ·  "
+            f"per-ancestry score (SPA where flagged), Cauchy-combined")
+
+
 def repeat_tract_window(context: pd.Series | dict | None) -> float:
     """Half-width in bp over which split tests are treated as one repeat tract: the tract's own length.
 
@@ -883,6 +911,44 @@ def repeat_tract_window(context: pd.Series | dict | None) -> float:
     if math.isnan(period) or math.isnan(copies):
         return 0.0
     return float(period * copies)
+
+
+def series_frame(region: pd.DataFrame, pos: int, p_col: str = P_COL,
+                 window: float = 0.0) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(all usable rows, the lead's allele series) from a regional extract, sorted by p.
+
+    The single definition of what counts as the series, so the chip and the panel that draws it cannot disagree.
+    Adds ``delta_bp`` (signed length change) and ``case_carriers`` to the series rows.
+
+    With ``window`` of 0 the series is the split tests sharing the lead's exact POS -- the ALTs of one merged record.
+    With a window it is the length-changing alleles within that many bp, because a caller splits one tandem-repeat
+    tract into records at adjacent coordinates: at MS_723 chr3:134,785,621 the +25 bp allele is recorded one base
+    along at 134,785,622 and exact-POS grouping missed it entirely. Only length-changing alleles count inside a tract
+    -- the SNVs sharing the window are not alternative lengths of anything -- which is what keeps a 1.1 kb tract from
+    sweeping in dozens of unrelated markers.
+    """
+    r = region.copy()
+    r["_p"] = pd.to_numeric(r[p_col], errors="coerce")
+    r = r[r["_p"].notna() & (r["_p"] > 0)]
+    if window and window > 0:
+        site = r[(r.POS - pos).abs() <= window].copy()
+        site["delta_bp"] = [length_change(m) for m in site["MarkerID"]]
+        site = site[site.delta_bp.notna() & (site.delta_bp != 0)]
+    else:
+        site = r[r.POS == pos].copy()
+        site["delta_bp"] = [length_change(m) for m in site["MarkerID"]]
+    if len(site):
+        site["case_carriers"] = _nansum_cols(site, "N_case_het_ancALL", "N_case_hom_ancALL")
+        site = site.sort_values("_p")
+    return r, site
+
+
+def _nansum_cols(df: pd.DataFrame, *cols: str) -> pd.Series:
+    out = pd.Series(0.0, index=df.index)
+    for c in cols:
+        if c in df.columns:
+            out = out + pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    return out
 
 
 def allelic_series(region: pd.DataFrame | None, pos: int, lead_marker: str | None = None, p_col: str = P_COL,
@@ -907,34 +973,15 @@ def allelic_series(region: pd.DataFrame | None, pos: int, lead_marker: str | Non
         out["n_merged"] = str(lead_marker).count(";") + 1
     if region is None or len(region) == 0 or p_col not in region.columns or "POS" not in region.columns:
         return out
-    r = region.copy()
-    r["_p"] = pd.to_numeric(r[p_col], errors="coerce")
-    r = r[r["_p"].notna() & (r["_p"] > 0)]
-    if window and window > 0:
-        # A caller splits one tandem-repeat tract into records at adjacent coordinates, so grouping on exact POS
-        # under-counts: at MS_723 chr3:134,785,621 the +24 bp allele is recorded one base along at 134,785,622 and
-        # was missed entirely. Within a tract only LENGTH-CHANGING alleles belong to the series -- the SNVs that
-        # share the window are not alternative lengths of anything -- and that filter is what keeps a 1.1 kb tract
-        # from sweeping in dozens of unrelated markers.
-        site = r[(r.POS - pos).abs() <= window]
-        keep = [(lambda d: d is not None and d != 0)(length_change(m)) for m in site["MarkerID"]]
-        site = site[pd.Series(keep, index=site.index)]
-    else:
-        site = r[r.POS == pos]
+    r, site = series_frame(region, pos, p_col=p_col, window=window)
     if len(site) < min_tests:
         out["available"] = len(site) > 0
         out["n_tests"] = len(site)
         return out
-    site = site.sort_values("_p")
     lead_row, rest = site.iloc[0], site.iloc[1:]
-
-    def delta(marker) -> float:
-        al = split_alleles(marker)
-        return float(len(al[1]) - len(al[0])) if al else math.nan
-
     second = rest.iloc[0]
-    out.update(available=True, n_tests=len(site), lead_delta_bp=delta(lead_row.get("MarkerID")),
-               second_p=float(second["_p"]), second_delta_bp=delta(second.get("MarkerID")),
+    out.update(available=True, n_tests=len(site), lead_delta_bp=_f(lead_row.get("delta_bp")),
+               second_p=float(second["_p"]), second_delta_bp=_f(second.get("delta_bp")),
                n_within_orders=int((rest["_p"] <= float(lead_row["_p"]) * (10.0 ** orders)).sum()))
     if lead_marker:  # the lead row of the extract is the same record, so prefer the caller's full MarkerID
         out["n_merged"] = str(lead_marker).count(";") + 1
